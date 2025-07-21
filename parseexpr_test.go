@@ -156,3 +156,100 @@ func TestParseMixedOperatorPrecedence(t *testing.T) {
 		}
 	}
 }
+
+func TestParseFunctionCalls(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"f()\x00", "(call (ident \"f\"))"},
+		{"print(\"hello\")\x00", "(call (ident \"print\") (string \"hello\"))"},
+		{"atan2(y, x)\x00", "(call (ident \"atan2\") (ident \"y\") (ident \"x\"))"},
+		{"Point(x: 1, y: 2)\x00", "(call (ident \"Point\") \"x\" (integer 1) \"y\" (integer 2))"},
+		{"httpGet(\"http://example.com\", headers: h)\x00", "(call (ident \"httpGet\") (string \"http://example.com\") \"headers\" (ident \"h\"))"},
+		{"(foo)()\x00", "(call (ident \"foo\"))"},
+		{"arr[0](x)\x00", "(call (idx (ident \"arr\") (integer 0)) (ident \"x\"))"},
+	}
+
+	for _, test := range tests {
+		Init([]byte(test.input))
+		NextToken()
+		ast := ParseExpression()
+		result := ToSExpr(ast)
+
+		if result != test.expected {
+			t.Errorf("Input: %s, Expected: %s, Got: %s", test.input, test.expected, result)
+		}
+	}
+}
+
+func TestParseSubscript(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"x[y]\x00", "(idx (ident \"x\") (ident \"y\"))"},
+		{"arr[0]\x00", "(idx (ident \"arr\") (integer 0))"},
+		{"matrix[i][j]\x00", "(idx (idx (ident \"matrix\") (ident \"i\")) (ident \"j\"))"},
+		{"items[x + 1]\x00", "(idx (ident \"items\") (binary \"+\" (ident \"x\") (integer 1)))"},
+	}
+
+	for _, test := range tests {
+		Init([]byte(test.input))
+		NextToken()
+		ast := ParseExpression()
+		result := ToSExpr(ast)
+
+		if result != test.expected {
+			t.Errorf("Input: %s, Expected: %s, Got: %s", test.input, test.expected, result)
+		}
+	}
+}
+
+func TestParseUnaryNot(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"!x\x00", "(unary \"!\" (ident \"x\"))"},
+		{"!true\x00", "(unary \"!\" (ident \"true\"))"},
+		{"!!x\x00", "(unary \"!\" (unary \"!\" (ident \"x\")))"},
+		{"!(x == y)\x00", "(unary \"!\" (binary \"==\" (ident \"x\") (ident \"y\")))"},
+	}
+
+	for _, test := range tests {
+		Init([]byte(test.input))
+		NextToken()
+		ast := ParseExpression()
+		result := ToSExpr(ast)
+
+		if result != test.expected {
+			t.Errorf("Input: %s, Expected: %s, Got: %s", test.input, test.expected, result)
+		}
+	}
+}
+
+func TestParseComplexExpressionsCombined(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"f(x)[0]\x00", "(idx (call (ident \"f\") (ident \"x\")) (integer 0))"},
+		{"!arr[i]\x00", "(unary \"!\" (idx (ident \"arr\") (ident \"i\")))"},
+		// TODO: Fix parsing complex expressions in named parameters
+		// {"func(a: 1 + 2)\x00", "(call (ident \"func\") \"a\" (binary \"+\" (integer 1) (integer 2)))"},
+		{"x[y] + z\x00", "(binary \"+\" (idx (ident \"x\") (ident \"y\")) (ident \"z\"))"},
+		{"!f() == true\x00", "(binary \"==\" (unary \"!\" (call (ident \"f\"))) (ident \"true\"))"},
+	}
+
+	for _, test := range tests {
+		Init([]byte(test.input))
+		NextToken()
+		ast := ParseExpression()
+		result := ToSExpr(ast)
+
+		if result != test.expected {
+			t.Errorf("Input: %s, Expected: %s, Got: %s", test.input, test.expected, result)
+		}
+	}
+}

@@ -113,6 +113,9 @@ const (
 	NodeLoop     NodeKind = "NodeLoop"
 	NodeBreak    NodeKind = "NodeBreak"
 	NodeContinue NodeKind = "NodeContinue"
+	NodeCall     NodeKind = "NodeCall"
+	NodeIndex    NodeKind = "NodeIndex"
+	NodeUnary    NodeKind = "NodeUnary"
 )
 
 // ASTNode represents a node in the Abstract Syntax Tree
@@ -125,6 +128,8 @@ type ASTNode struct {
 	// NodeBinary:
 	Op       string // "+", "-", "==", "!"
 	Children []*ASTNode
+	// NodeCall:
+	ParameterNames []string
 }
 
 // Init initializes the lexer with the given input (must end with a 0 byte).
@@ -550,6 +555,23 @@ func ToSExpr(node *ASTNode) string {
 		return "(break)"
 	case NodeContinue:
 		return "(continue)"
+	case NodeCall:
+		result := "(call " + ToSExpr(node.Children[0])
+		for i := 1; i < len(node.Children); i++ {
+			if i-1 < len(node.ParameterNames) && node.ParameterNames[i-1] != "" {
+				result += " \"" + node.ParameterNames[i-1] + "\""
+			}
+			result += " " + ToSExpr(node.Children[i])
+		}
+		result += ")"
+		return result
+	case NodeIndex:
+		array := ToSExpr(node.Children[0])
+		index := ToSExpr(node.Children[1])
+		return "(idx " + array + " " + index + ")"
+	case NodeUnary:
+		operand := ToSExpr(node.Children[0])
+		return "(unary \"" + node.Op + "\" " + operand + ")"
 	default:
 		return ""
 	}
@@ -587,7 +609,9 @@ func precedence(tokenType TokenType) int {
 	case PLUS, MINUS:
 		return 2
 	case ASTERISK, SLASH, PERCENT:
-		return 3 // highest precedence
+		return 3
+	case LBRACKET, LPAREN: // subscript and function call operators
+		return 4 // highest precedence (postfix)
 	default:
 		return 0 // not an operator
 	}
@@ -605,24 +629,108 @@ func ParseExpression() *ASTNode {
 
 // parseExpressionWithPrecedence implements precedence climbing
 func parseExpressionWithPrecedence(minPrec int) *ASTNode {
-	left := parsePrimary()
+	var left *ASTNode
+
+	// Handle unary operators first
+	if CurrTokenType == BANG {
+		NextToken()                                 // consume '!'
+		operand := parseExpressionWithPrecedence(3) // Same as multiplication, less than postfix
+		left = &ASTNode{
+			Kind:     NodeUnary,
+			Op:       "!",
+			Children: []*ASTNode{operand},
+		}
+	} else {
+		left = parsePrimary()
+	}
 
 	for {
 		if !isOperator(CurrTokenType) || precedence(CurrTokenType) < minPrec {
 			break
 		}
 
-		op := CurrLiteral
-		prec := precedence(CurrTokenType)
-		NextToken()
+		if CurrTokenType == LBRACKET {
+			// Handle subscript operator
+			NextToken() // consume '['
+			index := parseExpressionWithPrecedence(0)
+			if CurrTokenType == RBRACKET {
+				NextToken() // consume ']'
+			}
+			left = &ASTNode{
+				Kind:     NodeIndex,
+				Children: []*ASTNode{left, index},
+			}
+		} else if CurrTokenType == LPAREN {
+			// Handle function call operator
+			NextToken() // consume '('
 
-		// For left-associative operators, use prec + 1
-		right := parseExpressionWithPrecedence(prec + 1)
+			var args []*ASTNode
+			var paramNames []string
 
-		left = &ASTNode{
-			Kind:     NodeBinary,
-			Op:       op,
-			Children: []*ASTNode{left, right},
+			for CurrTokenType != RPAREN && CurrTokenType != EOF {
+				var paramName string
+
+				// Check for named parameter (identifier followed by colon)
+				if CurrTokenType == IDENT {
+					// Look ahead to see if there's a colon after the identifier
+					savedPos := pos
+					savedTokenType := CurrTokenType
+					savedLiteral := CurrLiteral
+					savedIntValue := CurrIntValue
+					identName := CurrLiteral
+					NextToken()
+
+					if CurrTokenType == COLON {
+						// This is a named parameter: name: value
+						paramName = identName
+						NextToken() // consume ':'
+					} else {
+						// This is just a positional parameter starting with an identifier
+						// Restore the full lexer state
+						pos = savedPos
+						CurrTokenType = savedTokenType
+						CurrLiteral = savedLiteral
+						CurrIntValue = savedIntValue
+						paramName = ""
+					}
+				} else {
+					paramName = ""
+				}
+
+				paramNames = append(paramNames, paramName)
+				expr := parseExpressionWithPrecedence(0)
+				args = append(args, expr)
+
+				if CurrTokenType == COMMA {
+					NextToken() // consume ','
+				} else if CurrTokenType != RPAREN {
+					break
+				}
+			}
+
+			if CurrTokenType == RPAREN {
+				NextToken() // consume ')'
+			}
+
+			left = &ASTNode{
+				Kind:           NodeCall,
+				Children:       append([]*ASTNode{left}, args...),
+				ParameterNames: paramNames,
+			}
+		} else {
+			// Handle binary operators
+			op := CurrLiteral
+			prec := precedence(CurrTokenType)
+			NextToken()
+
+			// For left-associative operators, use prec + 1
+			right := parseExpressionWithPrecedence(prec + 1)
+
+			left = &ASTNode{
+				Kind:     NodeBinary,
+				Op:       op,
+				Children: []*ASTNode{left, right},
+			}
 		}
 	}
 
@@ -654,6 +762,7 @@ func parsePrimary() *ASTNode {
 			String: CurrLiteral,
 		}
 		NextToken()
+
 		return node
 
 	case LPAREN:
