@@ -8,6 +8,7 @@ import (
 )
 
 func TestWriteByte(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	writeByte(&buf, 0x42)
 	writeByte(&buf, 0xFF)
@@ -16,6 +17,7 @@ func TestWriteByte(t *testing.T) {
 }
 
 func TestWriteBytes(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	data := []byte{0x01, 0x02, 0x03}
 	writeBytes(&buf, data)
@@ -24,6 +26,7 @@ func TestWriteBytes(t *testing.T) {
 }
 
 func TestWriteLEB128(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		input    uint32
 		expected []byte
@@ -43,6 +46,7 @@ func TestWriteLEB128(t *testing.T) {
 }
 
 func TestWriteLEB128Signed(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		input    int64
 		expected []byte
@@ -64,6 +68,7 @@ func TestWriteLEB128Signed(t *testing.T) {
 }
 
 func TestEmitWASMHeader(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	EmitWASMHeader(&buf)
 
@@ -72,6 +77,7 @@ func TestEmitWASMHeader(t *testing.T) {
 }
 
 func TestEmitImportSection(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	EmitImportSection(&buf)
 
@@ -86,6 +92,7 @@ func TestEmitImportSection(t *testing.T) {
 }
 
 func TestEmitFunctionSection(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	EmitFunctionSection(&buf)
 
@@ -96,6 +103,7 @@ func TestEmitFunctionSection(t *testing.T) {
 }
 
 func TestEmitExportSection(t *testing.T) {
+	t.Parallel()
 	var buf bytes.Buffer
 	EmitExportSection(&buf)
 
@@ -118,6 +126,7 @@ func containsBytes(haystack, needle []byte) bool {
 }
 
 func TestEmitExpression(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		ast      *ASTNode
@@ -155,6 +164,7 @@ func TestEmitExpression(t *testing.T) {
 }
 
 func TestCompileToWASM(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name  string
 		input string
