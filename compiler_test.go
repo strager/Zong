@@ -130,8 +130,7 @@ func TestBasicPrintExpression(t *testing.T) {
 	output, err := executeWasm(t, wasmBytes)
 	be.Err(t, err, nil)
 
-	expected := "42\n"
-	be.Equal(t, output, expected)
+	be.Equal(t, output, "42\n")
 }
 
 func TestArithmeticPrint(t *testing.T) {
@@ -142,8 +141,7 @@ func TestArithmeticPrint(t *testing.T) {
 	output, err := executeWasm(t, wasmBytes)
 	be.Err(t, err, nil)
 
-	expected := "50\n"
-	be.Equal(t, output, expected)
+	be.Equal(t, output, "50\n")
 }
 
 func TestComplexArithmetic(t *testing.T) {
@@ -154,8 +152,7 @@ func TestComplexArithmetic(t *testing.T) {
 	output, err := executeWasm(t, wasmBytes)
 	be.Err(t, err, nil)
 
-	expected := "27\n"
-	be.Equal(t, output, expected)
+	be.Equal(t, output, "27\n")
 }
 
 func TestOperatorPrecedence(t *testing.T) {
@@ -166,8 +163,7 @@ func TestOperatorPrecedence(t *testing.T) {
 	output, err := executeWasm(t, wasmBytes)
 	be.Err(t, err, nil)
 
-	expected := "7\n"
-	be.Equal(t, output, expected)
+	be.Equal(t, output, "7\n")
 }
 
 func TestDivisionAndModulo(t *testing.T) {
@@ -221,8 +217,7 @@ func TestNestedExpressions(t *testing.T) {
 	output, err := executeWasm(t, wasmBytes)
 	be.Err(t, err, nil)
 
-	expected := "7\n"
-	be.Equal(t, output, expected)
+	be.Equal(t, output, "7\n")
 }
 
 func TestFullCapabilitiesDemo(t *testing.T) {

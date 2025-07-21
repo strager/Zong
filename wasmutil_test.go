@@ -12,8 +12,7 @@ func TestWriteByte(t *testing.T) {
 	writeByte(&buf, 0x42)
 	writeByte(&buf, 0xFF)
 
-	expected := []byte{0x42, 0xFF}
-	be.True(t, bytes.Equal(buf.Bytes(), expected))
+	be.True(t, bytes.Equal(buf.Bytes(), []byte{0x42, 0xFF}))
 }
 
 func TestWriteBytes(t *testing.T) {
@@ -69,8 +68,7 @@ func TestEmitWASMHeader(t *testing.T) {
 	EmitWASMHeader(&buf)
 
 	// WASM magic number (0x00 0x61 0x73 0x6D) + version (0x01 0x00 0x00 0x00)
-	expected := []byte{0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00}
-	be.True(t, bytes.Equal(buf.Bytes(), expected))
+	be.True(t, bytes.Equal(buf.Bytes(), []byte{0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00}))
 }
 
 func TestEmitImportSection(t *testing.T) {
@@ -228,8 +226,7 @@ func TestCompileToWASM(t *testing.T) {
 			// Basic validation: check WASM magic number and version
 			be.True(t, len(wasmBytes) > 8)
 
-			expectedHeader := []byte{0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00}
-			be.True(t, bytes.Equal(wasmBytes[:8], expectedHeader))
+			be.True(t, bytes.Equal(wasmBytes[:8], []byte{0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00}))
 
 			t.Logf("Generated %d bytes of WASM for input: %s", len(wasmBytes), test.input)
 		})
@@ -243,15 +240,13 @@ func TestCompileToWASMIntegration(t *testing.T) {
 	NextToken()
 
 	ast := ParseExpression()
-	expectedSExpr := "(binary \"+\" (integer 42) (integer 8))"
-	be.Equal(t, ToSExpr(ast), expectedSExpr)
+	be.Equal(t, ToSExpr(ast), "(binary \"+\" (integer 42) (integer 8))")
 
 	wasmBytes := CompileToWASM(ast)
 	be.True(t, len(wasmBytes) >= 8)
 
 	// Verify WASM header
-	expectedHeader := []byte{0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00}
-	be.True(t, bytes.Equal(wasmBytes[:8], expectedHeader))
+	be.True(t, bytes.Equal(wasmBytes[:8], []byte{0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00}))
 
 	t.Logf("Successfully compiled '42 + 8' to %d bytes of WASM", len(wasmBytes))
 }
