@@ -95,16 +95,24 @@ const (
 	INTERFACE   = "INTERFACE"
 	CHAN        = "CHAN"
 	GOTO        = "GOTO"
+	LOOP        = "LOOP"
 )
 
 // NodeKind represents different types of AST nodes
 type NodeKind string
 
 const (
-	NodeIdent   NodeKind = "NodeIdent"
-	NodeString  NodeKind = "NodeString"
-	NodeInteger NodeKind = "NodeInteger"
-	NodeBinary  NodeKind = "NodeBinary"
+	NodeIdent    NodeKind = "NodeIdent"
+	NodeString   NodeKind = "NodeString"
+	NodeInteger  NodeKind = "NodeInteger"
+	NodeBinary   NodeKind = "NodeBinary"
+	NodeIf       NodeKind = "NodeIf"
+	NodeVar      NodeKind = "NodeVar"
+	NodeBlock    NodeKind = "NodeBlock"
+	NodeReturn   NodeKind = "NodeReturn"
+	NodeLoop     NodeKind = "NodeLoop"
+	NodeBreak    NodeKind = "NodeBreak"
+	NodeContinue NodeKind = "NodeContinue"
 )
 
 // ASTNode represents a node in the Abstract Syntax Tree
@@ -394,6 +402,8 @@ func NextToken() {
 				CurrTokenType = RETURN
 			} else if lit == "var" {
 				CurrTokenType = VAR
+			} else if lit == "loop" {
+				CurrTokenType = LOOP
 			} else {
 				CurrTokenType = IDENT
 			}
@@ -504,6 +514,42 @@ func ToSExpr(node *ASTNode) string {
 		left := ToSExpr(node.Children[0])
 		right := ToSExpr(node.Children[1])
 		return "(binary \"" + node.Op + "\" " + left + " " + right + ")"
+	case NodeIf:
+		cond := ToSExpr(node.Children[0])
+		result := "(if " + cond
+		for i := 1; i < len(node.Children); i++ {
+			result += " " + ToSExpr(node.Children[i])
+		}
+		result += ")"
+		return result
+	case NodeVar:
+		name := ToSExpr(node.Children[0])
+		varType := ToSExpr(node.Children[1])
+		return "(var " + name + " " + varType + ")"
+	case NodeBlock:
+		result := "(block"
+		for _, child := range node.Children {
+			result += " " + ToSExpr(child)
+		}
+		result += ")"
+		return result
+	case NodeReturn:
+		if len(node.Children) == 0 {
+			return "(return)"
+		}
+		expr := ToSExpr(node.Children[0])
+		return "(return " + expr + ")"
+	case NodeLoop:
+		result := "(loop"
+		for _, child := range node.Children {
+			result += " " + ToSExpr(child)
+		}
+		result += ")"
+		return result
+	case NodeBreak:
+		return "(break)"
+	case NodeContinue:
+		return "(continue)"
 	default:
 		return ""
 	}
@@ -536,7 +582,7 @@ func intToString(n int64) string {
 // precedence returns the precedence level for a given token type
 func precedence(tokenType TokenType) int {
 	switch tokenType {
-	case EQ, NOT_EQ:
+	case EQ, NOT_EQ, LT, GT, LE, GE:
 		return 1 // lowest precedence
 	case PLUS, MINUS:
 		return 2
@@ -619,5 +665,132 @@ func parsePrimary() *ASTNode {
 	default:
 		// Return empty node for error case
 		return &ASTNode{}
+	}
+}
+
+// ParseStatement parses a statement and returns an AST node
+func ParseStatement() *ASTNode {
+	switch CurrTokenType {
+	case IF:
+		NextToken() // consume 'if'
+		cond := ParseExpression()
+		if CurrTokenType != LBRACE {
+			return &ASTNode{} // error
+		}
+		NextToken() // consume '{'
+		var children []*ASTNode = []*ASTNode{cond}
+		for CurrTokenType != RBRACE && CurrTokenType != EOF {
+			stmt := ParseStatement()
+			children = append(children, stmt)
+		}
+		if CurrTokenType == RBRACE {
+			NextToken() // consume '}'
+		}
+		return &ASTNode{
+			Kind:     NodeIf,
+			Children: children,
+		}
+
+	case VAR:
+		NextToken() // consume 'var'
+		if CurrTokenType != IDENT {
+			return &ASTNode{} // error
+		}
+		varName := &ASTNode{
+			Kind:   NodeIdent,
+			String: CurrLiteral,
+		}
+		NextToken()
+		if CurrTokenType != IDENT {
+			return &ASTNode{} // error - expecting type
+		}
+		varType := &ASTNode{
+			Kind:   NodeIdent,
+			String: CurrLiteral,
+		}
+		NextToken()
+		if CurrTokenType == SEMICOLON {
+			NextToken() // consume semicolon
+		}
+		return &ASTNode{
+			Kind:     NodeVar,
+			Children: []*ASTNode{varName, varType},
+		}
+
+	case LBRACE:
+		NextToken() // consume '{'
+		var statements []*ASTNode
+		for CurrTokenType != RBRACE && CurrTokenType != EOF {
+			stmt := ParseStatement()
+			statements = append(statements, stmt)
+		}
+		if CurrTokenType == RBRACE {
+			NextToken() // consume '}'
+		}
+		return &ASTNode{
+			Kind:     NodeBlock,
+			Children: statements,
+		}
+
+	case RETURN:
+		NextToken() // consume 'return'
+		var children []*ASTNode
+		// Check if there's an expression after return
+		if CurrTokenType != SEMICOLON {
+			expr := ParseExpression()
+			children = append(children, expr)
+		}
+		if CurrTokenType == SEMICOLON {
+			NextToken() // consume semicolon
+		}
+		return &ASTNode{
+			Kind:     NodeReturn,
+			Children: children,
+		}
+
+	case LOOP:
+		NextToken() // consume 'loop'
+		if CurrTokenType != LBRACE {
+			return &ASTNode{} // error
+		}
+		NextToken() // consume '{'
+		var statements []*ASTNode
+		for CurrTokenType != RBRACE && CurrTokenType != EOF {
+			stmt := ParseStatement()
+			statements = append(statements, stmt)
+		}
+		if CurrTokenType == RBRACE {
+			NextToken() // consume '}'
+		}
+		return &ASTNode{
+			Kind:     NodeLoop,
+			Children: statements,
+		}
+
+	case BREAK:
+		NextToken() // consume 'break'
+		if CurrTokenType == SEMICOLON {
+			NextToken() // consume semicolon
+		}
+		return &ASTNode{
+			Kind: NodeBreak,
+		}
+
+	case CONTINUE:
+		NextToken() // consume 'continue'
+		if CurrTokenType == SEMICOLON {
+			NextToken() // consume semicolon
+		}
+		return &ASTNode{
+			Kind: NodeContinue,
+		}
+
+	default:
+		// Expression statement
+		expr := ParseExpression()
+		if CurrTokenType == SEMICOLON {
+			NextToken() // consume semicolon
+		}
+		return expr
 	}
 }
