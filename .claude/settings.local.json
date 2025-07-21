@@ -2,7 +2,14 @@
   "permissions": {
     "allow": [
       "Bash(go test:*)",
-      "Bash(go:*)"
+      "Bash(go:*)",
+      "WebFetch(domain:webassembly.github.io)",
+      "Bash(mkdir:*)",
+      "Bash(cargo:*)",
+      "Bash(mv:*)",
+      "Bash(ls:*)",
+      "Bash(timeout 30 cargo build)",
+      "Bash(./wasmruntime/target/debug/wasmruntime:*)"
     ],
     "deny": []
   }

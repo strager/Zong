@@ -1,5 +1,244 @@
 package main
 
+import "bytes"
+
+// WASM Binary Encoding Utilities
+func writeByte(buf *bytes.Buffer, b byte) {
+	buf.WriteByte(b)
+}
+
+func writeBytes(buf *bytes.Buffer, data []byte) {
+	buf.Write(data)
+}
+
+func writeLEB128(buf *bytes.Buffer, val uint32) {
+	for val >= 0x80 {
+		buf.WriteByte(byte(val&0x7F) | 0x80)
+		val >>= 7
+	}
+	buf.WriteByte(byte(val & 0x7F))
+}
+
+func writeLEB128Signed(buf *bytes.Buffer, val int64) {
+	for {
+		b := byte(val & 0x7F)
+		val >>= 7
+
+		if (val == 0 && (b&0x40) == 0) || (val == -1 && (b&0x40) != 0) {
+			buf.WriteByte(b)
+			break
+		}
+
+		buf.WriteByte(b | 0x80)
+	}
+}
+
+// WASM Opcode Constants
+const (
+	I64_CONST        = 0x42
+	I64_ADD          = 0x7C
+	I64_SUB          = 0x7D
+	I64_MUL          = 0x7E
+	I64_DIV_S        = 0x7F
+	I64_REM_S        = 0x81
+	I64_EQ           = 0x51
+	I64_NE           = 0x52
+	I64_LT_S         = 0x53
+	I64_GT_S         = 0x55
+	I64_LE_S         = 0x57
+	I64_GE_S         = 0x59
+	I64_EXTEND_I32_S = 0xAC
+	CALL             = 0x10
+	END              = 0x0B
+)
+
+// WASM Section Emitters
+func EmitWASMHeader(buf *bytes.Buffer) {
+	// WASM magic number
+	writeBytes(buf, []byte{0x00, 0x61, 0x73, 0x6D})
+	// WASM version
+	writeBytes(buf, []byte{0x01, 0x00, 0x00, 0x00})
+}
+
+func EmitImportSection(buf *bytes.Buffer) {
+	writeByte(buf, 0x02) // import section id
+
+	// Build section content in temporary buffer to calculate size
+	var sectionBuf bytes.Buffer
+	writeLEB128(&sectionBuf, 1) // 1 import
+
+	// Module name "env"
+	writeLEB128(&sectionBuf, 3) // length of "env"
+	writeBytes(&sectionBuf, []byte("env"))
+
+	// Import name "print"
+	writeLEB128(&sectionBuf, 5) // length of "print"
+	writeBytes(&sectionBuf, []byte("print"))
+
+	// Import kind: function (0x00)
+	writeByte(&sectionBuf, 0x00)
+
+	// Type index (0)
+	writeLEB128(&sectionBuf, 0)
+
+	// Write section size and content
+	writeLEB128(buf, uint32(sectionBuf.Len()))
+	writeBytes(buf, sectionBuf.Bytes())
+}
+
+func EmitTypeSection(buf *bytes.Buffer) {
+	writeByte(buf, 0x01) // type section id
+
+	var sectionBuf bytes.Buffer
+	writeLEB128(&sectionBuf, 2) // 2 function types
+
+	// Type 0: print function (i64) -> ()
+	writeByte(&sectionBuf, 0x60) // func type
+	writeLEB128(&sectionBuf, 1)  // 1 param
+	writeByte(&sectionBuf, 0x7E) // i64
+	writeLEB128(&sectionBuf, 0)  // 0 results
+
+	// Type 1: main function () -> ()
+	writeByte(&sectionBuf, 0x60) // func type
+	writeLEB128(&sectionBuf, 0)  // 0 params
+	writeLEB128(&sectionBuf, 0)  // 0 results
+
+	writeLEB128(buf, uint32(sectionBuf.Len()))
+	writeBytes(buf, sectionBuf.Bytes())
+}
+
+func EmitFunctionSection(buf *bytes.Buffer) {
+	writeByte(buf, 0x03) // function section id
+
+	var sectionBuf bytes.Buffer
+	writeLEB128(&sectionBuf, 1) // 1 function
+	writeLEB128(&sectionBuf, 1) // function 0 uses type index 1 (main function type)
+
+	writeLEB128(buf, uint32(sectionBuf.Len()))
+	writeBytes(buf, sectionBuf.Bytes())
+}
+
+func EmitExportSection(buf *bytes.Buffer) {
+	writeByte(buf, 0x07) // export section id
+
+	var sectionBuf bytes.Buffer
+	writeLEB128(&sectionBuf, 1) // 1 export
+
+	// Export name "main"
+	writeLEB128(&sectionBuf, 4) // length of "main"
+	writeBytes(&sectionBuf, []byte("main"))
+
+	// Export kind: function (0x00)
+	writeByte(&sectionBuf, 0x00)
+
+	// Function index (1 - main function comes after import)
+	writeLEB128(&sectionBuf, 1)
+
+	writeLEB128(buf, uint32(sectionBuf.Len()))
+	writeBytes(buf, sectionBuf.Bytes())
+}
+
+func EmitCodeSection(buf *bytes.Buffer, ast *ASTNode) {
+	writeByte(buf, 0x0A) // code section id
+
+	// Generate function body first to calculate size
+	var bodyBuf bytes.Buffer
+	writeLEB128(&bodyBuf, 0) // 0 locals
+
+	// Emit expression bytecode
+	EmitExpression(&bodyBuf, ast)
+	writeByte(&bodyBuf, END) // end instruction
+
+	// Build section content
+	var sectionBuf bytes.Buffer
+	writeLEB128(&sectionBuf, 1)                     // 1 function
+	writeLEB128(&sectionBuf, uint32(bodyBuf.Len())) // function body size
+	writeBytes(&sectionBuf, bodyBuf.Bytes())
+
+	// Write section size and content
+	writeLEB128(buf, uint32(sectionBuf.Len()))
+	writeBytes(buf, sectionBuf.Bytes())
+}
+
+func EmitExpression(buf *bytes.Buffer, node *ASTNode) {
+	switch node.Kind {
+	case NodeInteger:
+		writeByte(buf, I64_CONST)
+		writeLEB128Signed(buf, node.Integer)
+
+	case NodeBinary:
+		EmitExpression(buf, node.Children[0]) // left operand
+		EmitExpression(buf, node.Children[1]) // right operand
+		writeByte(buf, getBinaryOpcode(node.Op))
+
+		// Comparison operations return i32, but we need i64 for consistency
+		if isComparisonOp(node.Op) {
+			writeByte(buf, I64_EXTEND_I32_S) // Convert i32 to i64
+		}
+
+	case NodeCall:
+		if len(node.Children) > 0 && node.Children[0].Kind == NodeIdent && node.Children[0].String == "print" {
+			if len(node.Children) > 1 {
+				EmitExpression(buf, node.Children[1]) // argument
+			}
+			writeByte(buf, CALL) // call instruction
+			writeLEB128(buf, 0)  // function index 0 (print import)
+		}
+	}
+}
+
+func getBinaryOpcode(op string) byte {
+	switch op {
+	case "+":
+		return I64_ADD
+	case "-":
+		return I64_SUB
+	case "*":
+		return I64_MUL
+	case "/":
+		return I64_DIV_S
+	case "%":
+		return I64_REM_S
+	case "==":
+		return I64_EQ
+	case "!=":
+		return I64_NE
+	case "<":
+		return I64_LT_S
+	case ">":
+		return I64_GT_S
+	case "<=":
+		return I64_LE_S
+	case ">=":
+		return I64_GE_S
+	default:
+		panic("Unsupported binary operator: " + op)
+	}
+}
+
+func isComparisonOp(op string) bool {
+	switch op {
+	case "==", "!=", "<", ">", "<=", ">=":
+		return true
+	default:
+		return false
+	}
+}
+
+func CompileToWASM(ast *ASTNode) []byte {
+	var buf bytes.Buffer
+
+	// Emit WASM module header and sections in streaming fashion
+	EmitWASMHeader(&buf)
+	EmitTypeSection(&buf)      // function type definitions
+	EmitImportSection(&buf)    // print function import
+	EmitFunctionSection(&buf)  // declare main function
+	EmitExportSection(&buf)    // export main function
+	EmitCodeSection(&buf, ast) // main function body with compiled expression
+
+	return buf.Bytes()
+}
+
 // Global lexer input state
 var (
 	input []byte
