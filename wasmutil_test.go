@@ -148,7 +148,7 @@ func TestEmitExpression(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			var buf bytes.Buffer
-			EmitExpression(&buf, test.ast)
+			EmitExpression(&buf, test.ast, []LocalVarInfo{})
 			be.True(t, bytes.Equal(buf.Bytes(), test.expected))
 		})
 	}

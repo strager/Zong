@@ -2,6 +2,13 @@ package main
 
 import "bytes"
 
+// LocalVarInfo represents information about a local variable
+type LocalVarInfo struct {
+	Name  string
+	Type  string // "I64" only for this implementation
+	Index uint32 // Local variable index in WASM
+}
+
 // WASM Binary Encoding Utilities
 func writeByte(buf *bytes.Buffer, b byte) {
 	buf.WriteByte(b)
@@ -48,6 +55,9 @@ const (
 	I64_LE_S         = 0x57
 	I64_GE_S         = 0x59
 	I64_EXTEND_I32_S = 0xAC
+	LOCAL_GET        = 0x20
+	LOCAL_SET        = 0x21
+	LOCAL_TEE        = 0x22
 	CALL             = 0x10
 	END              = 0x0B
 )
@@ -141,12 +151,31 @@ func EmitExportSection(buf *bytes.Buffer) {
 func EmitCodeSection(buf *bytes.Buffer, ast *ASTNode) {
 	writeByte(buf, 0x0A) // code section id
 
-	// Generate function body first to calculate size
-	var bodyBuf bytes.Buffer
-	writeLEB128(&bodyBuf, 0) // 0 locals
+	// Collect local variables from AST
+	locals := collectLocalVariables(ast)
 
-	// Emit expression bytecode
-	EmitExpression(&bodyBuf, ast)
+	// Generate function body
+	var bodyBuf bytes.Buffer
+
+	// Emit locals declarations
+	if len(locals) > 0 {
+		// Group locals by type (all I64 in this implementation)
+		i64Count := 0
+		for _, local := range locals {
+			if local.Type == "I64" {
+				i64Count++
+			}
+		}
+
+		writeLEB128(&bodyBuf, 1)                // 1 local type group
+		writeLEB128(&bodyBuf, uint32(i64Count)) // count of I64 locals
+		writeByte(&bodyBuf, 0x7E)               // I64 type
+	} else {
+		writeLEB128(&bodyBuf, 0) // 0 locals (existing behavior)
+	}
+
+	// Emit statement bytecode
+	EmitStatement(&bodyBuf, ast, locals)
 	writeByte(&bodyBuf, END) // end instruction
 
 	// Build section content
@@ -160,26 +189,94 @@ func EmitCodeSection(buf *bytes.Buffer, ast *ASTNode) {
 	writeBytes(buf, sectionBuf.Bytes())
 }
 
-func EmitExpression(buf *bytes.Buffer, node *ASTNode) {
+// EmitStatement generates WASM bytecode for statements
+func EmitStatement(buf *bytes.Buffer, node *ASTNode, locals []LocalVarInfo) {
+	if node == nil {
+		return
+	}
+
+	switch node.Kind {
+	case NodeVar:
+		// Variable declarations don't generate runtime code
+		// (locals are declared in function header)
+		break
+
+	case NodeBlock:
+		// Emit all statements in the block
+		for _, stmt := range node.Children {
+			EmitStatement(buf, stmt, locals)
+		}
+
+	case NodeCall:
+		// Handle expression statements (e.g., print calls)
+		EmitExpression(buf, node, locals)
+
+	default:
+		// For now, treat unknown statements as expressions
+		EmitExpression(buf, node, locals)
+	}
+}
+
+func EmitExpression(buf *bytes.Buffer, node *ASTNode, locals []LocalVarInfo) {
 	switch node.Kind {
 	case NodeInteger:
 		writeByte(buf, I64_CONST)
 		writeLEB128Signed(buf, node.Integer)
 
-	case NodeBinary:
-		EmitExpression(buf, node.Children[0]) // left operand
-		EmitExpression(buf, node.Children[1]) // right operand
-		writeByte(buf, getBinaryOpcode(node.Op))
+	case NodeIdent:
+		// Variable reference - emit local.get
+		var localIndex uint32
+		found := false
+		for _, local := range locals {
+			if local.Name == node.String {
+				localIndex = local.Index
+				found = true
+				break
+			}
+		}
+		if !found {
+			panic("Undefined variable: " + node.String)
+		}
+		writeByte(buf, LOCAL_GET)
+		writeLEB128(buf, localIndex)
 
-		// Comparison operations return i32, but we need i64 for consistency
-		if isComparisonOp(node.Op) {
-			writeByte(buf, I64_EXTEND_I32_S) // Convert i32 to i64
+	case NodeBinary:
+		if node.Op == "=" {
+			// Variable assignment
+			EmitExpression(buf, node.Children[1], locals) // RHS value
+
+			// Get variable name and emit local.set
+			varName := node.Children[0].String
+			var localIndex uint32
+			found := false
+			for _, local := range locals {
+				if local.Name == varName {
+					localIndex = local.Index
+					found = true
+					break
+				}
+			}
+			if !found {
+				panic("Undefined variable: " + varName)
+			}
+			writeByte(buf, LOCAL_SET)
+			writeLEB128(buf, localIndex)
+		} else {
+			// Regular binary operations
+			EmitExpression(buf, node.Children[0], locals) // left operand
+			EmitExpression(buf, node.Children[1], locals) // right operand
+			writeByte(buf, getBinaryOpcode(node.Op))
+
+			// Comparison operations return i32, but we need i64 for consistency
+			if isComparisonOp(node.Op) {
+				writeByte(buf, I64_EXTEND_I32_S) // Convert i32 to i64
+			}
 		}
 
 	case NodeCall:
 		if len(node.Children) > 0 && node.Children[0].Kind == NodeIdent && node.Children[0].String == "print" {
 			if len(node.Children) > 1 {
-				EmitExpression(buf, node.Children[1]) // argument
+				EmitExpression(buf, node.Children[1], locals) // argument
 			}
 			writeByte(buf, CALL) // call instruction
 			writeLEB128(buf, 0)  // function index 0 (print import)
@@ -237,6 +334,44 @@ func CompileToWASM(ast *ASTNode) []byte {
 	EmitCodeSection(&buf, ast) // main function body with compiled expression
 
 	return buf.Bytes()
+}
+
+// collectLocalVariables traverses AST to find all var declarations
+func collectLocalVariables(node *ASTNode) []LocalVarInfo {
+	var locals []LocalVarInfo
+	var localIndex uint32 = 0
+
+	collectLocalsRecursive(node, &locals, &localIndex)
+	return locals
+}
+
+func collectLocalsRecursive(node *ASTNode, locals *[]LocalVarInfo, index *uint32) {
+	if node == nil {
+		return
+	}
+
+	switch node.Kind {
+	case NodeVar:
+		// Extract variable name and type
+		varName := node.Children[0].String
+		varType := node.Children[1].String
+
+		// Only support I64 for now
+		if varType == "I64" { // Zong 'int' maps to WASM I64
+			*locals = append(*locals, LocalVarInfo{
+				Name:  varName,
+				Type:  "I64",
+				Index: *index,
+			})
+			*index++
+		}
+
+	case NodeBlock, NodeIf, NodeLoop:
+		// Recursively process child statements
+		for _, child := range node.Children {
+			collectLocalsRecursive(child, locals, index)
+		}
+	}
 }
 
 // Global lexer input state
@@ -843,14 +978,16 @@ func intToString(n int64) string {
 // precedence returns the precedence level for a given token type
 func precedence(tokenType TokenType) int {
 	switch tokenType {
+	case ASSIGN:
+		return 1 // assignment has very low precedence
 	case EQ, NOT_EQ, LT, GT, LE, GE:
-		return 1 // lowest precedence
-	case PLUS, MINUS:
 		return 2
-	case ASTERISK, SLASH, PERCENT:
+	case PLUS, MINUS:
 		return 3
+	case ASTERISK, SLASH, PERCENT:
+		return 4
 	case LBRACKET, LPAREN: // subscript and function call operators
-		return 4 // highest precedence (postfix)
+		return 5 // highest precedence (postfix)
 	default:
 		return 0 // not an operator
 	}
@@ -962,8 +1099,14 @@ func parseExpressionWithPrecedence(minPrec int) *ASTNode {
 			prec := precedence(CurrTokenType)
 			NextToken()
 
-			// For left-associative operators, use prec + 1
-			right := parseExpressionWithPrecedence(prec + 1)
+			// For assignment (right-associative), use prec instead of prec + 1
+			// For other operators (left-associative), use prec + 1
+			var right *ASTNode
+			if op == "=" {
+				right = parseExpressionWithPrecedence(prec) // right-associative
+			} else {
+				right = parseExpressionWithPrecedence(prec + 1) // left-associative
+			}
 
 			left = &ASTNode{
 				Kind:     NodeBinary,
