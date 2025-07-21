@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+
+	"github.com/nalgeon/be"
 )
 
 // Helper function to parse and compile an expression to WASM
@@ -66,20 +68,14 @@ func TestBasicPrintExpression(t *testing.T) {
 	wasmBytes := compileExpression(t, expression)
 
 	// Verify WASM was generated
-	if len(wasmBytes) == 0 {
-		t.Fatal("No WASM bytes generated")
-	}
+	be.True(t, len(wasmBytes) > 0)
 
 	// Execute and verify output
 	output, err := executeWasm(t, wasmBytes)
-	if err != nil {
-		t.Fatalf("Failed to execute WASM: %v", err)
-	}
+	be.Err(t, err, nil)
 
 	expected := "42\n"
-	if output != expected {
-		t.Errorf("Expected output %q, got %q", expected, output)
-	}
+	be.Equal(t, output, expected)
 }
 
 func TestArithmeticPrint(t *testing.T) {
@@ -88,14 +84,10 @@ func TestArithmeticPrint(t *testing.T) {
 	wasmBytes := compileExpression(t, expression)
 
 	output, err := executeWasm(t, wasmBytes)
-	if err != nil {
-		t.Fatalf("Failed to execute WASM: %v", err)
-	}
+	be.Err(t, err, nil)
 
 	expected := "50\n"
-	if output != expected {
-		t.Errorf("Expected output %q, got %q", expected, output)
-	}
+	be.Equal(t, output, expected)
 }
 
 func TestComplexArithmetic(t *testing.T) {
@@ -104,14 +96,10 @@ func TestComplexArithmetic(t *testing.T) {
 	wasmBytes := compileExpression(t, expression)
 
 	output, err := executeWasm(t, wasmBytes)
-	if err != nil {
-		t.Fatalf("Failed to execute WASM: %v", err)
-	}
+	be.Err(t, err, nil)
 
 	expected := "27\n"
-	if output != expected {
-		t.Errorf("Expected output %q, got %q", expected, output)
-	}
+	be.Equal(t, output, expected)
 }
 
 func TestOperatorPrecedence(t *testing.T) {
@@ -120,14 +108,10 @@ func TestOperatorPrecedence(t *testing.T) {
 	wasmBytes := compileExpression(t, expression)
 
 	output, err := executeWasm(t, wasmBytes)
-	if err != nil {
-		t.Fatalf("Failed to execute WASM: %v", err)
-	}
+	be.Err(t, err, nil)
 
 	expected := "7\n"
-	if output != expected {
-		t.Errorf("Expected output %q, got %q (operator precedence test)", expected, output)
-	}
+	be.Equal(t, output, expected)
 }
 
 func TestDivisionAndModulo(t *testing.T) {
@@ -144,12 +128,8 @@ func TestDivisionAndModulo(t *testing.T) {
 		t.Run(test.expr, func(t *testing.T) {
 			wasmBytes := compileExpression(t, test.expr)
 			output, err := executeWasm(t, wasmBytes)
-			if err != nil {
-				t.Fatalf("Failed to execute WASM for %q: %v", test.expr, err)
-			}
-			if output != test.expected {
-				t.Errorf("For %q: expected %q, got %q", test.expr, test.expected, output)
-			}
+			be.Err(t, err, nil)
+			be.Equal(t, output, test.expected)
 		})
 	}
 }
@@ -170,12 +150,8 @@ func TestComparisons(t *testing.T) {
 		t.Run(test.expr, func(t *testing.T) {
 			wasmBytes := compileExpression(t, test.expr)
 			output, err := executeWasm(t, wasmBytes)
-			if err != nil {
-				t.Fatalf("Failed to execute WASM for %q: %v", test.expr, err)
-			}
-			if output != test.expected {
-				t.Errorf("For %q: expected %q, got %q", test.expr, test.expected, output)
-			}
+			be.Err(t, err, nil)
+			be.Equal(t, output, test.expected)
 		})
 	}
 }
@@ -187,14 +163,10 @@ func TestNestedExpressions(t *testing.T) {
 	wasmBytes := compileExpression(t, expression)
 
 	output, err := executeWasm(t, wasmBytes)
-	if err != nil {
-		t.Fatalf("Failed to execute WASM: %v", err)
-	}
+	be.Err(t, err, nil)
 
 	expected := "7\n"
-	if output != expected {
-		t.Errorf("Expected output %q, got %q", expected, output)
-	}
+	be.Equal(t, output, expected)
 }
 
 func TestFullCapabilitiesDemo(t *testing.T) {
@@ -227,12 +199,8 @@ func TestFullCapabilitiesDemo(t *testing.T) {
 			t.Logf("Testing %s: %s", test.desc, test.expr)
 			wasmBytes := compileExpression(t, test.expr)
 			output, err := executeWasm(t, wasmBytes)
-			if err != nil {
-				t.Fatalf("Failed to execute WASM for %q: %v", test.expr, err)
-			}
-			if output != test.expected {
-				t.Errorf("For %q: expected %q, got %q", test.expr, test.expected, output)
-			}
+			be.Err(t, err, nil)
+			be.Equal(t, output, test.expected)
 		})
 	}
 }

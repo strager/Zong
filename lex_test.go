@@ -2,6 +2,8 @@ package main
 
 import (
 	"testing"
+
+	"github.com/nalgeon/be"
 )
 
 func lexInput(inputStr string) {
@@ -12,45 +14,27 @@ func lexInput(inputStr string) {
 
 func TestIntLiteral(t *testing.T) {
 	lexInput("12345")
-	if CurrTokenType != INT {
-		t.Fatalf("expected INT, got %s", CurrTokenType)
-	}
-	if CurrLiteral != "12345" {
-		t.Errorf("expected literal '12345', got %q", CurrLiteral)
-	}
-	if CurrIntValue != 12345 {
-		t.Errorf("expected value 12345, got %d", CurrIntValue)
-	}
+	be.Equal(t, CurrTokenType, INT)
+	be.Equal(t, CurrLiteral, "12345")
+	be.Equal(t, CurrIntValue, int64(12345))
 }
 
 func TestIdentifier(t *testing.T) {
 	lexInput("foobar")
-	if CurrTokenType != IDENT {
-		t.Fatalf("expected IDENT, got %s", CurrTokenType)
-	}
-	if CurrLiteral != "foobar" {
-		t.Errorf("expected literal 'foobar', got %q", CurrLiteral)
-	}
+	be.Equal(t, CurrTokenType, IDENT)
+	be.Equal(t, CurrLiteral, "foobar")
 }
 
 func TestStringLiteral(t *testing.T) {
 	lexInput("\"hello\"")
-	if CurrTokenType != STRING {
-		t.Fatalf("expected STRING, got %s", CurrTokenType)
-	}
-	if CurrLiteral != "hello" {
-		t.Errorf("expected literal 'hello', got %q", CurrLiteral)
-	}
+	be.Equal(t, CurrTokenType, STRING)
+	be.Equal(t, CurrLiteral, "hello")
 }
 
 func TestCharLiteral(t *testing.T) {
 	lexInput("'a'")
-	if CurrTokenType != CHAR {
-		t.Fatalf("expected CHAR, got %s", CurrTokenType)
-	}
-	if CurrLiteral != "'a'" {
-		t.Errorf("expected literal \"'a'\", got %q", CurrLiteral)
-	}
+	be.Equal(t, CurrTokenType, CHAR)
+	be.Equal(t, CurrLiteral, "'a'")
 }
 
 func TestDelimiters(t *testing.T) {
@@ -73,9 +57,7 @@ func TestDelimiters(t *testing.T) {
 
 	for _, tt := range tests {
 		lexInput(tt.input)
-		if CurrTokenType != tt.typ {
-			t.Errorf("input %q: expected %s, got %s", tt.input, tt.typ, CurrTokenType)
-		}
+		be.Equal(t, CurrTokenType, tt.typ)
 	}
 }
 
@@ -112,9 +94,7 @@ func TestOperators(t *testing.T) {
 
 	for _, tt := range tests {
 		lexInput(tt.input)
-		if CurrTokenType != tt.expected {
-			t.Errorf("input %q: expected token type %s, got %s", tt.input, tt.expected, CurrTokenType)
-		}
+		be.Equal(t, CurrTokenType, tt.expected)
 	}
 }
 
@@ -152,12 +132,8 @@ func TestKeywords(t *testing.T) {
 
 	for _, tt := range tests {
 		lexInput(tt.input)
-		if CurrTokenType != tt.typ {
-			t.Errorf("input %q: expected token type %s, got %s", tt.input, tt.typ, CurrTokenType)
-		}
-		if CurrLiteral != tt.input {
-			t.Errorf("input %q: expected literal %q, got %q", tt.input, tt.input, CurrLiteral)
-		}
+		be.Equal(t, CurrTokenType, tt.typ)
+		be.Equal(t, CurrLiteral, tt.input)
 	}
 }
 
@@ -182,16 +158,12 @@ func TestMultipleTokens(t *testing.T) {
 		{EOF, ""},
 	}
 
-	for i, expected := range expectedTokens {
+	for _, expected := range expectedTokens {
 		NextToken()
-		if CurrTokenType != expected.typ {
-			t.Errorf("token %d: expected type %s, got %s", i, expected.typ, CurrTokenType)
-		}
-		if CurrLiteral != expected.literal {
-			t.Errorf("token %d: expected literal %q, got %q", i, expected.literal, CurrLiteral)
-		}
-		if expected.typ == INT && CurrIntValue != 42 {
-			t.Errorf("token %d: expected int value 42, got %d", i, CurrIntValue)
+		be.Equal(t, CurrTokenType, expected.typ)
+		be.Equal(t, CurrLiteral, expected.literal)
+		if expected.typ == INT {
+			be.Equal(t, CurrIntValue, int64(42))
 		}
 	}
 }
@@ -201,25 +173,15 @@ func TestLineComment(t *testing.T) {
 	Init(input)
 
 	NextToken()
-	if CurrTokenType != IDENT {
-		t.Errorf("expected IDENT, got %s", CurrTokenType)
-	}
-	if CurrLiteral != "x" {
-		t.Errorf("expected literal 'x', got %q", CurrLiteral)
-	}
+	be.Equal(t, CurrTokenType, IDENT)
+	be.Equal(t, CurrLiteral, "x")
 
 	NextToken()
-	if CurrTokenType != IDENT {
-		t.Errorf("expected IDENT, got %s", CurrTokenType)
-	}
-	if CurrLiteral != "y" {
-		t.Errorf("expected literal 'y', got %q", CurrLiteral)
-	}
+	be.Equal(t, CurrTokenType, IDENT)
+	be.Equal(t, CurrLiteral, "y")
 
 	NextToken()
-	if CurrTokenType != EOF {
-		t.Errorf("expected EOF, got %s", CurrTokenType)
-	}
+	be.Equal(t, CurrTokenType, EOF)
 }
 
 func TestBlockComment(t *testing.T) {
@@ -227,25 +189,15 @@ func TestBlockComment(t *testing.T) {
 	Init(input)
 
 	NextToken()
-	if CurrTokenType != IDENT {
-		t.Errorf("expected IDENT, got %s", CurrTokenType)
-	}
-	if CurrLiteral != "x" {
-		t.Errorf("expected literal 'x', got %q", CurrLiteral)
-	}
+	be.Equal(t, CurrTokenType, IDENT)
+	be.Equal(t, CurrLiteral, "x")
 
 	NextToken()
-	if CurrTokenType != IDENT {
-		t.Errorf("expected IDENT, got %s", CurrTokenType)
-	}
-	if CurrLiteral != "y" {
-		t.Errorf("expected literal 'y', got %q", CurrLiteral)
-	}
+	be.Equal(t, CurrTokenType, IDENT)
+	be.Equal(t, CurrLiteral, "y")
 
 	NextToken()
-	if CurrTokenType != EOF {
-		t.Errorf("expected EOF, got %s", CurrTokenType)
-	}
+	be.Equal(t, CurrTokenType, EOF)
 }
 
 func TestCommentsWithTokens(t *testing.T) {
@@ -257,12 +209,8 @@ func TestCommentsWithTokens(t *testing.T) {
 
 	for i, expected := range expectedTokens {
 		NextToken()
-		if CurrTokenType != expected {
-			t.Errorf("token %d: expected type %s, got %s", i, expected, CurrTokenType)
-		}
-		if CurrLiteral != expectedLiterals[i] {
-			t.Errorf("token %d: expected literal %q, got %q", i, expectedLiterals[i], CurrLiteral)
-		}
+		be.Equal(t, CurrTokenType, expected)
+		be.Equal(t, CurrLiteral, expectedLiterals[i])
 	}
 }
 
@@ -283,25 +231,15 @@ func TestWhitespace(t *testing.T) {
 		Init(input)
 
 		NextToken()
-		if CurrTokenType != IDENT {
-			t.Errorf("%s: expected first token IDENT, got %s", tt.desc, CurrTokenType)
-		}
-		if CurrLiteral != "x" {
-			t.Errorf("%s: expected first literal 'x', got %q", tt.desc, CurrLiteral)
-		}
+		be.Equal(t, CurrTokenType, IDENT)
+		be.Equal(t, CurrLiteral, "x")
 
 		NextToken()
-		if CurrTokenType != IDENT {
-			t.Errorf("%s: expected second token IDENT, got %s", tt.desc, CurrTokenType)
-		}
-		if CurrLiteral != "y" {
-			t.Errorf("%s: expected second literal 'y', got %q", tt.desc, CurrLiteral)
-		}
+		be.Equal(t, CurrTokenType, IDENT)
+		be.Equal(t, CurrLiteral, "y")
 
 		NextToken()
-		if CurrTokenType != EOF {
-			t.Errorf("%s: expected EOF, got %s", tt.desc, CurrTokenType)
-		}
+		be.Equal(t, CurrTokenType, EOF)
 	}
 }
 
@@ -319,12 +257,8 @@ func TestEOF(t *testing.T) {
 
 	for _, tt := range tests {
 		lexInput(tt.input)
-		if CurrTokenType != EOF {
-			t.Errorf("%s: expected EOF, got %s", tt.desc, CurrTokenType)
-		}
-		if CurrLiteral != "" {
-			t.Errorf("%s: expected empty literal, got %q", tt.desc, CurrLiteral)
-		}
+		be.Equal(t, CurrTokenType, EOF)
+		be.Equal(t, CurrLiteral, "")
 	}
 }
 
@@ -343,12 +277,8 @@ func TestStringEscapes(t *testing.T) {
 
 	for _, tt := range tests {
 		lexInput(tt.input)
-		if CurrTokenType != STRING {
-			t.Errorf("%s: expected STRING, got %s", tt.desc, CurrTokenType)
-		}
-		if CurrLiteral != tt.expected {
-			t.Errorf("%s: expected literal %q, got %q", tt.desc, tt.expected, CurrLiteral)
-		}
+		be.Equal(t, CurrTokenType, STRING)
+		be.Equal(t, CurrLiteral, tt.expected)
 	}
 }
 
@@ -369,12 +299,8 @@ func TestCharEscapes(t *testing.T) {
 
 	for _, tt := range tests {
 		lexInput(tt.input)
-		if CurrTokenType != CHAR {
-			t.Errorf("%s: expected CHAR, got %s", tt.desc, CurrTokenType)
-		}
-		if CurrLiteral != tt.expected {
-			t.Errorf("%s: expected literal %q, got %q", tt.desc, tt.expected, CurrLiteral)
-		}
+		be.Equal(t, CurrTokenType, CHAR)
+		be.Equal(t, CurrLiteral, tt.expected)
 	}
 }
 
@@ -394,15 +320,9 @@ func TestNumberEdgeCases(t *testing.T) {
 
 	for _, tt := range tests {
 		lexInput(tt.input)
-		if CurrTokenType != INT {
-			t.Errorf("%s: expected INT, got %s", tt.desc, CurrTokenType)
-		}
-		if CurrLiteral != tt.input {
-			t.Errorf("%s: expected literal %q, got %q", tt.desc, tt.input, CurrLiteral)
-		}
-		if CurrIntValue != tt.expectedVal {
-			t.Errorf("%s: expected value %d, got %d", tt.desc, tt.expectedVal, CurrIntValue)
-		}
+		be.Equal(t, CurrTokenType, INT)
+		be.Equal(t, CurrLiteral, tt.input)
+		be.Equal(t, CurrIntValue, tt.expectedVal)
 	}
 }
 
@@ -430,32 +350,20 @@ func TestOperatorBoundaries(t *testing.T) {
 
 		for i, expectedType := range tt.expected {
 			NextToken()
-			if CurrTokenType != expectedType {
-				t.Errorf("%s token %d: expected type %s, got %s", tt.desc, i, expectedType, CurrTokenType)
-			}
-			if CurrLiteral != tt.literals[i] {
-				t.Errorf("%s token %d: expected literal %q, got %q", tt.desc, i, tt.literals[i], CurrLiteral)
-			}
+			be.Equal(t, CurrTokenType, expectedType)
+			be.Equal(t, CurrLiteral, tt.literals[i])
 		}
 
 		NextToken()
-		if CurrTokenType != EOF {
-			t.Errorf("%s: expected EOF after tokens, got %s", tt.desc, CurrTokenType)
-		}
+		be.Equal(t, CurrTokenType, EOF)
 	}
 }
 
 func TestUnterminatedBlockComment(t *testing.T) {
 	lexInput("x /* unterminated comment")
-	if CurrTokenType != IDENT {
-		t.Errorf("expected IDENT, got %s", CurrTokenType)
-	}
-	if CurrLiteral != "x" {
-		t.Errorf("expected literal 'x', got %q", CurrLiteral)
-	}
+	be.Equal(t, CurrTokenType, IDENT)
+	be.Equal(t, CurrLiteral, "x")
 
 	NextToken()
-	if CurrTokenType != EOF {
-		t.Errorf("expected EOF after unterminated comment, got %s", CurrTokenType)
-	}
+	be.Equal(t, CurrTokenType, EOF)
 }

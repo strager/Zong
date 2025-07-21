@@ -9,7 +9,8 @@
       "Bash(mv:*)",
       "Bash(ls:*)",
       "Bash(timeout 30 cargo build)",
-      "Bash(./wasmruntime/target/debug/wasmruntime:*)"
+      "Bash(./wasmruntime/target/debug/wasmruntime:*)",
+      "WebFetch(domain:pkg.go.dev)"
     ],
     "deny": []
   }

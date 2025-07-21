@@ -2,6 +2,8 @@ package main
 
 import (
 	"testing"
+
+	"github.com/nalgeon/be"
 )
 
 func TestParseLiterals(t *testing.T) {
@@ -20,9 +22,7 @@ func TestParseLiterals(t *testing.T) {
 		ast := ParseExpression()
 		result := ToSExpr(ast)
 
-		if result != test.expected {
-			t.Errorf("Input: %s, Expected: %s, Got: %s", test.input, test.expected, result)
-		}
+		be.Equal(t, result, test.expected)
 	}
 }
 
@@ -42,9 +42,7 @@ func TestParseBinaryOperations(t *testing.T) {
 		ast := ParseExpression()
 		result := ToSExpr(ast)
 
-		if result != test.expected {
-			t.Errorf("Input: %s, Expected: %s, Got: %s", test.input, test.expected, result)
-		}
+		be.Equal(t, result, test.expected)
 	}
 }
 
@@ -63,9 +61,7 @@ func TestParseOperatorPrecedence(t *testing.T) {
 		ast := ParseExpression()
 		result := ToSExpr(ast)
 
-		if result != test.expected {
-			t.Errorf("Input: %s, Expected: %s, Got: %s", test.input, test.expected, result)
-		}
+		be.Equal(t, result, test.expected)
 	}
 }
 
@@ -84,9 +80,7 @@ func TestParseComplexExpressions(t *testing.T) {
 		ast := ParseExpression()
 		result := ToSExpr(ast)
 
-		if result != test.expected {
-			t.Errorf("Input: %s, Expected: %s, Got: %s", test.input, test.expected, result)
-		}
+		be.Equal(t, result, test.expected)
 	}
 }
 
@@ -107,9 +101,7 @@ func TestParseAdditionalOperators(t *testing.T) {
 		ast := ParseExpression()
 		result := ToSExpr(ast)
 
-		if result != test.expected {
-			t.Errorf("Input: %s, Expected: %s, Got: %s", test.input, test.expected, result)
-		}
+		be.Equal(t, result, test.expected)
 	}
 }
 
@@ -128,9 +120,7 @@ func TestParseNestedParentheses(t *testing.T) {
 		ast := ParseExpression()
 		result := ToSExpr(ast)
 
-		if result != test.expected {
-			t.Errorf("Input: %s, Expected: %s, Got: %s", test.input, test.expected, result)
-		}
+		be.Equal(t, result, test.expected)
 	}
 }
 
@@ -151,9 +141,7 @@ func TestParseMixedOperatorPrecedence(t *testing.T) {
 		ast := ParseExpression()
 		result := ToSExpr(ast)
 
-		if result != test.expected {
-			t.Errorf("Input: %s, Expected: %s, Got: %s", test.input, test.expected, result)
-		}
+		be.Equal(t, result, test.expected)
 	}
 }
 
@@ -177,9 +165,7 @@ func TestParseFunctionCalls(t *testing.T) {
 		ast := ParseExpression()
 		result := ToSExpr(ast)
 
-		if result != test.expected {
-			t.Errorf("Input: %s, Expected: %s, Got: %s", test.input, test.expected, result)
-		}
+		be.Equal(t, result, test.expected)
 	}
 }
 
@@ -200,9 +186,7 @@ func TestParseSubscript(t *testing.T) {
 		ast := ParseExpression()
 		result := ToSExpr(ast)
 
-		if result != test.expected {
-			t.Errorf("Input: %s, Expected: %s, Got: %s", test.input, test.expected, result)
-		}
+		be.Equal(t, result, test.expected)
 	}
 }
 
@@ -223,9 +207,7 @@ func TestParseUnaryNot(t *testing.T) {
 		ast := ParseExpression()
 		result := ToSExpr(ast)
 
-		if result != test.expected {
-			t.Errorf("Input: %s, Expected: %s, Got: %s", test.input, test.expected, result)
-		}
+		be.Equal(t, result, test.expected)
 	}
 }
 
@@ -248,8 +230,6 @@ func TestParseComplexExpressionsCombined(t *testing.T) {
 		ast := ParseExpression()
 		result := ToSExpr(ast)
 
-		if result != test.expected {
-			t.Errorf("Input: %s, Expected: %s, Got: %s", test.input, test.expected, result)
-		}
+		be.Equal(t, result, test.expected)
 	}
 }

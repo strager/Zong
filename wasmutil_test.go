@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"testing"
+
+	"github.com/nalgeon/be"
 )
 
 func TestWriteByte(t *testing.T) {
@@ -11,9 +13,7 @@ func TestWriteByte(t *testing.T) {
 	writeByte(&buf, 0xFF)
 
 	expected := []byte{0x42, 0xFF}
-	if !bytes.Equal(buf.Bytes(), expected) {
-		t.Errorf("Expected %v, got %v", expected, buf.Bytes())
-	}
+	be.True(t, bytes.Equal(buf.Bytes(), expected))
 }
 
 func TestWriteBytes(t *testing.T) {
@@ -21,9 +21,7 @@ func TestWriteBytes(t *testing.T) {
 	data := []byte{0x01, 0x02, 0x03}
 	writeBytes(&buf, data)
 
-	if !bytes.Equal(buf.Bytes(), data) {
-		t.Errorf("Expected %v, got %v", data, buf.Bytes())
-	}
+	be.True(t, bytes.Equal(buf.Bytes(), data))
 }
 
 func TestWriteLEB128(t *testing.T) {
@@ -41,9 +39,7 @@ func TestWriteLEB128(t *testing.T) {
 	for _, test := range tests {
 		var buf bytes.Buffer
 		writeLEB128(&buf, test.input)
-		if !bytes.Equal(buf.Bytes(), test.expected) {
-			t.Errorf("LEB128(%d): expected %v, got %v", test.input, test.expected, buf.Bytes())
-		}
+		be.True(t, bytes.Equal(buf.Bytes(), test.expected))
 	}
 }
 
@@ -64,9 +60,7 @@ func TestWriteLEB128Signed(t *testing.T) {
 	for _, test := range tests {
 		var buf bytes.Buffer
 		writeLEB128Signed(&buf, test.input)
-		if !bytes.Equal(buf.Bytes(), test.expected) {
-			t.Errorf("LEB128Signed(%d): expected %v, got %v", test.input, test.expected, buf.Bytes())
-		}
+		be.True(t, bytes.Equal(buf.Bytes(), test.expected))
 	}
 }
 
@@ -76,9 +70,7 @@ func TestEmitWASMHeader(t *testing.T) {
 
 	// WASM magic number (0x00 0x61 0x73 0x6D) + version (0x01 0x00 0x00 0x00)
 	expected := []byte{0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00}
-	if !bytes.Equal(buf.Bytes(), expected) {
-		t.Errorf("Expected %v, got %v", expected, buf.Bytes())
-	}
+	be.True(t, bytes.Equal(buf.Bytes(), expected))
 }
 
 func TestEmitImportSection(t *testing.T) {
@@ -88,17 +80,11 @@ func TestEmitImportSection(t *testing.T) {
 	result := buf.Bytes()
 
 	// Should start with import section ID (0x02)
-	if result[0] != 0x02 {
-		t.Errorf("Expected section ID 0x02, got 0x%02x", result[0])
-	}
+	be.Equal(t, result[0], byte(0x02))
 
 	// Should contain "env" and "print" strings
-	if !containsBytes(result, []byte("env")) {
-		t.Error("Expected import section to contain 'env'")
-	}
-	if !containsBytes(result, []byte("print")) {
-		t.Error("Expected import section to contain 'print'")
-	}
+	be.True(t, containsBytes(result, []byte("env")))
+	be.True(t, containsBytes(result, []byte("print")))
 }
 
 func TestEmitFunctionSection(t *testing.T) {
@@ -108,9 +94,7 @@ func TestEmitFunctionSection(t *testing.T) {
 	result := buf.Bytes()
 
 	// Should start with function section ID (0x03)
-	if result[0] != 0x03 {
-		t.Errorf("Expected section ID 0x03, got 0x%02x", result[0])
-	}
+	be.Equal(t, result[0], byte(0x03))
 }
 
 func TestEmitExportSection(t *testing.T) {
@@ -120,14 +104,10 @@ func TestEmitExportSection(t *testing.T) {
 	result := buf.Bytes()
 
 	// Should start with export section ID (0x07)
-	if result[0] != 0x07 {
-		t.Errorf("Expected section ID 0x07, got 0x%02x", result[0])
-	}
+	be.Equal(t, result[0], byte(0x07))
 
 	// Should contain "main" string
-	if !containsBytes(result, []byte("main")) {
-		t.Error("Expected export section to contain 'main'")
-	}
+	be.True(t, containsBytes(result, []byte("main")))
 }
 
 func containsBytes(haystack, needle []byte) bool {
@@ -171,9 +151,7 @@ func TestEmitExpression(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			var buf bytes.Buffer
 			EmitExpression(&buf, test.ast)
-			if !bytes.Equal(buf.Bytes(), test.expected) {
-				t.Errorf("Expected %v, got %v", test.expected, buf.Bytes())
-			}
+			be.True(t, bytes.Equal(buf.Bytes(), test.expected))
 		})
 	}
 }
@@ -248,19 +226,10 @@ func TestCompileToWASM(t *testing.T) {
 			wasmBytes := CompileToWASM(test.ast)
 
 			// Basic validation: check WASM magic number and version
-			if len(wasmBytes) < 8 {
-				t.Fatal("WASM output too short")
-			}
+			be.True(t, len(wasmBytes) > 8)
 
 			expectedHeader := []byte{0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00}
-			if !bytes.Equal(wasmBytes[:8], expectedHeader) {
-				t.Errorf("Invalid WASM header. Expected %v, got %v", expectedHeader, wasmBytes[:8])
-			}
-
-			// Check that we have some content beyond the header
-			if len(wasmBytes) <= 8 {
-				t.Error("WASM output contains only header")
-			}
+			be.True(t, bytes.Equal(wasmBytes[:8], expectedHeader))
 
 			t.Logf("Generated %d bytes of WASM for input: %s", len(wasmBytes), test.input)
 		})
@@ -275,20 +244,14 @@ func TestCompileToWASMIntegration(t *testing.T) {
 
 	ast := ParseExpression()
 	expectedSExpr := "(binary \"+\" (integer 42) (integer 8))"
-	if ToSExpr(ast) != expectedSExpr {
-		t.Errorf("Expected AST %s, got %s", expectedSExpr, ToSExpr(ast))
-	}
+	be.Equal(t, ToSExpr(ast), expectedSExpr)
 
 	wasmBytes := CompileToWASM(ast)
-	if len(wasmBytes) < 8 {
-		t.Fatal("WASM output too short")
-	}
+	be.True(t, len(wasmBytes) >= 8)
 
 	// Verify WASM header
 	expectedHeader := []byte{0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00}
-	if !bytes.Equal(wasmBytes[:8], expectedHeader) {
-		t.Errorf("Invalid WASM header. Expected %v, got %v", expectedHeader, wasmBytes[:8])
-	}
+	be.True(t, bytes.Equal(wasmBytes[:8], expectedHeader))
 
 	t.Logf("Successfully compiled '42 + 8' to %d bytes of WASM", len(wasmBytes))
 }

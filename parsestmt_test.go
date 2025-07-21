@@ -1,6 +1,10 @@
 package main
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/nalgeon/be"
+)
 
 func TestParseIfStatement(t *testing.T) {
 	tests := []struct {
@@ -26,9 +30,7 @@ func TestParseIfStatement(t *testing.T) {
 		NextToken()
 		result := ParseStatement()
 		actual := ToSExpr(result)
-		if actual != test.expected {
-			t.Errorf("Input: %q\nExpected: %s\nActual: %s", test.input, test.expected, actual)
-		}
+		be.Equal(t, actual, test.expected)
 	}
 }
 
@@ -56,9 +58,7 @@ func TestParseVarStatement(t *testing.T) {
 		NextToken()
 		result := ParseStatement()
 		actual := ToSExpr(result)
-		if actual != test.expected {
-			t.Errorf("Input: %q\nExpected: %s\nActual: %s", test.input, test.expected, actual)
-		}
+		be.Equal(t, actual, test.expected)
 	}
 }
 
@@ -94,9 +94,7 @@ func TestParseBlockStatement(t *testing.T) {
 		NextToken()
 		result := ParseStatement()
 		actual := ToSExpr(result)
-		if actual != test.expected {
-			t.Errorf("Input: %q\nExpected: %s\nActual: %s", test.input, test.expected, actual)
-		}
+		be.Equal(t, actual, test.expected)
 	}
 }
 
@@ -128,9 +126,7 @@ func TestParseReturnStatement(t *testing.T) {
 		NextToken()
 		result := ParseStatement()
 		actual := ToSExpr(result)
-		if actual != test.expected {
-			t.Errorf("Input: %q\nExpected: %s\nActual: %s", test.input, test.expected, actual)
-		}
+		be.Equal(t, actual, test.expected)
 	}
 }
 
@@ -166,9 +162,7 @@ func TestParseLoopStatement(t *testing.T) {
 		NextToken()
 		result := ParseStatement()
 		actual := ToSExpr(result)
-		if actual != test.expected {
-			t.Errorf("Input: %q\nExpected: %s\nActual: %s", test.input, test.expected, actual)
-		}
+		be.Equal(t, actual, test.expected)
 	}
 }
 
@@ -188,9 +182,7 @@ func TestParseBreakStatement(t *testing.T) {
 		NextToken()
 		result := ParseStatement()
 		actual := ToSExpr(result)
-		if actual != test.expected {
-			t.Errorf("Input: %q\nExpected: %s\nActual: %s", test.input, test.expected, actual)
-		}
+		be.Equal(t, actual, test.expected)
 	}
 }
 
@@ -210,9 +202,7 @@ func TestParseContinueStatement(t *testing.T) {
 		NextToken()
 		result := ParseStatement()
 		actual := ToSExpr(result)
-		if actual != test.expected {
-			t.Errorf("Input: %q\nExpected: %s\nActual: %s", test.input, test.expected, actual)
-		}
+		be.Equal(t, actual, test.expected)
 	}
 }
 
@@ -244,9 +234,7 @@ func TestParseExpressionStatement(t *testing.T) {
 		NextToken()
 		result := ParseStatement()
 		actual := ToSExpr(result)
-		if actual != test.expected {
-			t.Errorf("Input: %q\nExpected: %s\nActual: %s", test.input, test.expected, actual)
-		}
+		be.Equal(t, actual, test.expected)
 	}
 }
 
@@ -274,8 +262,6 @@ func TestComplexStatements(t *testing.T) {
 		NextToken()
 		result := ParseStatement()
 		actual := ToSExpr(result)
-		if actual != test.expected {
-			t.Errorf("Input: %q\nExpected: %s\nActual: %s", test.input, test.expected, actual)
-		}
+		be.Equal(t, actual, test.expected)
 	}
 }
