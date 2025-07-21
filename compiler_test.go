@@ -6,10 +6,30 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/nalgeon/be"
 )
+
+// Helper function to convert WASM bytes to human-readable WAT format
+func convertWasmToWat(wasmBytes []byte, wasmFilePath string) (string, error) {
+	// Try wasm2wat first, then fallback to wasm-objdump
+	cmd := exec.Command("wasm2wat", wasmFilePath)
+	output, err := cmd.Output()
+	if err == nil {
+		return strings.TrimSpace(string(output)), nil
+	}
+
+	// Fallback to wasm-objdump
+	cmd = exec.Command("wasm-objdump", "-d", wasmFilePath)
+	output, err = cmd.Output()
+	if err == nil {
+		return strings.TrimSpace(string(output)), nil
+	}
+
+	return "", fmt.Errorf("neither wasm2wat nor wasm-objdump available or failed")
+}
 
 // Helper function to parse and compile an expression to WASM
 func compileExpression(t *testing.T, expression string) []byte {
@@ -36,6 +56,42 @@ func executeWasm(t *testing.T, wasmBytes []byte) (string, error) {
 		return "", fmt.Errorf("failed to write WASM file: %v", err)
 	}
 
+	return executeWasmFromFile(t, wasmFile)
+}
+
+// Helper function that executes WASM and provides debug info if the result doesn't match expected
+func executeWasmAndVerify(t *testing.T, wasmBytes []byte, expected string) {
+	t.Helper()
+
+	// Create WASM file with test-specific name for easier debugging
+	tempDir := t.TempDir()
+	testName := strings.ReplaceAll(t.Name(), "/", "_")
+	wasmFile := filepath.Join(tempDir, fmt.Sprintf("%s.wasm", testName))
+
+	err := os.WriteFile(wasmFile, wasmBytes, 0644)
+	if err != nil {
+		t.Fatalf("failed to write WASM file: %v", err)
+	}
+
+	output, err := executeWasmFromFile(t, wasmFile)
+	be.Err(t, err, nil)
+
+	if output != expected {
+		absPath, _ := filepath.Abs(wasmFile)
+		t.Logf("WASM file path: %s", absPath)
+
+		if watContent, watErr := convertWasmToWat(wasmBytes, wasmFile); watErr == nil {
+			t.Logf("Human-readable WASM (WAT format):\n%s", watContent)
+		} else {
+			t.Logf("Could not convert to WAT: %v", watErr)
+		}
+	}
+
+	be.Equal(t, output, expected)
+}
+
+// Execute WASM from an existing file
+func executeWasmFromFile(t *testing.T, wasmFile string) (string, error) {
 	// Build the Rust runtime if it doesn't exist
 	runtimeBinary := "./wasmruntime/target/release/wasmruntime"
 	if _, err := os.Stat(runtimeBinary); os.IsNotExist(err) {
@@ -54,7 +110,7 @@ func executeWasm(t *testing.T, wasmBytes []byte) (string, error) {
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	err = cmd.Run()
+	err := cmd.Run()
 	if err != nil {
 		return "", fmt.Errorf("WASM execution failed: %v\nStderr: %s", err, stderr.String())
 	}
@@ -198,9 +254,7 @@ func TestFullCapabilitiesDemo(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Logf("Testing %s: %s", test.desc, test.expr)
 			wasmBytes := compileExpression(t, test.expr)
-			output, err := executeWasm(t, wasmBytes)
-			be.Err(t, err, nil)
-			be.Equal(t, output, test.expected)
+			executeWasmAndVerify(t, wasmBytes, test.expected)
 		})
 	}
 }
