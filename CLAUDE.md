@@ -33,6 +33,19 @@ go test -run TestFunctionName
   - `Init([]byte)`: Initializes lexer with input (must be null-terminated)
   - `NextToken()`: Advances lexer and updates global token state
 
+### Expression Parser
+
+- Implemented in main.go using **precedence climbing** algorithm
+- **AST representation**: Uses `ASTNode` struct with `NodeKind` enum (NodeIdent, NodeString, NodeInteger, NodeBinary)
+- **Key functions**:
+  - `ParseExpression()`: Main entry point for parsing expressions
+  - `parseExpressionWithPrecedence(minPrec)`: Precedence-climbing recursive parser
+  - `precedence(TokenType)`: Returns operator precedence levels (1=comparison, 2=addition, 3=multiplication)
+  - `ToSExpr(*ASTNode)`: Converts AST to s-expression string for testing/debugging
+- **Supported operators**: `+`, `-`, `*`, `/`, `%`, `==`, `!=`
+- **Precedence levels**: Multiplication/division (highest) → Addition/subtraction → Comparison (lowest)
+- **Tests**: Comprehensive test suite in `parseexpr_test.go` using s-expression format
+
 ### Key Design Patterns
 
 - **Null-terminated input**: All input must end with `\x00` byte

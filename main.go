@@ -97,6 +97,28 @@ const (
 	GOTO        = "GOTO"
 )
 
+// NodeKind represents different types of AST nodes
+type NodeKind string
+
+const (
+	NodeIdent   NodeKind = "NodeIdent"
+	NodeString  NodeKind = "NodeString"
+	NodeInteger NodeKind = "NodeInteger"
+	NodeBinary  NodeKind = "NodeBinary"
+)
+
+// ASTNode represents a node in the Abstract Syntax Tree
+type ASTNode struct {
+	Kind NodeKind
+	// NodeIdent, NodeString:
+	String string
+	// NodeInteger:
+	Integer int64
+	// NodeBinary:
+	Op       string // "+", "-", "==", "!"
+	Children []*ASTNode
+}
+
 // Init initializes the lexer with the given input (must end with a 0 byte).
 func Init(in []byte) {
 	input = in
@@ -467,4 +489,135 @@ func readCharLiteral() string {
 	pos++ // Skip last '.
 	lit := string(input[start:pos])
 	return lit
+}
+
+// ToSExpr converts an AST node to s-expression string representation
+func ToSExpr(node *ASTNode) string {
+	switch node.Kind {
+	case NodeIdent:
+		return "(ident \"" + node.String + "\")"
+	case NodeString:
+		return "(string \"" + node.String + "\")"
+	case NodeInteger:
+		return "(integer " + intToString(node.Integer) + ")"
+	case NodeBinary:
+		left := ToSExpr(node.Children[0])
+		right := ToSExpr(node.Children[1])
+		return "(binary \"" + node.Op + "\" " + left + " " + right + ")"
+	default:
+		return ""
+	}
+}
+
+// intToString converts an int64 to string
+func intToString(n int64) string {
+	if n == 0 {
+		return "0"
+	}
+
+	var result string
+	negative := n < 0
+	if negative {
+		n = -n
+	}
+
+	for n > 0 {
+		result = string(rune('0'+n%10)) + result
+		n /= 10
+	}
+
+	if negative {
+		result = "-" + result
+	}
+
+	return result
+}
+
+// precedence returns the precedence level for a given token type
+func precedence(tokenType TokenType) int {
+	switch tokenType {
+	case EQ, NOT_EQ:
+		return 1 // lowest precedence
+	case PLUS, MINUS:
+		return 2
+	case ASTERISK, SLASH, PERCENT:
+		return 3 // highest precedence
+	default:
+		return 0 // not an operator
+	}
+}
+
+// isOperator returns true if the token is a binary operator
+func isOperator(tokenType TokenType) bool {
+	return precedence(tokenType) > 0
+}
+
+// ParseExpression parses an expression and returns an AST node
+func ParseExpression() *ASTNode {
+	return parseExpressionWithPrecedence(0)
+}
+
+// parseExpressionWithPrecedence implements precedence climbing
+func parseExpressionWithPrecedence(minPrec int) *ASTNode {
+	left := parsePrimary()
+
+	for {
+		if !isOperator(CurrTokenType) || precedence(CurrTokenType) < minPrec {
+			break
+		}
+
+		op := CurrLiteral
+		prec := precedence(CurrTokenType)
+		NextToken()
+
+		// For left-associative operators, use prec + 1
+		right := parseExpressionWithPrecedence(prec + 1)
+
+		left = &ASTNode{
+			Kind:     NodeBinary,
+			Op:       op,
+			Children: []*ASTNode{left, right},
+		}
+	}
+
+	return left
+}
+
+// parsePrimary handles primary expressions (literals, identifiers, parentheses)
+func parsePrimary() *ASTNode {
+	switch CurrTokenType {
+	case INT:
+		node := &ASTNode{
+			Kind:    NodeInteger,
+			Integer: CurrIntValue,
+		}
+		NextToken()
+		return node
+
+	case STRING:
+		node := &ASTNode{
+			Kind:   NodeString,
+			String: CurrLiteral,
+		}
+		NextToken()
+		return node
+
+	case IDENT:
+		node := &ASTNode{
+			Kind:   NodeIdent,
+			String: CurrLiteral,
+		}
+		NextToken()
+		return node
+
+	case LPAREN:
+		NextToken() // consume '('
+		expr := parseExpressionWithPrecedence(0)
+		NextToken() // consume ')'
+		return expr
+
+	default:
+		// Return empty node for error case
+		return &ASTNode{}
+	}
 }
