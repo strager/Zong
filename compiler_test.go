@@ -407,3 +407,69 @@ func TestAdvancedPointerScenarios(t *testing.T) {
 		})
 	}
 }
+
+func TestTypeASTInCompilation(t *testing.T) {
+	tests := []struct {
+		name     string
+		code     string
+		expected string
+	}{
+		{
+			name:     "I64 variable with TypeAST",
+			code:     "{ var x I64; x = 42; print(x); }",
+			expected: "42\n",
+		},
+		{
+			name:     "Second I64 variable with TypeAST",
+			code:     "{ var y I64; y = 7; print(y); }",
+			expected: "7\n",
+		},
+		{
+			name:     "Pointer variable with TypeAST",
+			code:     "{ var ptr I64*; var x I64; x = 99; ptr = x&; print(ptr*); }",
+			expected: "99\n",
+		},
+		{
+			name:     "Multiple types with TypeAST",
+			code:     "{ var x I64; var y I64; var ptr I64*; x = 10; y = 0; ptr = x&; print(x); print(y); print(ptr*); }",
+			expected: "10\n0\n10\n",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			input := []byte(test.code + "\x00")
+			Init(input)
+			NextToken()
+			ast := ParseStatement()
+
+			// Verify TypeAST is populated in the parsed AST
+			verifyTypeASTPopulated(t, ast)
+
+			// Compile and execute
+			wasmBytes := CompileToWASM(ast)
+			output, err := executeWasm(t, wasmBytes)
+			be.Err(t, err, nil)
+			be.Equal(t, output, test.expected)
+		})
+	}
+}
+
+// Helper function to verify TypeAST is populated in variable declarations
+func verifyTypeASTPopulated(t *testing.T, node *ASTNode) {
+	if node == nil {
+		return
+	}
+
+	switch node.Kind {
+	case NodeVar:
+		if node.TypeAST == nil {
+			t.Errorf("TypeAST should not be nil for variable declaration: %s", node.Children[0].String)
+		}
+		// No need to verify string representation since we're not storing it anymore
+	case NodeBlock, NodeIf, NodeLoop:
+		for _, child := range node.Children {
+			verifyTypeASTPopulated(t, child)
+		}
+	}
+}

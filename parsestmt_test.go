@@ -293,3 +293,119 @@ func TestComplexStatements(t *testing.T) {
 		be.Equal(t, actual, test.expected)
 	}
 }
+
+func TestVarTypeAST(t *testing.T) {
+	tests := []struct {
+		input        string
+		expectedType *TypeNode
+	}{
+		{
+			input:        "var x I64;\x00",
+			expectedType: TypeI64,
+		},
+		{
+			input:        "var flag Bool;\x00",
+			expectedType: TypeBool,
+		},
+		{
+			input:        "var ptr I64*;\x00",
+			expectedType: &TypeNode{Kind: TypePointer, Child: TypeI64},
+		},
+		{
+			input:        "var ptrPtr I64**;\x00",
+			expectedType: &TypeNode{Kind: TypePointer, Child: &TypeNode{Kind: TypePointer, Child: TypeI64}},
+		},
+		{
+			input:        "var boolPtr Bool*;\x00",
+			expectedType: &TypeNode{Kind: TypePointer, Child: TypeBool},
+		},
+	}
+
+	for _, test := range tests {
+		Init([]byte(test.input))
+		NextToken()
+		result := ParseStatement()
+
+		if result.Kind != NodeVar {
+			t.Errorf("Expected NodeVar, got %v", result.Kind)
+			continue
+		}
+
+		if result.TypeAST == nil {
+			t.Errorf("TypeAST should not be nil for input: %s", test.input)
+			continue
+		}
+
+		if !TypesEqual(result.TypeAST, test.expectedType) {
+			t.Errorf("TypeAST mismatch for %s: expected %s, got %s",
+				test.input, TypeToString(test.expectedType), TypeToString(result.TypeAST))
+		}
+	}
+}
+
+func TestTypeUtilityFunctions(t *testing.T) {
+	// Test TypesEqual
+	if !TypesEqual(TypeI64, TypeI64) {
+		t.Error("TypeI64 should equal itself")
+	}
+
+	if TypesEqual(TypeI64, TypeBool) {
+		t.Error("TypeI64 should not equal TypeBool")
+	}
+
+	i64Ptr := &TypeNode{Kind: TypePointer, Child: TypeI64}
+	i64Ptr2 := &TypeNode{Kind: TypePointer, Child: TypeI64}
+	if !TypesEqual(i64Ptr, i64Ptr2) {
+		t.Error("I64* types should be equal")
+	}
+
+	boolPtr := &TypeNode{Kind: TypePointer, Child: TypeBool}
+	if TypesEqual(i64Ptr, boolPtr) {
+		t.Error("I64* and Bool* should not be equal")
+	}
+
+	// Test TypeToString
+	if TypeToString(TypeI64) != "I64" {
+		t.Errorf("TypeToString(TypeI64) = %s, want I64", TypeToString(TypeI64))
+	}
+
+	if TypeToString(i64Ptr) != "I64*" {
+		t.Errorf("TypeToString(I64*) = %s, want I64*", TypeToString(i64Ptr))
+	}
+
+	i64PtrPtr := &TypeNode{Kind: TypePointer, Child: i64Ptr}
+	if TypeToString(i64PtrPtr) != "I64**" {
+		t.Errorf("TypeToString(I64**) = %s, want I64**", TypeToString(i64PtrPtr))
+	}
+
+	// Test GetTypeSize
+	if GetTypeSize(TypeI64) != 8 {
+		t.Errorf("GetTypeSize(I64) = %d, want 8", GetTypeSize(TypeI64))
+	}
+
+	if GetTypeSize(TypeBool) != 1 {
+		t.Errorf("GetTypeSize(Bool) = %d, want 1", GetTypeSize(TypeBool))
+	}
+
+	if GetTypeSize(i64Ptr) != 8 {
+		t.Errorf("GetTypeSize(I64*) = %d, want 8", GetTypeSize(i64Ptr))
+	}
+
+	// Test isWASMI64Type
+	if !isWASMI64Type(TypeI64) {
+		t.Error("I64 should be a WASM I64 type")
+	}
+
+	if !isWASMI64Type(TypeBool) {
+		t.Error("Bool should be a WASM I64 type")
+	}
+
+	if !isWASMI64Type(i64Ptr) {
+		t.Error("I64* should be a WASM I64 type")
+	}
+
+	unknownType := &TypeNode{Kind: TypeBuiltin, String: "string"}
+	if isWASMI64Type(unknownType) {
+		t.Error("string type should not be a WASM I64 type")
+	}
+}

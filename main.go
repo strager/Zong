@@ -13,7 +13,7 @@ const (
 // LocalVarInfo represents information about a local variable
 type LocalVarInfo struct {
 	Name    string
-	Type    string     // "I64" or "I64*" (pointers are i64 in WASM)
+	Type    *TypeNode  // TypeNode representation of the type
 	Storage VarStorage // How the variable is stored
 	Address uint32     // For VarStorageLocal: WASM local index; For VarStorageTStack: byte offset in stack frame
 }
@@ -208,7 +208,7 @@ func EmitCodeSection(buf *bytes.Buffer, ast *ASTNode) {
 	// Emit locals declarations (include frame pointer)
 	localCount := 0
 	for _, local := range locals {
-		if (local.Type == "I64" || local.Type == "I64*") && local.Storage == VarStorageLocal {
+		if isWASMI64Type(local.Type) && local.Storage == VarStorageLocal {
 			localCount++
 		}
 	}
@@ -498,15 +498,20 @@ func collectLocalsRecursive(node *ASTNode, locals *[]LocalVarInfo, index *uint32
 
 	switch node.Kind {
 	case NodeVar:
-		// Extract variable name and type
+		// Extract variable name
 		varName := node.Children[0].String
-		varType := node.Children[1].String
+
+		// TypeAST should always be available now
+		if node.TypeAST == nil {
+			// This shouldn't happen with the new parser, but handle gracefully
+			return
+		}
 
 		// Support I64 and I64* (pointers are i64 in WASM)
-		if varType == "I64" || varType == "I64*" {
+		if isWASMI64Type(node.TypeAST) {
 			*locals = append(*locals, LocalVarInfo{
 				Name:    varName,
-				Type:    varType,
+				Type:    node.TypeAST,
 				Storage: VarStorageLocal,
 				Address: *index,
 			})
@@ -807,6 +812,107 @@ type ASTNode struct {
 	Children []*ASTNode
 	// NodeCall:
 	ParameterNames []string
+	// NodeVar:
+	TypeAST *TypeNode // Type information for variable declarations
+}
+
+// TypeKind represents different kinds of types
+type TypeKind string
+
+const (
+	TypeBuiltin TypeKind = "TypeBuiltin" // I64, Bool
+	TypePointer TypeKind = "TypePointer" // *T
+)
+
+// TypeNode represents a type in the type system
+type TypeNode struct {
+	Kind TypeKind
+
+	// For TypeBuiltin
+	String string // "I64", "Bool"
+
+	// For TypePointer
+	Child *TypeNode
+}
+
+// Built-in types
+var (
+	TypeI64  = &TypeNode{Kind: TypeBuiltin, String: "I64"}
+	TypeBool = &TypeNode{Kind: TypeBuiltin, String: "Bool"}
+)
+
+// Type utility functions
+
+// TypesEqual checks if two TypeNodes are equal
+func TypesEqual(a, b *TypeNode) bool {
+	if a.Kind != b.Kind {
+		return false
+	}
+
+	switch a.Kind {
+	case TypeBuiltin:
+		return a.String == b.String
+	case TypePointer:
+		return TypesEqual(a.Child, b.Child)
+	}
+	return false
+}
+
+// GetTypeSize returns the size in bytes for WASM code generation
+func GetTypeSize(t *TypeNode) int {
+	switch t.Kind {
+	case TypeBuiltin:
+		switch t.String {
+		case "I64":
+			return 8
+		case "Bool":
+			return 1
+		default:
+			return 8 // default to 8 bytes
+		}
+	case TypePointer:
+		return 8 // pointers are always 64-bit
+	}
+	return 8
+}
+
+// TypeToString converts TypeNode to string for display/debugging
+func TypeToString(t *TypeNode) string {
+	switch t.Kind {
+	case TypeBuiltin:
+		return t.String
+	case TypePointer:
+		return TypeToString(t.Child) + "*"
+	}
+	return ""
+}
+
+// getBuiltinType returns the built-in type for a given name
+func getBuiltinType(name string) *TypeNode {
+	switch name {
+	case "I64":
+		return TypeI64
+	case "Bool":
+		return TypeBool
+	default:
+		return nil
+	}
+}
+
+// isWASMI64Type checks if a TypeNode represents a type that maps to WASM I64
+func isWASMI64Type(t *TypeNode) bool {
+	if t == nil {
+		return false
+	}
+	switch t.Kind {
+	case TypeBuiltin:
+		// Only I64 and Bool are known to map to WASM I64
+		// Other types like "int", "string" are not supported in WASM generation
+		return t.String == "I64" || t.String == "Bool"
+	case TypePointer:
+		return true // all pointers are I64 in WASM
+	}
+	return false
 }
 
 // Init initializes the lexer with the given input (must end with a 0 byte).
@@ -1206,8 +1312,8 @@ func ToSExpr(node *ASTNode) string {
 		return result
 	case NodeVar:
 		name := ToSExpr(node.Children[0])
-		varType := ToSExpr(node.Children[1])
-		return "(var " + name + " " + varType + ")"
+		typeStr := "(ident \"" + TypeToString(node.TypeAST) + "\")"
+		return "(var " + name + " " + typeStr + ")"
 	case NodeBlock:
 		result := "(block"
 		for _, child := range node.Children {
@@ -1516,6 +1622,36 @@ func parsePrimary() *ASTNode {
 	}
 }
 
+// parseTypeExpression parses a type expression and returns a TypeNode
+func parseTypeExpression() *TypeNode {
+	if CurrTokenType != IDENT {
+		return nil
+	}
+
+	// Parse base type
+	baseTypeName := CurrLiteral
+	SkipToken(IDENT)
+
+	baseType := getBuiltinType(baseTypeName)
+	if baseType == nil {
+		// For unrecognized types, create a generic built-in type node
+		// This maintains backward compatibility with tests using "int", "string", etc.
+		baseType = &TypeNode{Kind: TypeBuiltin, String: baseTypeName}
+	}
+
+	// Handle pointer suffixes
+	resultType := baseType
+	for CurrTokenType == ASTERISK {
+		SkipToken(ASTERISK)
+		resultType = &TypeNode{
+			Kind:  TypePointer,
+			Child: resultType,
+		}
+	}
+
+	return resultType
+}
+
 // ParseStatement parses a statement and returns an AST node
 func ParseStatement() *ASTNode {
 	switch CurrTokenType {
@@ -1553,19 +1689,10 @@ func ParseStatement() *ASTNode {
 			return &ASTNode{} // error - expecting type
 		}
 
-		// Parse type with potential pointer suffix
-		typeName := CurrLiteral
-		SkipToken(IDENT)
-
-		// Check for pointer suffix
-		if CurrTokenType == ASTERISK {
-			typeName += "*"
-			SkipToken(ASTERISK)
-		}
-
-		varType := &ASTNode{
-			Kind:   NodeIdent,
-			String: typeName,
+		// Parse type using new TypeNode system
+		typeAST := parseTypeExpression()
+		if typeAST == nil {
+			return &ASTNode{} // error - invalid type
 		}
 
 		if CurrTokenType == SEMICOLON {
@@ -1573,7 +1700,8 @@ func ParseStatement() *ASTNode {
 		}
 		return &ASTNode{
 			Kind:     NodeVar,
-			Children: []*ASTNode{varName, varType},
+			Children: []*ASTNode{varName},
+			TypeAST:  typeAST,
 		}
 
 	case LBRACE:

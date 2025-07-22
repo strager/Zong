@@ -54,7 +54,7 @@ func TestIntegrationMixedTypes(t *testing.T) {
 	// Only I64 variable should be collected
 	be.Equal(t, 1, len(locals))
 	be.Equal(t, "x", locals[0].Name)
-	be.Equal(t, "I64", locals[0].Type)
+	be.Equal(t, TypeI64, locals[0].Type)
 
 	// Compile and execute WASM - should print the value of x
 	wasmBytes := CompileToWASM(ast)
@@ -118,7 +118,7 @@ func TestIntegrationComprehensiveDemo(t *testing.T) {
 	expectedNames := []string{"a", "b", "temp", "final"}
 	for i, local := range locals {
 		be.Equal(t, expectedNames[i], local.Name)
-		be.Equal(t, "I64", local.Type)
+		be.Equal(t, TypeI64, local.Type)
 		be.Equal(t, uint32(i), local.Address)
 	}
 
