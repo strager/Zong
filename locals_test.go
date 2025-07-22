@@ -17,7 +17,7 @@ func TestCollectSingleLocalVariable(t *testing.T) {
 	locals := collectLocalVariables(ast)
 
 	expected := []LocalVarInfo{
-		{Name: "x", Type: "I64", Index: 0},
+		{Name: "x", Type: "I64", Storage: VarStorageLocal, Address: 0},
 	}
 
 	be.Equal(t, expected, locals)
@@ -32,8 +32,8 @@ func TestCollectMultipleLocalVariables(t *testing.T) {
 	locals := collectLocalVariables(ast)
 
 	expected := []LocalVarInfo{
-		{Name: "x", Type: "I64", Index: 0},
-		{Name: "y", Type: "I64", Index: 1},
+		{Name: "x", Type: "I64", Storage: VarStorageLocal, Address: 0},
+		{Name: "y", Type: "I64", Storage: VarStorageLocal, Address: 1},
 	}
 
 	be.Equal(t, expected, locals)
@@ -48,8 +48,8 @@ func TestCollectNestedBlockVariables(t *testing.T) {
 	locals := collectLocalVariables(ast)
 
 	expected := []LocalVarInfo{
-		{Name: "a", Type: "I64", Index: 0},
-		{Name: "b", Type: "I64", Index: 1},
+		{Name: "a", Type: "I64", Storage: VarStorageLocal, Address: 0},
+		{Name: "b", Type: "I64", Storage: VarStorageLocal, Address: 1},
 	}
 
 	be.Equal(t, expected, locals)
@@ -109,7 +109,7 @@ func TestCollectSinglePointerVariable(t *testing.T) {
 	locals := collectLocalVariables(ast)
 
 	expected := []LocalVarInfo{
-		{Name: "ptr", Type: "I64*", Index: 0},
+		{Name: "ptr", Type: "I64*", Storage: VarStorageLocal, Address: 0},
 	}
 
 	be.Equal(t, expected, locals)
@@ -124,9 +124,9 @@ func TestCollectMixedPointerAndRegularVariables(t *testing.T) {
 	locals := collectLocalVariables(ast)
 
 	expected := []LocalVarInfo{
-		{Name: "x", Type: "I64", Index: 0},
-		{Name: "ptr", Type: "I64*", Index: 1},
-		{Name: "y", Type: "I64", Index: 2},
+		{Name: "x", Type: "I64", Storage: VarStorageLocal, Address: 0},
+		{Name: "ptr", Type: "I64*", Storage: VarStorageLocal, Address: 1},
+		{Name: "y", Type: "I64", Storage: VarStorageLocal, Address: 2},
 	}
 
 	be.Equal(t, expected, locals)
@@ -141,8 +141,8 @@ func TestCollectMultiplePointerVariables(t *testing.T) {
 	locals := collectLocalVariables(ast)
 
 	expected := []LocalVarInfo{
-		{Name: "ptr1", Type: "I64*", Index: 0},
-		{Name: "ptr2", Type: "I64*", Index: 1},
+		{Name: "ptr1", Type: "I64*", Storage: VarStorageLocal, Address: 0},
+		{Name: "ptr2", Type: "I64*", Storage: VarStorageLocal, Address: 1},
 	}
 
 	be.Equal(t, expected, locals)
@@ -157,9 +157,9 @@ func TestCollectNestedBlockPointerVariables(t *testing.T) {
 	locals := collectLocalVariables(ast)
 
 	expected := []LocalVarInfo{
-		{Name: "a", Type: "I64", Index: 0},
-		{Name: "ptr", Type: "I64*", Index: 1},
-		{Name: "b", Type: "I64*", Index: 2},
+		{Name: "a", Type: "I64", Storage: VarStorageLocal, Address: 0},
+		{Name: "ptr", Type: "I64*", Storage: VarStorageLocal, Address: 1},
+		{Name: "b", Type: "I64*", Storage: VarStorageLocal, Address: 2},
 	}
 
 	be.Equal(t, expected, locals)
@@ -182,4 +182,86 @@ func TestPointerVariablesInWASMCodeSection(t *testing.T) {
 	// The exact WASM structure verification is complex, but we can at least
 	// verify that code generation doesn't panic and produces output
 	be.True(t, len(bytesResult) > 0)
+}
+
+func TestAddressedSingleVariable(t *testing.T) {
+	input := []byte("{ var x I64; print(x&); }\x00")
+	Init(input)
+	NextToken()
+	ast := ParseStatement()
+
+	locals := collectLocalVariables(ast)
+
+	expected := []LocalVarInfo{
+		{Name: "x", Type: "I64", Storage: VarStorageTStack, Address: 0},
+	}
+
+	be.Equal(t, expected, locals)
+}
+
+func TestAddressedMultipleVariables(t *testing.T) {
+	input := []byte("{ var x I64; var y I64; print(x&); print(y&); }\x00")
+	Init(input)
+	NextToken()
+	ast := ParseStatement()
+
+	locals := collectLocalVariables(ast)
+
+	expected := []LocalVarInfo{
+		{Name: "x", Type: "I64", Storage: VarStorageTStack, Address: 0},
+		{Name: "y", Type: "I64", Storage: VarStorageTStack, Address: 8},
+	}
+
+	be.Equal(t, expected, locals)
+}
+
+func TestMixedAddressedAndNonAddressedVariables(t *testing.T) {
+	input := []byte("{ var a I64; var b I64; var c I64; print(b&); }\x00")
+	Init(input)
+	NextToken()
+	ast := ParseStatement()
+
+	locals := collectLocalVariables(ast)
+
+	expected := []LocalVarInfo{
+		{Name: "a", Type: "I64", Storage: VarStorageLocal, Address: 0},
+		{Name: "b", Type: "I64", Storage: VarStorageTStack, Address: 0},
+		{Name: "c", Type: "I64", Storage: VarStorageLocal, Address: 2},
+	}
+
+	be.Equal(t, expected, locals)
+}
+
+func TestAddressedVariableFrameOffsetCalculation(t *testing.T) {
+	input := []byte("{ var a I64; var b I64; var c I64; var d I64; print(a&); print(c&); print(d&); }\x00")
+	Init(input)
+	NextToken()
+	ast := ParseStatement()
+
+	locals := collectLocalVariables(ast)
+
+	expected := []LocalVarInfo{
+		{Name: "a", Type: "I64", Storage: VarStorageTStack, Address: 0},
+		{Name: "b", Type: "I64", Storage: VarStorageLocal, Address: 1},
+		{Name: "c", Type: "I64", Storage: VarStorageTStack, Address: 8},
+		{Name: "d", Type: "I64", Storage: VarStorageTStack, Address: 16},
+	}
+
+	be.Equal(t, expected, locals)
+}
+
+func TestAddressOfRvalue(t *testing.T) {
+	input := []byte("{ var x I64; print((x + 1)&); }\x00")
+	Init(input)
+	NextToken()
+	ast := ParseStatement()
+
+	locals := collectLocalVariables(ast)
+
+	// x is not addressed since we're taking address of expression, not variable
+	expected := []LocalVarInfo{
+		{Name: "x", Type: "I64", Storage: VarStorageLocal, Address: 0},
+	}
+
+	be.Equal(t, expected, locals)
 }

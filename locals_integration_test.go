@@ -119,7 +119,7 @@ func TestIntegrationComprehensiveDemo(t *testing.T) {
 	for i, local := range locals {
 		be.Equal(t, expectedNames[i], local.Name)
 		be.Equal(t, "I64", local.Type)
-		be.Equal(t, uint32(i), local.Index)
+		be.Equal(t, uint32(i), local.Address)
 	}
 
 	// Execute and verify the complex calculation

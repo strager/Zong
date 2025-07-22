@@ -86,9 +86,10 @@ func TestEmitImportSection(t *testing.T) {
 	// Should start with import section ID (0x02)
 	be.Equal(t, result[0], byte(0x02))
 
-	// Should contain "env" and "print" strings
+	// Should contain "env", "print", and "tstack" strings
 	be.True(t, containsBytes(result, []byte("env")))
 	be.True(t, containsBytes(result, []byte("print")))
+	be.True(t, containsBytes(result, []byte("tstack")))
 }
 
 func TestEmitFunctionSection(t *testing.T) {

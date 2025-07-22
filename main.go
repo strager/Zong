@@ -2,11 +2,20 @@ package main
 
 import "bytes"
 
+// VarStorage represents how a variable is stored
+type VarStorage int
+
+const (
+	VarStorageLocal  VarStorage = iota // Variable stored in WASM local
+	VarStorageTStack                   // Variable stored on the stack (addressed)
+)
+
 // LocalVarInfo represents information about a local variable
 type LocalVarInfo struct {
-	Name  string
-	Type  string // "I64" or "I64*" (pointers are i64 in WASM)
-	Index uint32 // Local variable index in WASM
+	Name    string
+	Type    string     // "I64" or "I64*" (pointers are i64 in WASM)
+	Storage VarStorage // How the variable is stored
+	Address uint32     // For VarStorageLocal: WASM local index; For VarStorageTStack: byte offset in stack frame
 }
 
 // WASM Binary Encoding Utilities
@@ -42,6 +51,7 @@ func writeLEB128Signed(buf *bytes.Buffer, val int64) {
 
 // WASM Opcode Constants
 const (
+	I32_WRAP_I64     = 0xA7
 	I64_CONST        = 0x42
 	I64_ADD          = 0x7C
 	I64_SUB          = 0x7D
@@ -55,6 +65,10 @@ const (
 	I64_LE_S         = 0x57
 	I64_GE_S         = 0x59
 	I64_EXTEND_I32_S = 0xAC
+	I64_LOAD         = 0x29
+	I64_STORE        = 0x37
+	GLOBAL_GET       = 0x23
+	GLOBAL_SET       = 0x24
 	LOCAL_GET        = 0x20
 	LOCAL_SET        = 0x21
 	LOCAL_TEE        = 0x22
@@ -75,8 +89,9 @@ func EmitImportSection(buf *bytes.Buffer) {
 
 	// Build section content in temporary buffer to calculate size
 	var sectionBuf bytes.Buffer
-	writeLEB128(&sectionBuf, 1) // 1 import
+	writeLEB128(&sectionBuf, 2) // 2 imports: print function + tstack global
 
+	// Import 1: print function
 	// Module name "env"
 	writeLEB128(&sectionBuf, 3) // length of "env"
 	writeBytes(&sectionBuf, []byte("env"))
@@ -91,7 +106,37 @@ func EmitImportSection(buf *bytes.Buffer) {
 	// Type index (0)
 	writeLEB128(&sectionBuf, 0)
 
+	// Import 2: tstack global
+	// Module name "env"
+	writeLEB128(&sectionBuf, 3) // length of "env"
+	writeBytes(&sectionBuf, []byte("env"))
+
+	// Import name "tstack"
+	writeLEB128(&sectionBuf, 6) // length of "tstack"
+	writeBytes(&sectionBuf, []byte("tstack"))
+
+	// Import kind: global (0x03)
+	writeByte(&sectionBuf, 0x03)
+
+	// Global type: i64 mutable (0x7E 0x01)
+	writeByte(&sectionBuf, 0x7E) // i64
+	writeByte(&sectionBuf, 0x01) // mutable
+
 	// Write section size and content
+	writeLEB128(buf, uint32(sectionBuf.Len()))
+	writeBytes(buf, sectionBuf.Bytes())
+}
+
+func EmitMemorySection(buf *bytes.Buffer) {
+	writeByte(buf, 0x05) // memory section id
+
+	var sectionBuf bytes.Buffer
+	writeLEB128(&sectionBuf, 1) // 1 memory
+
+	// Memory limits: initial=1 page (64KB), no maximum
+	writeByte(&sectionBuf, 0x00) // limits flags (no maximum)
+	writeLEB128(&sectionBuf, 1)  // initial pages (1 page = 64KB)
+
 	writeLEB128(buf, uint32(sectionBuf.Len()))
 	writeBytes(buf, sectionBuf.Bytes())
 }
@@ -154,24 +199,35 @@ func EmitCodeSection(buf *bytes.Buffer, ast *ASTNode) {
 	// Collect local variables from AST
 	locals := collectLocalVariables(ast)
 
+	// Calculate frame size for addressed variables
+	frameSize := calculateFrameSize(locals)
+
 	// Generate function body
 	var bodyBuf bytes.Buffer
 
-	// Emit locals declarations
-	if len(locals) > 0 {
-		// Group locals by type (all I64 in this implementation, including pointers)
-		i64Count := 0
-		for _, local := range locals {
-			if local.Type == "I64" || local.Type == "I64*" {
-				i64Count++
-			}
+	// Emit locals declarations (include frame pointer)
+	localCount := 0
+	for _, local := range locals {
+		if (local.Type == "I64" || local.Type == "I64*") && local.Storage == VarStorageLocal {
+			localCount++
 		}
+	}
 
-		writeLEB128(&bodyBuf, 1)                // 1 local type group
-		writeLEB128(&bodyBuf, uint32(i64Count)) // count of I64 locals
-		writeByte(&bodyBuf, 0x7E)               // I64 type
+	if frameSize > 0 {
+		localCount++ // Add frame pointer local
+	}
+
+	if localCount > 0 {
+		writeLEB128(&bodyBuf, 1)                  // 1 local type group
+		writeLEB128(&bodyBuf, uint32(localCount)) // count of I64 locals
+		writeByte(&bodyBuf, 0x7E)                 // I64 type
 	} else {
-		writeLEB128(&bodyBuf, 0) // 0 locals (existing behavior)
+		writeLEB128(&bodyBuf, 0) // 0 locals
+	}
+
+	// Emit frame setup code if we have addressed variables
+	if frameSize > 0 {
+		EmitFrameSetup(&bodyBuf, locals, frameSize)
 	}
 
 	// Emit statement bytecode
@@ -224,43 +280,107 @@ func EmitExpression(buf *bytes.Buffer, node *ASTNode, locals []LocalVarInfo) {
 		writeLEB128Signed(buf, node.Integer)
 
 	case NodeIdent:
-		// Variable reference - emit local.get
-		var localIndex uint32
-		found := false
-		for _, local := range locals {
-			if local.Name == node.String {
-				localIndex = local.Index
-				found = true
+		// Variable reference
+		var targetLocal *LocalVarInfo
+		for i := range locals {
+			if locals[i].Name == node.String {
+				targetLocal = &locals[i]
 				break
 			}
 		}
-		if !found {
+		if targetLocal == nil {
 			panic("Undefined variable: " + node.String)
 		}
-		writeByte(buf, LOCAL_GET)
-		writeLEB128(buf, localIndex)
+
+		if targetLocal.Storage == VarStorageLocal {
+			// Local variable - emit local.get
+			writeByte(buf, LOCAL_GET)
+			writeLEB128(buf, targetLocal.Address)
+		} else {
+			// Stack variable - load from memory
+			framePointerIndex := getFramePointerIndex(locals)
+			writeByte(buf, LOCAL_GET)
+			writeLEB128(buf, framePointerIndex)
+
+			// Add variable offset if not zero
+			if targetLocal.Address > 0 {
+				writeByte(buf, I64_CONST)
+				writeLEB128Signed(buf, int64(targetLocal.Address))
+				writeByte(buf, I64_ADD)
+			}
+
+			// Load the value from memory
+			writeByte(buf, I32_WRAP_I64) // Convert i64 address to i32
+			writeByte(buf, I64_LOAD)     // Load i64 from memory
+			writeByte(buf, 0x03)         // alignment (8 bytes = 2^3)
+			writeByte(buf, 0x00)         // offset
+		}
 
 	case NodeBinary:
 		if node.Op == "=" {
-			// Variable assignment
-			EmitExpression(buf, node.Children[1], locals) // RHS value
+			// Assignment: LHS = RHS
+			lhs := node.Children[0]
+			rhs := node.Children[1]
 
-			// Get variable name and emit local.set
-			varName := node.Children[0].String
-			var localIndex uint32
-			found := false
-			for _, local := range locals {
-				if local.Name == varName {
-					localIndex = local.Index
-					found = true
-					break
+			if lhs.Kind == NodeIdent {
+				// Variable assignment: var = value
+				varName := lhs.String
+				var targetLocal *LocalVarInfo
+				for i := range locals {
+					if locals[i].Name == varName {
+						targetLocal = &locals[i]
+						break
+					}
 				}
+				if targetLocal == nil {
+					panic("Undefined variable: " + varName)
+				}
+
+				if targetLocal.Storage == VarStorageLocal {
+					// Local variable - emit local.set
+					EmitExpression(buf, rhs, locals) // RHS value
+					writeByte(buf, LOCAL_SET)
+					writeLEB128(buf, targetLocal.Address)
+				} else {
+					// Stack variable - store to memory
+					// First get the address (before evaluating RHS)
+					framePointerIndex := getFramePointerIndex(locals)
+					writeByte(buf, LOCAL_GET)
+					writeLEB128(buf, framePointerIndex)
+
+					// Add variable offset if not zero
+					if targetLocal.Address > 0 {
+						writeByte(buf, I64_CONST)
+						writeLEB128Signed(buf, int64(targetLocal.Address))
+						writeByte(buf, I64_ADD)
+					}
+
+					writeByte(buf, I32_WRAP_I64) // Convert i64 address to i32
+
+					// Now evaluate the RHS value
+					EmitExpression(buf, rhs, locals) // RHS value
+
+					// Stack is now: [address_i32, value] - perfect for i64.store
+					writeByte(buf, I64_STORE) // Store i64 to memory
+					writeByte(buf, 0x03)      // alignment (8 bytes = 2^3)
+					writeByte(buf, 0x00)      // offset
+				}
+			} else if lhs.Kind == NodeUnary && lhs.Op == "*" {
+				// Pointer dereference assignment: ptr* = value
+				// First get the address where to store
+				EmitExpression(buf, lhs.Children[0], locals) // Get pointer value
+				writeByte(buf, I32_WRAP_I64)                 // Convert i64 pointer to i32 address
+
+				// Now evaluate the RHS value
+				EmitExpression(buf, rhs, locals) // RHS value
+
+				// Stack is now: [address_i32, value] - perfect for i64.store
+				writeByte(buf, I64_STORE) // Store i64 to memory
+				writeByte(buf, 0x03)      // alignment (8 bytes = 2^3)
+				writeByte(buf, 0x00)      // offset
+			} else {
+				panic("Invalid assignment target - must be variable or pointer dereference")
 			}
-			if !found {
-				panic("Undefined variable: " + varName)
-			}
-			writeByte(buf, LOCAL_SET)
-			writeLEB128(buf, localIndex)
 		} else {
 			// Regular binary operations
 			EmitExpression(buf, node.Children[0], locals) // left operand
@@ -284,11 +404,15 @@ func EmitExpression(buf *bytes.Buffer, node *ASTNode, locals []LocalVarInfo) {
 
 	case NodeUnary:
 		if node.Op == "&" {
-			// Address-of operator - not yet implemented
-			panic("Address-of operator (&) not yet implemented - requires memory model")
+			// Address-of operator
+			EmitAddressOf(buf, node.Children[0], locals)
 		} else if node.Op == "*" {
-			// Dereference operator - not yet implemented
-			panic("Dereference operator (*) not yet implemented - requires memory model")
+			// Dereference operator
+			EmitExpression(buf, node.Children[0], locals) // Get the pointer value
+			writeByte(buf, I32_WRAP_I64)                  // Convert i64 pointer to i32 address
+			writeByte(buf, I64_LOAD)                      // Load i64 from memory
+			writeByte(buf, 0x03)                          // alignment (8 bytes = 2^3)
+			writeByte(buf, 0x00)                          // offset
 		} else if node.Op == "!" {
 			// Handle existing unary not operator
 			EmitExpression(buf, node.Children[0], locals)
@@ -342,8 +466,9 @@ func CompileToWASM(ast *ASTNode) []byte {
 	// Emit WASM module header and sections in streaming fashion
 	EmitWASMHeader(&buf)
 	EmitTypeSection(&buf)      // function type definitions
-	EmitImportSection(&buf)    // print function import
+	EmitImportSection(&buf)    // print function + tstack global import
 	EmitFunctionSection(&buf)  // declare main function
+	EmitMemorySection(&buf)    // memory for tstack operations
 	EmitExportSection(&buf)    // export main function
 	EmitCodeSection(&buf, ast) // main function body with compiled expression
 
@@ -356,6 +481,13 @@ func collectLocalVariables(node *ASTNode) []LocalVarInfo {
 	var localIndex uint32 = 0
 
 	collectLocalsRecursive(node, &locals, &localIndex)
+
+	// Mark addressed variables by scanning for address-of operations
+	markAddressedVariables(node, locals)
+
+	// Calculate frame offsets for addressed variables
+	calculateFrameOffsets(locals)
+
 	return locals
 }
 
@@ -373,9 +505,10 @@ func collectLocalsRecursive(node *ASTNode, locals *[]LocalVarInfo, index *uint32
 		// Support I64 and I64* (pointers are i64 in WASM)
 		if varType == "I64" || varType == "I64*" {
 			*locals = append(*locals, LocalVarInfo{
-				Name:  varName,
-				Type:  varType,
-				Index: *index,
+				Name:    varName,
+				Type:    varType,
+				Storage: VarStorageLocal,
+				Address: *index,
 			})
 			*index++
 		}
@@ -385,6 +518,162 @@ func collectLocalsRecursive(node *ASTNode, locals *[]LocalVarInfo, index *uint32
 		for _, child := range node.Children {
 			collectLocalsRecursive(child, locals, index)
 		}
+	}
+}
+
+// markAddressedVariables scans the AST to find variables whose addresses are taken
+func markAddressedVariables(node *ASTNode, locals []LocalVarInfo) {
+	if node == nil {
+		return
+	}
+
+	switch node.Kind {
+	case NodeUnary:
+		if node.Op == "&" && len(node.Children) > 0 {
+			// This is an address-of operation
+			child := node.Children[0]
+			if child.Kind == NodeIdent {
+				// Address of a variable - mark it as addressed
+				varName := child.String
+				for i := range locals {
+					if locals[i].Name == varName {
+						locals[i].Storage = VarStorageTStack
+						break
+					}
+				}
+			}
+		}
+		// Continue scanning the operand
+		for _, child := range node.Children {
+			markAddressedVariables(child, locals)
+		}
+
+	case NodeBinary, NodeCall, NodeIndex, NodeBlock, NodeIf, NodeLoop, NodeReturn, NodeVar:
+		// Recursively scan all children
+		for _, child := range node.Children {
+			markAddressedVariables(child, locals)
+		}
+	}
+}
+
+// calculateFrameOffsets assigns frame offsets to addressed variables
+func calculateFrameOffsets(locals []LocalVarInfo) {
+	var offset uint32 = 0
+	for i := range locals {
+		if locals[i].Storage == VarStorageTStack {
+			locals[i].Address = offset
+			offset += 8 // Each I64 value takes 8 bytes
+		}
+	}
+}
+
+// calculateFrameSize computes the total frame size needed for addressed variables
+func calculateFrameSize(locals []LocalVarInfo) uint32 {
+	var size uint32 = 0
+	for _, local := range locals {
+		if local.Storage == VarStorageTStack {
+			size += 8 // Each I64 value takes 8 bytes
+		}
+	}
+	return size
+}
+
+// EmitFrameSetup generates frame setup code at function entry
+func EmitFrameSetup(buf *bytes.Buffer, locals []LocalVarInfo, frameSize uint32) {
+	// Get frame pointer local index (last local variable)
+	framePointerIndex := getFramePointerIndex(locals)
+
+	// Set frame pointer to current tstack pointer: frame_pointer = tstack_pointer
+	writeByte(buf, GLOBAL_GET) // global.get $tstack_pointer
+	writeLEB128(buf, 0)        // tstack global index (0)
+	writeByte(buf, LOCAL_SET)  // local.set $frame_pointer
+	writeLEB128(buf, framePointerIndex)
+
+	// Advance tstack pointer by frame size: tstack_pointer += frame_size
+	writeByte(buf, GLOBAL_GET) // global.get $tstack_pointer
+	writeLEB128(buf, 0)        // tstack global index (0)
+	writeByte(buf, I64_CONST)  // i64.const frame_size
+	writeLEB128Signed(buf, int64(frameSize))
+	writeByte(buf, I64_ADD)    // i64.add
+	writeByte(buf, GLOBAL_SET) // global.set $tstack_pointer
+	writeLEB128(buf, 0)        // tstack global index (0)
+}
+
+// getFramePointerIndex returns the local index for the frame pointer
+func getFramePointerIndex(locals []LocalVarInfo) uint32 {
+	// Frame pointer is the last local (after all VarStorageLocal variable locals)
+	localCount := uint32(0)
+	for _, local := range locals {
+		if local.Storage == VarStorageLocal {
+			localCount++
+		}
+	}
+	return localCount
+}
+
+// EmitAddressOf generates code for address-of operations
+func EmitAddressOf(buf *bytes.Buffer, operand *ASTNode, locals []LocalVarInfo) {
+	if operand.Kind == NodeIdent {
+		// Lvalue case: &variable
+		varName := operand.String
+
+		// Find the variable in locals
+		var targetLocal *LocalVarInfo
+		for i := range locals {
+			if locals[i].Name == varName {
+				targetLocal = &locals[i]
+				break
+			}
+		}
+
+		if targetLocal == nil {
+			panic("Undefined variable in address-of: " + varName)
+		}
+
+		if targetLocal.Storage != VarStorageTStack {
+			panic("Variable " + varName + " is not addressed but address-of is used")
+		}
+
+		// Load frame pointer
+		framePointerIndex := getFramePointerIndex(locals)
+		writeByte(buf, LOCAL_GET)
+		writeLEB128(buf, framePointerIndex)
+
+		// Add variable offset
+		if targetLocal.Address > 0 {
+			writeByte(buf, I64_CONST)
+			writeLEB128Signed(buf, int64(targetLocal.Address))
+			writeByte(buf, I64_ADD)
+		}
+	} else {
+		// Rvalue case: &(expression)
+		// Save current tstack pointer as result first
+		writeByte(buf, GLOBAL_GET) // global.get $tstack_pointer
+		writeLEB128(buf, 0)        // tstack global index (0)
+
+		// Get address for store operation: Stack: [result_addr, store_addr_i32]
+		writeByte(buf, GLOBAL_GET)   // global.get $tstack_pointer -> Stack: [result_addr, store_addr]
+		writeLEB128(buf, 0)          // tstack global index (0)
+		writeByte(buf, I32_WRAP_I64) // i32.wrap_i64 (convert i64 address to i32) -> Stack: [result_addr, store_addr_i32]
+
+		// Evaluate expression to get value: Stack: [result_addr, store_addr_i32, value]
+		EmitExpression(buf, operand, locals)
+
+		// Store value at address: i64.store expects [address, value]
+		writeByte(buf, I64_STORE) // i64.store -> Stack: [result_addr]
+		writeByte(buf, 0x03)      // alignment (2^3 = 8 byte alignment)
+		writeLEB128(buf, 0)       // offset (0)
+
+		// Advance tstack pointer by 8 bytes
+		writeByte(buf, GLOBAL_GET) // global.get $tstack_pointer
+		writeLEB128(buf, 0)        // tstack global index (0)
+		writeByte(buf, I64_CONST)  // i64.const 8
+		writeLEB128Signed(buf, 8)
+		writeByte(buf, I64_ADD)    // i64.add
+		writeByte(buf, GLOBAL_SET) // global.set $tstack_pointer
+		writeLEB128(buf, 0)        // tstack global index (0)
+
+		// Stack now has [result_addr] which is what we want to return
 	}
 }
 

@@ -22,8 +22,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("{}", n);
     });
 
-    // Create imports array with print function in "env" module
-    let imports = [print_func.into()];
+    // Create tstack global (mutable i64 initialized to 0)
+    let tstack_global = Global::new(
+        &mut store,
+        GlobalType::new(ValType::I64, Mutability::Var),
+        Val::I64(0),
+    )?;
+
+    // Create imports array - order must match WASM import order: print function, tstack global
+    let imports = [print_func.into(), tstack_global.into()];
 
     // Instantiate the module
     let instance = Instance::new(&mut store, &module, &imports)?;

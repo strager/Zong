@@ -220,6 +220,34 @@ func TestNestedExpressions(t *testing.T) {
 	be.Equal(t, output, "7\n")
 }
 
+func TestAddressOfOperations(t *testing.T) {
+	tests := []struct {
+		expr     string
+		expected string
+	}{
+		// Test address of variable - should print some address value
+		{"{ var x I64; x = 42; print(x&); }", "0\n"}, // First addressed variable at offset 0
+		// Test multiple addressed variables
+		{"{ var x I64; var y I64; x = 10; y = 20; print(x&); print(y&); }", "0\n8\n"}, // x at 0, y at 8
+		// Test address of rvalue expression
+		{"{ var x I64; x = 5; print((x + 10)&); }", "0\n"}, // Expression result stored at tstack=0
+	}
+
+	for _, test := range tests {
+		t.Run(test.expr, func(t *testing.T) {
+			input := []byte(test.expr + "\x00")
+			Init(input)
+			NextToken()
+			ast := ParseStatement()
+			wasmBytes := CompileToWASM(ast)
+
+			output, err := executeWasm(t, wasmBytes)
+			be.Err(t, err, nil)
+			be.Equal(t, output, test.expected)
+		})
+	}
+}
+
 func TestFullCapabilitiesDemo(t *testing.T) {
 	// Comprehensive test of all supported operations
 	tests := []struct {
@@ -250,6 +278,132 @@ func TestFullCapabilitiesDemo(t *testing.T) {
 			t.Logf("Testing %s: %s", test.desc, test.expr)
 			wasmBytes := compileExpression(t, test.expr)
 			executeWasmAndVerify(t, wasmBytes, test.expected)
+		})
+	}
+}
+
+// TestPointerOperations tests comprehensive pointer functionality including:
+// - Basic pointer assignment and dereferencing (ptr = var&, print(ptr*))
+// - Bidirectional synchronization (modify via pointer, read via variable and vice versa)
+// - Multiple pointers to the same target
+// - Pointer dereferencing in arithmetic expressions
+// - Assignment through pointer dereferencing (ptr* = value)
+func TestPointerOperations(t *testing.T) {
+	tests := []struct {
+		name     string
+		expr     string
+		expected string
+		desc     string
+	}{
+		{
+			"basic_pointer_assignment",
+			"{ var x I64; var ptr I64*; x = 42; ptr = x&; print(ptr*); }",
+			"42\n",
+			"Basic pointer: assign address, dereference to read value",
+		},
+		{
+			"modify_via_pointer_read_via_var",
+			"{ var x I64; var ptr I64*; x = 10; ptr = x&; ptr* = 99; print(x); }",
+			"99\n",
+			"Modify pointee via pointer, read via original variable",
+		},
+		{
+			"modify_via_var_read_via_pointer",
+			"{ var x I64; var ptr I64*; x = 25; ptr = x&; x = 77; print(ptr*); }",
+			"77\n",
+			"Modify via variable, read via pointer",
+		},
+		{
+			"pointer_in_arithmetic",
+			"{ var x I64; var ptr I64*; x = 7; ptr = x&; print(ptr* + 3); }",
+			"10\n",
+			"Use pointer dereference in arithmetic expression",
+		},
+		{
+			"multiple_pointers_same_target",
+			"{ var x I64; var ptr1 I64*; var ptr2 I64*; x = 123; ptr1 = x&; ptr2 = x&; print(ptr1*); print(ptr2*); ptr1* = 456; print(ptr2*); }",
+			"123\n123\n456\n",
+			"Multiple pointers to same variable - modify via one, read via another",
+		},
+		{
+			"sequential_pointer_ops",
+			"{ var x I64; var ptr I64*; x = 100; ptr = x&; print(ptr*); ptr* = 200; print(x); }",
+			"100\n200\n",
+			"Sequential pointer operations on same variable",
+		},
+		{
+			"pointer_in_expression",
+			"{ var x I64; var y I64; var ptr I64*; x = 8; y = 7; ptr = x&; print(ptr* * y + 6); }",
+			"62\n",
+			"Use pointer dereference in complex expression: (8 * 7 + 6)",
+		},
+		{
+			"pointer_modification_sequence",
+			"{ var x I64; var ptr I64*; x = 5; ptr = x&; ptr* = ptr* + 1; print(x); ptr* = ptr* * 2; print(x); }",
+			"6\n12\n",
+			"Sequential modifications via pointer",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Logf("Testing %s: %s", test.desc, test.expr)
+			input := []byte(test.expr + "\x00")
+			Init(input)
+			NextToken()
+			ast := ParseStatement()
+			wasmBytes := CompileToWASM(ast)
+
+			output, err := executeWasm(t, wasmBytes)
+			be.Err(t, err, nil)
+			be.Equal(t, output, test.expected)
+		})
+	}
+}
+
+// TestAdvancedPointerScenarios tests more complex pointer use cases including:
+// - Address-of complex expressions stored on stack
+// - Pointer chains and transitive modifications
+// - Expression result addresses with proper stack frame management
+func TestAdvancedPointerScenarios(t *testing.T) {
+	tests := []struct {
+		name     string
+		expr     string
+		expected string
+		desc     string
+	}{
+		{
+			"pointer_to_expression_result",
+			"{ var x I64; x = 5; print((x + 10)&); print((x * 2)&); }",
+			"0\n8\n",
+			"Address-of expressions stored on stack at different offsets",
+		},
+		{
+			"complex_pointer_assignment",
+			"{ var a I64; var b I64; var c I64; var ptr I64*; a = 1; b = 2; c = 3; ptr = (a + b)&; print(ptr*); ptr = (b * c)&; print(ptr*); }",
+			"3\n6\n",
+			"Pointer to complex expression results",
+		},
+		{
+			"pointer_chain_modification",
+			"{ var x I64; var ptr1 I64*; var ptr2 I64*; x = 50; ptr1 = x&; ptr2 = ptr1; ptr2* = 75; print(x); print(ptr1*); }",
+			"75\n75\n",
+			"Chain of pointer assignments - modify through second pointer",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Logf("Testing %s: %s", test.desc, test.expr)
+			input := []byte(test.expr + "\x00")
+			Init(input)
+			NextToken()
+			ast := ParseStatement()
+			wasmBytes := CompileToWASM(ast)
+
+			output, err := executeWasm(t, wasmBytes)
+			be.Err(t, err, nil)
+			be.Equal(t, output, test.expected)
 		})
 	}
 }
