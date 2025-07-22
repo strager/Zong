@@ -62,6 +62,30 @@ func TestParseVarStatement(t *testing.T) {
 	}
 }
 
+func TestParsePointerVariableDeclaration(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{
+			input:    "var ptr I64*;\x00",
+			expected: "(var (ident \"ptr\") (ident \"I64*\"))",
+		},
+		{
+			input:    "var x I64;\x00",
+			expected: "(var (ident \"x\") (ident \"I64\"))",
+		},
+	}
+
+	for _, test := range tests {
+		Init([]byte(test.input))
+		NextToken()
+		result := ParseStatement()
+		actual := ToSExpr(result)
+		be.Equal(t, actual, test.expected)
+	}
+}
+
 func TestParseBlockStatement(t *testing.T) {
 	tests := []struct {
 		input    string
@@ -82,6 +106,10 @@ func TestParseBlockStatement(t *testing.T) {
 		{
 			input:    "{ var x int; return x; }\x00",
 			expected: "(block (var (ident \"x\") (ident \"int\")) (return (ident \"x\")))",
+		},
+		{
+			input:    "{ var x I64; var ptr I64*; }\x00",
+			expected: "(block (var (ident \"x\") (ident \"I64\")) (var (ident \"ptr\") (ident \"I64*\")))",
 		},
 		{
 			input:    "{ { } }\x00",

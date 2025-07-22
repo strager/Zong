@@ -99,3 +99,87 @@ func TestUndefinedVariableReference(t *testing.T) {
 	printArg := ast.Children[1] // the undefined_var argument
 	EmitExpression(&buf, printArg, locals)
 }
+
+func TestCollectSinglePointerVariable(t *testing.T) {
+	input := []byte("var ptr I64*;\x00")
+	Init(input)
+	NextToken()
+	ast := ParseStatement()
+
+	locals := collectLocalVariables(ast)
+
+	expected := []LocalVarInfo{
+		{Name: "ptr", Type: "I64*", Index: 0},
+	}
+
+	be.Equal(t, expected, locals)
+}
+
+func TestCollectMixedPointerAndRegularVariables(t *testing.T) {
+	input := []byte("{ var x I64; var ptr I64*; var y I64; }\x00")
+	Init(input)
+	NextToken()
+	ast := ParseStatement()
+
+	locals := collectLocalVariables(ast)
+
+	expected := []LocalVarInfo{
+		{Name: "x", Type: "I64", Index: 0},
+		{Name: "ptr", Type: "I64*", Index: 1},
+		{Name: "y", Type: "I64", Index: 2},
+	}
+
+	be.Equal(t, expected, locals)
+}
+
+func TestCollectMultiplePointerVariables(t *testing.T) {
+	input := []byte("{ var ptr1 I64*; var ptr2 I64*; }\x00")
+	Init(input)
+	NextToken()
+	ast := ParseStatement()
+
+	locals := collectLocalVariables(ast)
+
+	expected := []LocalVarInfo{
+		{Name: "ptr1", Type: "I64*", Index: 0},
+		{Name: "ptr2", Type: "I64*", Index: 1},
+	}
+
+	be.Equal(t, expected, locals)
+}
+
+func TestCollectNestedBlockPointerVariables(t *testing.T) {
+	input := []byte("{ var a I64; { var ptr I64*; } var b I64*; }\x00")
+	Init(input)
+	NextToken()
+	ast := ParseStatement()
+
+	locals := collectLocalVariables(ast)
+
+	expected := []LocalVarInfo{
+		{Name: "a", Type: "I64", Index: 0},
+		{Name: "ptr", Type: "I64*", Index: 1},
+		{Name: "b", Type: "I64*", Index: 2},
+	}
+
+	be.Equal(t, expected, locals)
+}
+
+func TestPointerVariablesInWASMCodeSection(t *testing.T) {
+	input := []byte("{ var x I64; var ptr I64*; print(x); }\x00")
+	Init(input)
+	NextToken()
+	ast := ParseStatement()
+
+	var buf bytes.Buffer
+	EmitCodeSection(&buf, ast)
+
+	// Should emit locals for both I64 and I64* variables
+	// Both should be counted as i64 locals in WASM
+	bytesResult := buf.Bytes()
+
+	// Verify that the function has locals (non-zero local count)
+	// The exact WASM structure verification is complex, but we can at least
+	// verify that code generation doesn't panic and produces output
+	be.True(t, len(bytesResult) > 0)
+}

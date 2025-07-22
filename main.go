@@ -5,7 +5,7 @@ import "bytes"
 // LocalVarInfo represents information about a local variable
 type LocalVarInfo struct {
 	Name  string
-	Type  string // "I64" only for this implementation
+	Type  string // "I64" or "I64*" (pointers are i64 in WASM)
 	Index uint32 // Local variable index in WASM
 }
 
@@ -159,10 +159,10 @@ func EmitCodeSection(buf *bytes.Buffer, ast *ASTNode) {
 
 	// Emit locals declarations
 	if len(locals) > 0 {
-		// Group locals by type (all I64 in this implementation)
+		// Group locals by type (all I64 in this implementation, including pointers)
 		i64Count := 0
 		for _, local := range locals {
-			if local.Type == "I64" {
+			if local.Type == "I64" || local.Type == "I64*" {
 				i64Count++
 			}
 		}
@@ -281,6 +281,20 @@ func EmitExpression(buf *bytes.Buffer, node *ASTNode, locals []LocalVarInfo) {
 			writeByte(buf, CALL) // call instruction
 			writeLEB128(buf, 0)  // function index 0 (print import)
 		}
+
+	case NodeUnary:
+		if node.Op == "&" {
+			// Address-of operator - not yet implemented
+			panic("Address-of operator (&) not yet implemented - requires memory model")
+		} else if node.Op == "*" {
+			// Dereference operator - not yet implemented
+			panic("Dereference operator (*) not yet implemented - requires memory model")
+		} else if node.Op == "!" {
+			// Handle existing unary not operator
+			EmitExpression(buf, node.Children[0], locals)
+			// TODO: Implement logical not operation
+			panic("Unary not operator (!) not yet implemented")
+		}
 	}
 }
 
@@ -356,11 +370,11 @@ func collectLocalsRecursive(node *ASTNode, locals *[]LocalVarInfo, index *uint32
 		varName := node.Children[0].String
 		varType := node.Children[1].String
 
-		// Only support I64 for now
-		if varType == "I64" { // Zong 'int' maps to WASM I64
+		// Support I64 and I64* (pointers are i64 in WASM)
+		if varType == "I64" || varType == "I64*" {
 			*locals = append(*locals, LocalVarInfo{
 				Name:  varName,
-				Type:  "I64",
+				Type:  varType,
 				Index: *index,
 			})
 			*index++
@@ -1018,6 +1032,8 @@ func precedence(tokenType TokenType) int {
 		return 4
 	case LBRACKET, LPAREN: // subscript and function call operators
 		return 5 // highest precedence (postfix)
+	case BIT_AND: // postfix address-of operator
+		return 5 // highest precedence (postfix)
 	default:
 		return 0 // not an operator
 	}
@@ -1111,6 +1127,38 @@ func parseExpressionWithPrecedence(minPrec int) *ASTNode {
 				Kind:           NodeCall,
 				Children:       append([]*ASTNode{left}, args...),
 				ParameterNames: paramNames,
+			}
+		} else if CurrTokenType == ASTERISK && minPrec <= 5 {
+			// Handle postfix dereference operator: expr*
+			// Check if next token suggests this should be binary instead
+			nextToken := PeekToken()
+			if nextToken == IDENT || nextToken == INT || nextToken == LPAREN || nextToken == LBRACKET {
+				// Treat as binary multiplication - fall through to binary operator handling
+				op := CurrLiteral
+				prec := precedence(CurrTokenType)
+				NextToken()
+				right := parseExpressionWithPrecedence(prec + 1) // left-associative
+				left = &ASTNode{
+					Kind:     NodeBinary,
+					Op:       op,
+					Children: []*ASTNode{left, right},
+				}
+			} else {
+				// Treat as postfix dereference
+				SkipToken(ASTERISK)
+				left = &ASTNode{
+					Kind:     NodeUnary,
+					Op:       "*",
+					Children: []*ASTNode{left},
+				}
+			}
+		} else if CurrTokenType == BIT_AND {
+			// Handle postfix address-of operator: expr&
+			SkipToken(BIT_AND)
+			left = &ASTNode{
+				Kind:     NodeUnary,
+				Op:       "&",
+				Children: []*ASTNode{left},
 			}
 		} else {
 			// Handle binary operators
@@ -1215,11 +1263,22 @@ func ParseStatement() *ASTNode {
 		if CurrTokenType != IDENT {
 			return &ASTNode{} // error - expecting type
 		}
+
+		// Parse type with potential pointer suffix
+		typeName := CurrLiteral
+		SkipToken(IDENT)
+
+		// Check for pointer suffix
+		if CurrTokenType == ASTERISK {
+			typeName += "*"
+			SkipToken(ASTERISK)
+		}
+
 		varType := &ASTNode{
 			Kind:   NodeIdent,
-			String: CurrLiteral,
+			String: typeName,
 		}
-		SkipToken(IDENT)
+
 		if CurrTokenType == SEMICOLON {
 			SkipToken(SEMICOLON)
 		}

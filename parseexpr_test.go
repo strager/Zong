@@ -233,3 +233,86 @@ func TestParseComplexExpressionsCombined(t *testing.T) {
 		be.Equal(t, result, test.expected)
 	}
 }
+
+func TestParseAddressOfOperator(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"x&\x00", "(unary \"&\" (ident \"x\"))"},
+		{"(x + y)&\x00", "(unary \"&\" (binary \"+\" (ident \"x\") (ident \"y\")))"},
+		{"arr[0]&\x00", "(unary \"&\" (idx (ident \"arr\") (integer 0)))"},
+	}
+
+	for _, test := range tests {
+		Init([]byte(test.input))
+		NextToken()
+		ast := ParseExpression()
+		result := ToSExpr(ast)
+
+		be.Equal(t, result, test.expected)
+	}
+}
+
+func TestParseDereferenceOperator(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"ptr*\x00", "(unary \"*\" (ident \"ptr\"))"},
+		{"(ptr + 1)*\x00", "(unary \"*\" (binary \"+\" (ident \"ptr\") (integer 1)))"},
+	}
+
+	for _, test := range tests {
+		Init([]byte(test.input))
+		NextToken()
+		ast := ParseExpression()
+		result := ToSExpr(ast)
+
+		be.Equal(t, result, test.expected)
+	}
+}
+
+func TestPointerOperatorPrecedence(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"x& + 1\x00", "(binary \"+\" (unary \"&\" (ident \"x\")) (integer 1))"},
+		{"1 + x&\x00", "(binary \"+\" (integer 1) (unary \"&\" (ident \"x\")))"},
+		{"(x + 1)&\x00", "(unary \"&\" (binary \"+\" (ident \"x\") (integer 1)))"},
+		{"ptr* + 1\x00", "(binary \"+\" (unary \"*\" (ident \"ptr\")) (integer 1))"},
+		{"1 + ptr*\x00", "(binary \"+\" (integer 1) (unary \"*\" (ident \"ptr\")))"},
+		{"(ptr + 1)*\x00", "(unary \"*\" (binary \"+\" (ident \"ptr\") (integer 1)))"},
+	}
+
+	for _, test := range tests {
+		Init([]byte(test.input))
+		NextToken()
+		ast := ParseExpression()
+		result := ToSExpr(ast)
+
+		be.Equal(t, result, test.expected)
+	}
+}
+
+func TestComplexPointerExpressions(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"x&*\x00", "(unary \"*\" (unary \"&\" (ident \"x\")))"},
+		{"x*&\x00", "(unary \"&\" (unary \"*\" (ident \"x\")))"},
+		{"ptr*& + 1\x00", "(binary \"+\" (unary \"&\" (unary \"*\" (ident \"ptr\"))) (integer 1))"},
+		{"arr[0]&*\x00", "(unary \"*\" (unary \"&\" (idx (ident \"arr\") (integer 0))))"},
+	}
+
+	for _, test := range tests {
+		Init([]byte(test.input))
+		NextToken()
+		ast := ParseExpression()
+		result := ToSExpr(ast)
+
+		be.Equal(t, result, test.expected)
+	}
+}
