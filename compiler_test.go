@@ -463,9 +463,7 @@ func verifyTypeASTPopulated(t *testing.T, node *ASTNode) {
 
 	switch node.Kind {
 	case NodeVar:
-		if node.TypeAST == nil {
-			t.Errorf("TypeAST should not be nil for variable declaration: %s", node.Children[0].String)
-		}
+		be.True(t, node.TypeAST != nil)
 		// No need to verify string representation since we're not storing it anymore
 	case NodeBlock, NodeIf, NodeLoop:
 		for _, child := range node.Children {
@@ -477,10 +475,10 @@ func verifyTypeASTPopulated(t *testing.T, node *ASTNode) {
 // Tests for EmitExpression edge cases
 func TestEmitExpressionUndefinedVariable(t *testing.T) {
 	defer func() {
-		if r := recover(); r == nil {
-			t.Errorf("Should panic for undefined variable")
-		} else if !strings.Contains(r.(string), "Undefined variable") {
-			t.Errorf("Expected panic about undefined variable, got: %v", r)
+		r := recover()
+		be.True(t, r != nil)
+		if r != nil {
+			be.True(t, strings.Contains(r.(string), "Undefined variable"))
 		}
 	}()
 
@@ -502,10 +500,10 @@ func TestEmitExpressionUndefinedVariable(t *testing.T) {
 
 func TestEmitExpressionInvalidAssignmentTarget(t *testing.T) {
 	defer func() {
-		if r := recover(); r == nil {
-			t.Errorf("Should panic for invalid assignment target")
-		} else if !strings.Contains(r.(string), "Invalid assignment target") {
-			t.Errorf("Expected panic about invalid assignment target, got: %v", r)
+		r := recover()
+		be.True(t, r != nil)
+		if r != nil {
+			be.True(t, strings.Contains(r.(string), "Invalid assignment target"))
 		}
 	}()
 
@@ -528,10 +526,10 @@ func TestEmitExpressionInvalidAssignmentTarget(t *testing.T) {
 // Tests for EmitAddressOf edge cases
 func TestEmitAddressOfUndefinedVariable(t *testing.T) {
 	defer func() {
-		if r := recover(); r == nil {
-			t.Errorf("Should panic for undefined variable in address-of")
-		} else if !strings.Contains(r.(string), "Undefined variable") {
-			t.Errorf("Expected panic about undefined variable, got: %v", r)
+		r := recover()
+		be.True(t, r != nil)
+		if r != nil {
+			be.True(t, strings.Contains(r.(string), "Undefined variable"))
 		}
 	}()
 
@@ -548,10 +546,10 @@ func TestEmitAddressOfUndefinedVariable(t *testing.T) {
 
 func TestEmitAddressOfNonAddressedVariable(t *testing.T) {
 	defer func() {
-		if r := recover(); r == nil {
-			t.Errorf("Should panic for non-addressed variable")
-		} else if !strings.Contains(r.(string), "not addressed") {
-			t.Errorf("Expected panic about non-addressed variable, got: %v", r)
+		r := recover()
+		be.True(t, r != nil)
+		if r != nil {
+			be.True(t, strings.Contains(r.(string), "not addressed"))
 		}
 	}()
 
@@ -604,7 +602,5 @@ func TestStackVariableAddressAccess(t *testing.T) {
 	}
 
 	// Addresses should be different (distinct values)
-	if lines[0] == lines[1] {
-		t.Errorf("Expected different addresses, got same address: %s", lines[0])
-	}
+	be.True(t, lines[0] != lines[1])
 }

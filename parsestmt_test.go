@@ -326,20 +326,17 @@ func TestVarTypeAST(t *testing.T) {
 		NextToken()
 		result := ParseStatement()
 
+		be.Equal(t, NodeVar, result.Kind)
 		if result.Kind != NodeVar {
-			t.Errorf("Expected NodeVar, got %v", result.Kind)
 			continue
 		}
 
+		be.True(t, result.TypeAST != nil)
 		if result.TypeAST == nil {
-			t.Errorf("TypeAST should not be nil for input: %s", test.input)
 			continue
 		}
 
-		if !TypesEqual(result.TypeAST, test.expectedType) {
-			t.Errorf("TypeAST mismatch for %s: expected %s, got %s",
-				test.input, TypeToString(test.expectedType), TypeToString(result.TypeAST))
-		}
+		be.True(t, TypesEqual(result.TypeAST, test.expectedType))
 	}
 }
 
@@ -365,31 +362,19 @@ func TestTypeUtilityFunctions(t *testing.T) {
 	}
 
 	// Test TypeToString
-	if TypeToString(TypeI64) != "I64" {
-		t.Errorf("TypeToString(TypeI64) = %s, want I64", TypeToString(TypeI64))
-	}
+	be.Equal(t, "I64", TypeToString(TypeI64))
 
-	if TypeToString(i64Ptr) != "I64*" {
-		t.Errorf("TypeToString(I64*) = %s, want I64*", TypeToString(i64Ptr))
-	}
+	be.Equal(t, "I64*", TypeToString(i64Ptr))
 
 	i64PtrPtr := &TypeNode{Kind: TypePointer, Child: i64Ptr}
-	if TypeToString(i64PtrPtr) != "I64**" {
-		t.Errorf("TypeToString(I64**) = %s, want I64**", TypeToString(i64PtrPtr))
-	}
+	be.Equal(t, "I64**", TypeToString(i64PtrPtr))
 
 	// Test GetTypeSize
-	if GetTypeSize(TypeI64) != 8 {
-		t.Errorf("GetTypeSize(I64) = %d, want 8", GetTypeSize(TypeI64))
-	}
+	be.Equal(t, 8, GetTypeSize(TypeI64))
 
-	if GetTypeSize(TypeBool) != 1 {
-		t.Errorf("GetTypeSize(Bool) = %d, want 1", GetTypeSize(TypeBool))
-	}
+	be.Equal(t, 1, GetTypeSize(TypeBool))
 
-	if GetTypeSize(i64Ptr) != 8 {
-		t.Errorf("GetTypeSize(I64*) = %d, want 8", GetTypeSize(i64Ptr))
-	}
+	be.Equal(t, 8, GetTypeSize(i64Ptr))
 
 	// Test isWASMI64Type
 	if !isWASMI64Type(TypeI64) {
@@ -428,9 +413,7 @@ func TestParseStatementErrorCases(t *testing.T) {
 
 			result := ParseStatement()
 			// Should handle malformed statements gracefully
-			if result == nil {
-				t.Errorf("ParseStatement should return a node even for malformed input")
-			}
+			be.True(t, result != nil)
 		})
 	}
 }
@@ -443,7 +426,5 @@ func TestParseStatementVarWithInvalidType(t *testing.T) {
 
 	result := ParseStatement()
 	// Should handle invalid type gracefully
-	if result == nil {
-		t.Errorf("ParseStatement should return a node even for invalid type")
-	}
+	be.True(t, result != nil)
 }

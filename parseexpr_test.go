@@ -326,9 +326,7 @@ func TestParseExpressionMalformedFunctionCall(t *testing.T) {
 
 	// Should handle malformed function call gracefully without panic
 	result := ParseExpression()
-	if result == nil {
-		t.Errorf("ParseExpression should return a node even for malformed input")
-	}
+	be.True(t, result != nil)
 }
 
 func TestParsePrimaryUnknownToken(t *testing.T) {
@@ -339,9 +337,7 @@ func TestParsePrimaryUnknownToken(t *testing.T) {
 
 	result := parsePrimary()
 	// Should handle unknown tokens gracefully
-	if result == nil {
-		t.Errorf("parsePrimary should return a node even for unknown tokens")
-	}
+	be.True(t, result != nil)
 }
 
 func TestParseTypeExpressionNonIdentToken(t *testing.T) {
@@ -351,9 +347,7 @@ func TestParseTypeExpressionNonIdentToken(t *testing.T) {
 	NextToken()
 
 	result := parseTypeExpression()
-	if result != nil {
-		t.Errorf("Expected nil for non-IDENT token, got %v", result)
-	}
+	be.Equal(t, nil, result)
 }
 
 // Tests for additional edge cases in parsing
@@ -364,24 +358,19 @@ func TestParseExpressionRightAssociativity(t *testing.T) {
 	NextToken()
 
 	result := ParseExpression()
-	if result == nil {
-		t.Errorf("Expected parsed expression for chained assignment")
-	}
+	be.True(t, result != nil)
 
 	// Verify the structure represents right-associativity: a = (b = c)
-	if result.Kind != NodeBinary || result.Op != "=" {
-		t.Errorf("Expected binary assignment node")
-	}
+	be.Equal(t, NodeBinary, result.Kind)
+	be.Equal(t, "=", result.Op)
 
-	if result.Children == nil || len(result.Children) != 2 {
-		t.Errorf("Expected 2 children for assignment")
-	}
+	be.True(t, result.Children != nil)
+	be.Equal(t, 2, len(result.Children))
 
 	// Right child should be another assignment
 	rightChild := result.Children[1]
-	if rightChild.Kind != NodeBinary || rightChild.Op != "=" {
-		t.Errorf("Expected nested assignment on right side")
-	}
+	be.Equal(t, NodeBinary, rightChild.Kind)
+	be.Equal(t, "=", rightChild.Op)
 }
 
 func TestParseExpressionOperatorPrecedence(t *testing.T) {
@@ -391,24 +380,19 @@ func TestParseExpressionOperatorPrecedence(t *testing.T) {
 	NextToken()
 
 	result := ParseExpression()
-	if result == nil {
-		t.Errorf("Expected parsed expression for precedence test")
-	}
+	be.True(t, result != nil)
 
 	// Should parse as: a + (b * c)
-	if result.Kind != NodeBinary || result.Op != "+" {
-		t.Errorf("Expected addition at top level")
-	}
+	be.Equal(t, NodeBinary, result.Kind)
+	be.Equal(t, "+", result.Op)
 
-	if result.Children == nil || len(result.Children) != 2 {
-		t.Errorf("Expected 2 children for addition")
-	}
+	be.True(t, result.Children != nil)
+	be.Equal(t, 2, len(result.Children))
 
 	// Right child should be multiplication
 	rightChild := result.Children[1]
-	if rightChild.Kind != NodeBinary || rightChild.Op != "*" {
-		t.Errorf("Expected multiplication as right child")
-	}
+	be.Equal(t, NodeBinary, rightChild.Kind)
+	be.Equal(t, "*", rightChild.Op)
 }
 
 // Test for handling pointer dereference expressions
@@ -418,14 +402,13 @@ func TestParseExpressionPointerDereference(t *testing.T) {
 	NextToken()
 
 	result := ParseExpression()
+	be.True(t, result != nil)
 	if result == nil {
-		t.Errorf("Expected parsed expression for pointer dereference")
 		return
 	}
 
-	if result.Kind != NodeUnary || result.Op != "*" {
-		t.Errorf("Expected unary dereference node, got Kind=%v Op=%v", result.Kind, result.Op)
-	}
+	be.Equal(t, NodeUnary, result.Kind)
+	be.Equal(t, "*", result.Op)
 }
 
 // Test for handling address-of expressions
@@ -435,12 +418,11 @@ func TestParseExpressionAddressOf(t *testing.T) {
 	NextToken()
 
 	result := ParseExpression()
+	be.True(t, result != nil)
 	if result == nil {
-		t.Errorf("Expected parsed expression for address-of")
 		return
 	}
 
-	if result.Kind != NodeUnary || result.Op != "&" {
-		t.Errorf("Expected unary address-of node, got Kind=%v Op=%v", result.Kind, result.Op)
-	}
+	be.Equal(t, NodeUnary, result.Kind)
+	be.Equal(t, "&", result.Op)
 }

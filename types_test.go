@@ -2,6 +2,8 @@ package main
 
 import (
 	"testing"
+
+	"github.com/nalgeon/be"
 )
 
 func TestTypesEqual(t *testing.T) {
@@ -51,9 +53,7 @@ func TestTypesEqual(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			result := TypesEqual(test.a, test.b)
-			if result != test.expected {
-				t.Errorf("TypesEqual(%v, %v) = %v, expected %v", test.a, test.b, result, test.expected)
-			}
+			be.Equal(t, test.expected, result)
 		})
 	}
 }
@@ -99,9 +99,7 @@ func TestIsWASMI64Type(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			result := isWASMI64Type(test.t)
-			if result != test.expected {
-				t.Errorf("isWASMI64Type(%v) = %v, expected %v", test.t, result, test.expected)
-			}
+			be.Equal(t, test.expected, result)
 		})
 	}
 }
@@ -137,9 +135,7 @@ func TestGetTypeSize(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			result := GetTypeSize(test.t)
-			if result != test.expected {
-				t.Errorf("GetTypeSize(%v) = %v, expected %v", test.t, result, test.expected)
-			}
+			be.Equal(t, test.expected, result)
 		})
 	}
 }
@@ -180,9 +176,7 @@ func TestTypeToString(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			result := TypeToString(test.t)
-			if result != test.expected {
-				t.Errorf("TypeToString(%v) = %q, expected %q", test.t, result, test.expected)
-			}
+			be.Equal(t, test.expected, result)
 		})
 	}
 }

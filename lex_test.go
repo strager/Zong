@@ -376,24 +376,20 @@ func TestSkipToken(t *testing.T) {
 		Init(input)
 		NextToken()
 
-		if CurrTokenType != INT {
-			t.Errorf("Expected INT, got %v", CurrTokenType)
-		}
+		be.Equal(t, INT, CurrTokenType)
 
 		SkipToken(INT) // Should not panic
 
-		if CurrTokenType != EOF {
-			t.Errorf("Expected EOF after skip, got %v", CurrTokenType)
-		}
+		be.Equal(t, EOF, CurrTokenType)
 	})
 
 	// Test panic on wrong token type
 	t.Run("panic on wrong token", func(t *testing.T) {
 		defer func() {
-			if r := recover(); r == nil {
-				t.Errorf("SkipToken should panic on wrong token type")
-			} else if !strings.Contains(r.(string), "Expected token") {
-				t.Errorf("Expected panic message about expected token, got: %v", r)
+			r := recover()
+			be.True(t, r != nil)
+			if r != nil {
+				be.True(t, strings.Contains(r.(string), "Expected token"))
 			}
 		}()
 
@@ -401,9 +397,7 @@ func TestSkipToken(t *testing.T) {
 		Init(input)
 		NextToken()
 
-		if CurrTokenType != INT {
-			t.Errorf("Expected INT, got %v", CurrTokenType)
-		}
+		be.Equal(t, INT, CurrTokenType)
 
 		SkipToken(IDENT) // Should panic - wrong token type
 	})
@@ -445,9 +439,7 @@ func TestIntToString(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			result := intToString(test.value)
-			if result != test.expected {
-				t.Errorf("intToString(%d) = %q, expected %q", test.value, result, test.expected)
-			}
+			be.Equal(t, test.expected, result)
 		})
 	}
 }
@@ -459,10 +451,6 @@ func TestNextTokenIllegalCharacter(t *testing.T) {
 	Init(input)
 	NextToken()
 
-	if CurrTokenType != ILLEGAL {
-		t.Errorf("Expected ILLEGAL token, got %v", CurrTokenType)
-	}
-	if CurrLiteral != "@" {
-		t.Errorf("Expected '@' literal, got %q", CurrLiteral)
-	}
+	be.Equal(t, ILLEGAL, CurrTokenType)
+	be.Equal(t, "@", CurrLiteral)
 }
