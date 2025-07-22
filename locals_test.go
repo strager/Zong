@@ -265,3 +265,53 @@ func TestAddressOfRvalue(t *testing.T) {
 
 	be.Equal(t, expected, locals)
 }
+
+func TestCollectLocalsRecursive(t *testing.T) {
+	t.Run("handles nil TypeAST", func(t *testing.T) {
+		// Create a NodeVar with nil TypeAST to trigger the early return
+		node := &ASTNode{
+			Kind: NodeVar,
+			Children: []*ASTNode{
+				{Kind: NodeIdent, String: "x"},
+			},
+			TypeAST: nil, // This will trigger the early return
+		}
+
+		var locals []LocalVarInfo
+		var index uint32 = 0
+
+		// This should not panic and should return early
+		collectLocalsRecursive(node, &locals, &index)
+
+		// Verify that no variables were collected due to nil TypeAST
+		if len(locals) != 0 {
+			t.Errorf("Expected no variables collected with nil TypeAST, got %d", len(locals))
+		}
+	})
+
+	t.Run("collects variable with valid TypeAST", func(t *testing.T) {
+		// Create a NodeVar with valid TypeAST
+		node := &ASTNode{
+			Kind: NodeVar,
+			Children: []*ASTNode{
+				{Kind: NodeIdent, String: "x"},
+			},
+			TypeAST: &TypeNode{
+				Kind:   TypeBuiltin,
+				String: "I64",
+			},
+		}
+
+		var locals []LocalVarInfo
+		var index uint32 = 0
+
+		collectLocalsRecursive(node, &locals, &index)
+
+		// Verify that the variable was collected
+		if len(locals) != 1 {
+			t.Errorf("Expected 1 variable collected, got %d", len(locals))
+		} else if locals[0].Name != "x" {
+			t.Errorf("Expected variable name 'x', got '%s'", locals[0].Name)
+		}
+	})
+}

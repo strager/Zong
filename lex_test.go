@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/nalgeon/be"
@@ -366,4 +367,102 @@ func TestUnterminatedBlockComment(t *testing.T) {
 
 	NextToken()
 	be.Equal(t, CurrTokenType, EOF)
+}
+
+func TestSkipToken(t *testing.T) {
+	// Test successful token skip
+	t.Run("successful skip", func(t *testing.T) {
+		input := []byte("123\x00")
+		Init(input)
+		NextToken()
+
+		if CurrTokenType != INT {
+			t.Errorf("Expected INT, got %v", CurrTokenType)
+		}
+
+		SkipToken(INT) // Should not panic
+
+		if CurrTokenType != EOF {
+			t.Errorf("Expected EOF after skip, got %v", CurrTokenType)
+		}
+	})
+
+	// Test panic on wrong token type
+	t.Run("panic on wrong token", func(t *testing.T) {
+		defer func() {
+			if r := recover(); r == nil {
+				t.Errorf("SkipToken should panic on wrong token type")
+			} else if !strings.Contains(r.(string), "Expected token") {
+				t.Errorf("Expected panic message about expected token, got: %v", r)
+			}
+		}()
+
+		input := []byte("123\x00")
+		Init(input)
+		NextToken()
+
+		if CurrTokenType != INT {
+			t.Errorf("Expected INT, got %v", CurrTokenType)
+		}
+
+		SkipToken(IDENT) // Should panic - wrong token type
+	})
+}
+
+func TestIntToString(t *testing.T) {
+	tests := []struct {
+		name     string
+		value    int64
+		expected string
+	}{
+		{
+			name:     "positive number",
+			value:    42,
+			expected: "42",
+		},
+		{
+			name:     "zero",
+			value:    0,
+			expected: "0",
+		},
+		{
+			name:     "negative number",
+			value:    -42,
+			expected: "-42",
+		},
+		{
+			name:     "large positive",
+			value:    9223372036854775807, // max int64
+			expected: "9223372036854775807",
+		},
+		{
+			name:     "large negative",
+			value:    -9223372036854775808, // min int64
+			expected: "-9223372036854775808",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			result := intToString(test.value)
+			if result != test.expected {
+				t.Errorf("intToString(%d) = %q, expected %q", test.value, result, test.expected)
+			}
+		})
+	}
+}
+
+// Tests for NextToken edge cases
+func TestNextTokenIllegalCharacter(t *testing.T) {
+	// Test handling of illegal/unknown characters
+	input := []byte("@#$\x00") // Special characters not handled by lexer
+	Init(input)
+	NextToken()
+
+	if CurrTokenType != ILLEGAL {
+		t.Errorf("Expected ILLEGAL token, got %v", CurrTokenType)
+	}
+	if CurrLiteral != "@" {
+		t.Errorf("Expected '@' literal, got %q", CurrLiteral)
+	}
 }

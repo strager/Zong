@@ -409,3 +409,41 @@ func TestTypeUtilityFunctions(t *testing.T) {
 		t.Error("string type should not be a WASM I64 type")
 	}
 }
+
+func TestParseStatementErrorCases(t *testing.T) {
+	testCases := []struct {
+		name  string
+		input string
+	}{
+		{"IF without LBRACE", "if x == 1 ;\x00"},   // Missing {
+		{"VAR without variable name", "var ;\x00"}, // Missing identifier
+		{"VAR without type", "var x ;\x00"},        // Missing type
+		{"LOOP without LBRACE", "loop ;\x00"},      // Missing {
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			Init([]byte(tc.input))
+			NextToken()
+
+			result := ParseStatement()
+			// Should handle malformed statements gracefully
+			if result == nil {
+				t.Errorf("ParseStatement should return a node even for malformed input")
+			}
+		})
+	}
+}
+
+// Test for VAR statement with invalid type
+func TestParseStatementVarWithInvalidType(t *testing.T) {
+	input := []byte("var x 123;\x00") // 123 is not a valid type
+	Init(input)
+	NextToken()
+
+	result := ParseStatement()
+	// Should handle invalid type gracefully
+	if result == nil {
+		t.Errorf("ParseStatement should return a node even for invalid type")
+	}
+}

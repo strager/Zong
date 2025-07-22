@@ -12,7 +12,8 @@
       "Bash(./wasmruntime/target/debug/wasmruntime:*)",
       "WebFetch(domain:pkg.go.dev)",
       "Bash(wasm2wat:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(grep:*)"
     ],
     "deny": []
   }

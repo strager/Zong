@@ -473,3 +473,138 @@ func verifyTypeASTPopulated(t *testing.T, node *ASTNode) {
 		}
 	}
 }
+
+// Tests for EmitExpression edge cases
+func TestEmitExpressionUndefinedVariable(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Errorf("Should panic for undefined variable")
+		} else if !strings.Contains(r.(string), "Undefined variable") {
+			t.Errorf("Expected panic about undefined variable, got: %v", r)
+		}
+	}()
+
+	var buf bytes.Buffer
+	locals := []LocalVarInfo{}
+
+	// Create assignment to undefined variable
+	node := &ASTNode{
+		Kind: NodeBinary,
+		Op:   "=",
+		Children: []*ASTNode{
+			{Kind: NodeIdent, String: "undefinedVar"},
+			{Kind: NodeInteger, Integer: 42},
+		},
+	}
+
+	EmitExpression(&buf, node, locals)
+}
+
+func TestEmitExpressionInvalidAssignmentTarget(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Errorf("Should panic for invalid assignment target")
+		} else if !strings.Contains(r.(string), "Invalid assignment target") {
+			t.Errorf("Expected panic about invalid assignment target, got: %v", r)
+		}
+	}()
+
+	var buf bytes.Buffer
+	locals := []LocalVarInfo{}
+
+	// Create assignment to integer literal (invalid)
+	node := &ASTNode{
+		Kind: NodeBinary,
+		Op:   "=",
+		Children: []*ASTNode{
+			{Kind: NodeInteger, Integer: 10}, // Invalid LHS
+			{Kind: NodeInteger, Integer: 42},
+		},
+	}
+
+	EmitExpression(&buf, node, locals)
+}
+
+// Tests for EmitAddressOf edge cases
+func TestEmitAddressOfUndefinedVariable(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Errorf("Should panic for undefined variable in address-of")
+		} else if !strings.Contains(r.(string), "Undefined variable") {
+			t.Errorf("Expected panic about undefined variable, got: %v", r)
+		}
+	}()
+
+	var buf bytes.Buffer
+	locals := []LocalVarInfo{}
+
+	operand := &ASTNode{
+		Kind:   NodeIdent,
+		String: "undefinedVar",
+	}
+
+	EmitAddressOf(&buf, operand, locals)
+}
+
+func TestEmitAddressOfNonAddressedVariable(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Errorf("Should panic for non-addressed variable")
+		} else if !strings.Contains(r.(string), "not addressed") {
+			t.Errorf("Expected panic about non-addressed variable, got: %v", r)
+		}
+	}()
+
+	var buf bytes.Buffer
+	locals := []LocalVarInfo{
+		{
+			Name:    "localVar",
+			Type:    &TypeNode{Kind: TypeBuiltin, String: "I64"},
+			Storage: VarStorageLocal, // Not VarStorageTStack
+			Address: 0,
+		},
+	}
+
+	operand := &ASTNode{
+		Kind:   NodeIdent,
+		String: "localVar",
+	}
+
+	EmitAddressOf(&buf, operand, locals)
+}
+
+// Test for stack variable access with address-of operator
+func TestStackVariableAddressAccess(t *testing.T) {
+	source := "{ var a I64; var b I64; a = 0; b = 0; print(a&); print(b&); print(a); print(b); }"
+
+	// Parse the source code
+	Init([]byte(source + "\x00"))
+	NextToken()
+	ast := ParseStatement()
+
+	// Should parse successfully
+	if ast == nil {
+		t.Fatal("Failed to parse source code")
+	}
+
+	// Compile to WASM and execute
+	wasmBytes := CompileToWASM(ast)
+	if len(wasmBytes) == 0 {
+		t.Fatal("Failed to compile to WASM")
+	}
+
+	// Execute and verify output (addresses should be different)
+	output, err := executeWasm(t, wasmBytes)
+	if err != nil {
+		t.Fatalf("Failed to execute WASM: %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(output), "\n")
+	if len(lines) < 2 {
+		t.Fatalf("Expected at least 2 output lines, got %d: %v", len(lines), lines)
+	}
+
+	// Addresses should be different (distinct values)
+	if lines[0] == lines[1] {
+		t.Errorf("Expected different addresses, got same address: %s", lines[0])
+	}
+}

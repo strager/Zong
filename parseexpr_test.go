@@ -316,3 +316,131 @@ func TestComplexPointerExpressions(t *testing.T) {
 		be.Equal(t, result, test.expected)
 	}
 }
+
+// Tests for parser edge cases
+func TestParseExpressionMalformedFunctionCall(t *testing.T) {
+	// Test function call parsing with malformed arguments
+	input := []byte("func(arg1 arg2\x00") // Missing comma between args
+	Init(input)
+	NextToken()
+
+	// Should handle malformed function call gracefully without panic
+	result := ParseExpression()
+	if result == nil {
+		t.Errorf("ParseExpression should return a node even for malformed input")
+	}
+}
+
+func TestParsePrimaryUnknownToken(t *testing.T) {
+	// Test parsing with unexpected token types
+	input := []byte("{\x00") // LBRACE is not handled by parsePrimary directly
+	Init(input)
+	NextToken()
+
+	result := parsePrimary()
+	// Should handle unknown tokens gracefully
+	if result == nil {
+		t.Errorf("parsePrimary should return a node even for unknown tokens")
+	}
+}
+
+func TestParseTypeExpressionNonIdentToken(t *testing.T) {
+	// Test type parsing with non-identifier token
+	input := []byte("123\x00") // INT token instead of IDENT
+	Init(input)
+	NextToken()
+
+	result := parseTypeExpression()
+	if result != nil {
+		t.Errorf("Expected nil for non-IDENT token, got %v", result)
+	}
+}
+
+// Tests for additional edge cases in parsing
+func TestParseExpressionRightAssociativity(t *testing.T) {
+	// Test right-associativity of assignment operator
+	input := []byte("a = b = c\x00")
+	Init(input)
+	NextToken()
+
+	result := ParseExpression()
+	if result == nil {
+		t.Errorf("Expected parsed expression for chained assignment")
+	}
+
+	// Verify the structure represents right-associativity: a = (b = c)
+	if result.Kind != NodeBinary || result.Op != "=" {
+		t.Errorf("Expected binary assignment node")
+	}
+
+	if result.Children == nil || len(result.Children) != 2 {
+		t.Errorf("Expected 2 children for assignment")
+	}
+
+	// Right child should be another assignment
+	rightChild := result.Children[1]
+	if rightChild.Kind != NodeBinary || rightChild.Op != "=" {
+		t.Errorf("Expected nested assignment on right side")
+	}
+}
+
+func TestParseExpressionOperatorPrecedence(t *testing.T) {
+	// Test operator precedence: multiplication before addition
+	input := []byte("a + b * c\x00")
+	Init(input)
+	NextToken()
+
+	result := ParseExpression()
+	if result == nil {
+		t.Errorf("Expected parsed expression for precedence test")
+	}
+
+	// Should parse as: a + (b * c)
+	if result.Kind != NodeBinary || result.Op != "+" {
+		t.Errorf("Expected addition at top level")
+	}
+
+	if result.Children == nil || len(result.Children) != 2 {
+		t.Errorf("Expected 2 children for addition")
+	}
+
+	// Right child should be multiplication
+	rightChild := result.Children[1]
+	if rightChild.Kind != NodeBinary || rightChild.Op != "*" {
+		t.Errorf("Expected multiplication as right child")
+	}
+}
+
+// Test for handling pointer dereference expressions
+func TestParseExpressionPointerDereference(t *testing.T) {
+	input := []byte("ptr*\x00") // Postfix dereference, not prefix
+	Init(input)
+	NextToken()
+
+	result := ParseExpression()
+	if result == nil {
+		t.Errorf("Expected parsed expression for pointer dereference")
+		return
+	}
+
+	if result.Kind != NodeUnary || result.Op != "*" {
+		t.Errorf("Expected unary dereference node, got Kind=%v Op=%v", result.Kind, result.Op)
+	}
+}
+
+// Test for handling address-of expressions
+func TestParseExpressionAddressOf(t *testing.T) {
+	input := []byte("x&\x00") // Postfix address-of, not prefix
+	Init(input)
+	NextToken()
+
+	result := ParseExpression()
+	if result == nil {
+		t.Errorf("Expected parsed expression for address-of")
+		return
+	}
+
+	if result.Kind != NodeUnary || result.Op != "&" {
+		t.Errorf("Expected unary address-of node, got Kind=%v Op=%v", result.Kind, result.Op)
+	}
+}

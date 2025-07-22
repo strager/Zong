@@ -247,10 +247,6 @@ func EmitCodeSection(buf *bytes.Buffer, ast *ASTNode) {
 
 // EmitStatement generates WASM bytecode for statements
 func EmitStatement(buf *bytes.Buffer, node *ASTNode, locals []LocalVarInfo) {
-	if node == nil {
-		return
-	}
-
 	switch node.Kind {
 	case NodeVar:
 		// Variable declarations don't generate runtime code
@@ -492,10 +488,6 @@ func collectLocalVariables(node *ASTNode) []LocalVarInfo {
 }
 
 func collectLocalsRecursive(node *ASTNode, locals *[]LocalVarInfo, index *uint32) {
-	if node == nil {
-		return
-	}
-
 	switch node.Kind {
 	case NodeVar:
 		// Extract variable name
@@ -528,10 +520,6 @@ func collectLocalsRecursive(node *ASTNode, locals *[]LocalVarInfo, index *uint32
 
 // markAddressedVariables scans the AST to find variables whose addresses are taken
 func markAddressedVariables(node *ASTNode, locals []LocalVarInfo) {
-	if node == nil {
-		return
-	}
-
 	switch node.Kind {
 	case NodeUnary:
 		if node.Op == "&" && len(node.Children) > 0 {
@@ -855,7 +843,8 @@ func TypesEqual(a, b *TypeNode) bool {
 	case TypePointer:
 		return TypesEqual(a.Child, b.Child)
 	}
-	return false
+	// unreachable with current TypeKind values
+	panic("Unknown TypeKind: " + string(a.Kind))
 }
 
 // GetTypeSize returns the size in bytes for WASM code generation
@@ -873,7 +862,8 @@ func GetTypeSize(t *TypeNode) int {
 	case TypePointer:
 		return 8 // pointers are always 64-bit
 	}
-	return 8
+	// unreachable with current TypeKind values
+	panic("Unknown TypeKind: " + string(t.Kind))
 }
 
 // TypeToString converts TypeNode to string for display/debugging
@@ -884,7 +874,8 @@ func TypeToString(t *TypeNode) string {
 	case TypePointer:
 		return TypeToString(t.Child) + "*"
 	}
-	return ""
+	// unreachable with current TypeKind values
+	panic("Unknown TypeKind: " + string(t.Kind))
 }
 
 // getBuiltinType returns the built-in type for a given name
@@ -912,7 +903,8 @@ func isWASMI64Type(t *TypeNode) bool {
 	case TypePointer:
 		return true // all pointers are I64 in WASM
 	}
-	return false
+	// unreachable with current TypeKind values
+	panic("Unknown TypeKind: " + string(t.Kind))
 }
 
 // Init initializes the lexer with the given input (must end with a 0 byte).
@@ -1369,6 +1361,10 @@ func intToString(n int64) string {
 	var result string
 	negative := n < 0
 	if negative {
+		// Handle special case of minimum int64 to avoid overflow
+		if n == -9223372036854775808 {
+			return "-9223372036854775808"
+		}
 		n = -n
 	}
 
