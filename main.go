@@ -975,6 +975,36 @@ func intToString(n int64) string {
 	return result
 }
 
+// PeekToken returns the next token type without advancing the lexer.
+// Useful for lookahead parsing decisions.
+func PeekToken() TokenType {
+	savedPos := pos
+	savedTokenType := CurrTokenType
+	savedLiteral := CurrLiteral
+	savedIntValue := CurrIntValue
+
+	NextToken()
+	nextType := CurrTokenType
+
+	// Restore state
+	pos = savedPos
+	CurrTokenType = savedTokenType
+	CurrLiteral = savedLiteral
+	CurrIntValue = savedIntValue
+
+	return nextType
+}
+
+// SkipToken advances past the current token, asserting it matches the expected type.
+//
+// Panics if the current token doesn't match the expected type.
+func SkipToken(expectedType TokenType) {
+	if CurrTokenType != expectedType {
+		panic("Expected token " + string(expectedType) + " but got " + string(CurrTokenType))
+	}
+	NextToken()
+}
+
 // precedence returns the precedence level for a given token type
 func precedence(tokenType TokenType) int {
 	switch tokenType {
@@ -1009,7 +1039,7 @@ func parseExpressionWithPrecedence(minPrec int) *ASTNode {
 
 	// Handle unary operators first
 	if CurrTokenType == BANG {
-		NextToken()                                 // consume '!'
+		SkipToken(BANG)                             // consume '!'
 		operand := parseExpressionWithPrecedence(3) // Same as multiplication, less than postfix
 		left = &ASTNode{
 			Kind:     NodeUnary,
@@ -1027,10 +1057,10 @@ func parseExpressionWithPrecedence(minPrec int) *ASTNode {
 
 		if CurrTokenType == LBRACKET {
 			// Handle subscript operator
-			NextToken() // consume '['
+			SkipToken(LBRACKET)
 			index := parseExpressionWithPrecedence(0)
 			if CurrTokenType == RBRACKET {
-				NextToken() // consume ']'
+				SkipToken(RBRACKET)
 			}
 			left = &ASTNode{
 				Kind:     NodeIndex,
@@ -1038,7 +1068,7 @@ func parseExpressionWithPrecedence(minPrec int) *ASTNode {
 			}
 		} else if CurrTokenType == LPAREN {
 			// Handle function call operator
-			NextToken() // consume '('
+			SkipToken(LPAREN)
 
 			var args []*ASTNode
 			var paramNames []string
@@ -1049,24 +1079,13 @@ func parseExpressionWithPrecedence(minPrec int) *ASTNode {
 				// Check for named parameter (identifier followed by colon)
 				if CurrTokenType == IDENT {
 					// Look ahead to see if there's a colon after the identifier
-					savedPos := pos
-					savedTokenType := CurrTokenType
-					savedLiteral := CurrLiteral
-					savedIntValue := CurrIntValue
 					identName := CurrLiteral
-					NextToken()
-
-					if CurrTokenType == COLON {
+					if PeekToken() == COLON {
 						// This is a named parameter: name: value
 						paramName = identName
-						NextToken() // consume ':'
+						SkipToken(IDENT)
+						SkipToken(COLON)
 					} else {
-						// This is just a positional parameter starting with an identifier
-						// Restore the full lexer state
-						pos = savedPos
-						CurrTokenType = savedTokenType
-						CurrLiteral = savedLiteral
-						CurrIntValue = savedIntValue
 						paramName = ""
 					}
 				} else {
@@ -1078,14 +1097,14 @@ func parseExpressionWithPrecedence(minPrec int) *ASTNode {
 				args = append(args, expr)
 
 				if CurrTokenType == COMMA {
-					NextToken() // consume ','
+					SkipToken(COMMA)
 				} else if CurrTokenType != RPAREN {
 					break
 				}
 			}
 
 			if CurrTokenType == RPAREN {
-				NextToken() // consume ')'
+				SkipToken(RPAREN)
 			}
 
 			left = &ASTNode{
@@ -1127,7 +1146,7 @@ func parsePrimary() *ASTNode {
 			Kind:    NodeInteger,
 			Integer: CurrIntValue,
 		}
-		NextToken()
+		SkipToken(INT)
 		return node
 
 	case STRING:
@@ -1135,7 +1154,7 @@ func parsePrimary() *ASTNode {
 			Kind:   NodeString,
 			String: CurrLiteral,
 		}
-		NextToken()
+		SkipToken(STRING)
 		return node
 
 	case IDENT:
@@ -1143,14 +1162,15 @@ func parsePrimary() *ASTNode {
 			Kind:   NodeIdent,
 			String: CurrLiteral,
 		}
-		NextToken()
-
+		SkipToken(IDENT)
 		return node
 
 	case LPAREN:
-		NextToken() // consume '('
+		SkipToken(LPAREN) // consume '('
 		expr := parseExpressionWithPrecedence(0)
-		NextToken() // consume ')'
+		if CurrTokenType == RPAREN {
+			SkipToken(RPAREN)
+		}
 		return expr
 
 	default:
@@ -1163,19 +1183,19 @@ func parsePrimary() *ASTNode {
 func ParseStatement() *ASTNode {
 	switch CurrTokenType {
 	case IF:
-		NextToken() // consume 'if'
+		SkipToken(IF)
 		cond := ParseExpression()
 		if CurrTokenType != LBRACE {
 			return &ASTNode{} // error
 		}
-		NextToken() // consume '{'
+		SkipToken(LBRACE)
 		var children []*ASTNode = []*ASTNode{cond}
 		for CurrTokenType != RBRACE && CurrTokenType != EOF {
 			stmt := ParseStatement()
 			children = append(children, stmt)
 		}
 		if CurrTokenType == RBRACE {
-			NextToken() // consume '}'
+			SkipToken(RBRACE)
 		}
 		return &ASTNode{
 			Kind:     NodeIf,
@@ -1183,7 +1203,7 @@ func ParseStatement() *ASTNode {
 		}
 
 	case VAR:
-		NextToken() // consume 'var'
+		SkipToken(VAR)
 		if CurrTokenType != IDENT {
 			return &ASTNode{} // error
 		}
@@ -1191,7 +1211,7 @@ func ParseStatement() *ASTNode {
 			Kind:   NodeIdent,
 			String: CurrLiteral,
 		}
-		NextToken()
+		SkipToken(IDENT)
 		if CurrTokenType != IDENT {
 			return &ASTNode{} // error - expecting type
 		}
@@ -1199,9 +1219,9 @@ func ParseStatement() *ASTNode {
 			Kind:   NodeIdent,
 			String: CurrLiteral,
 		}
-		NextToken()
+		SkipToken(IDENT)
 		if CurrTokenType == SEMICOLON {
-			NextToken() // consume semicolon
+			SkipToken(SEMICOLON)
 		}
 		return &ASTNode{
 			Kind:     NodeVar,
@@ -1209,14 +1229,14 @@ func ParseStatement() *ASTNode {
 		}
 
 	case LBRACE:
-		NextToken() // consume '{'
+		SkipToken(LBRACE)
 		var statements []*ASTNode
 		for CurrTokenType != RBRACE && CurrTokenType != EOF {
 			stmt := ParseStatement()
 			statements = append(statements, stmt)
 		}
 		if CurrTokenType == RBRACE {
-			NextToken() // consume '}'
+			SkipToken(RBRACE)
 		}
 		return &ASTNode{
 			Kind:     NodeBlock,
@@ -1224,7 +1244,7 @@ func ParseStatement() *ASTNode {
 		}
 
 	case RETURN:
-		NextToken() // consume 'return'
+		SkipToken(RETURN)
 		var children []*ASTNode
 		// Check if there's an expression after return
 		if CurrTokenType != SEMICOLON {
@@ -1232,7 +1252,7 @@ func ParseStatement() *ASTNode {
 			children = append(children, expr)
 		}
 		if CurrTokenType == SEMICOLON {
-			NextToken() // consume semicolon
+			SkipToken(SEMICOLON)
 		}
 		return &ASTNode{
 			Kind:     NodeReturn,
@@ -1240,18 +1260,18 @@ func ParseStatement() *ASTNode {
 		}
 
 	case LOOP:
-		NextToken() // consume 'loop'
+		SkipToken(LOOP)
 		if CurrTokenType != LBRACE {
 			return &ASTNode{} // error
 		}
-		NextToken() // consume '{'
+		SkipToken(LBRACE)
 		var statements []*ASTNode
 		for CurrTokenType != RBRACE && CurrTokenType != EOF {
 			stmt := ParseStatement()
 			statements = append(statements, stmt)
 		}
 		if CurrTokenType == RBRACE {
-			NextToken() // consume '}'
+			SkipToken(RBRACE)
 		}
 		return &ASTNode{
 			Kind:     NodeLoop,
@@ -1259,18 +1279,18 @@ func ParseStatement() *ASTNode {
 		}
 
 	case BREAK:
-		NextToken() // consume 'break'
+		SkipToken(BREAK)
 		if CurrTokenType == SEMICOLON {
-			NextToken() // consume semicolon
+			SkipToken(SEMICOLON)
 		}
 		return &ASTNode{
 			Kind: NodeBreak,
 		}
 
 	case CONTINUE:
-		NextToken() // consume 'continue'
+		SkipToken(CONTINUE)
 		if CurrTokenType == SEMICOLON {
-			NextToken() // consume semicolon
+			SkipToken(SEMICOLON)
 		}
 		return &ASTNode{
 			Kind: NodeContinue,
@@ -1280,7 +1300,7 @@ func ParseStatement() *ASTNode {
 		// Expression statement
 		expr := ParseExpression()
 		if CurrTokenType == SEMICOLON {
-			NextToken() // consume semicolon
+			SkipToken(SEMICOLON)
 		}
 		return expr
 	}
