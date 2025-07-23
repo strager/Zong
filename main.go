@@ -196,11 +196,8 @@ func EmitExportSection(buf *bytes.Buffer) {
 func EmitCodeSection(buf *bytes.Buffer, ast *ASTNode) {
 	writeByte(buf, 0x0A) // code section id
 
-	// Collect local variables from AST
-	locals := collectLocalVariables(ast)
-
-	// Calculate frame size for addressed variables
-	frameSize := calculateFrameSize(locals)
+	// Collect local variables from AST and calculate frame size
+	locals, frameSize := collectLocalVariables(ast)
 
 	// Generate function body
 	var bodyBuf bytes.Buffer
@@ -471,104 +468,60 @@ func CompileToWASM(ast *ASTNode) []byte {
 	return buf.Bytes()
 }
 
-// collectLocalVariables traverses AST to find all var declarations
-func collectLocalVariables(node *ASTNode) []LocalVarInfo {
+// collectLocalVariables traverses AST once to find all var declarations and address-of operations
+// Returns the locals list and the total frame size for addressed variables
+func collectLocalVariables(node *ASTNode) ([]LocalVarInfo, uint32) {
 	var locals []LocalVarInfo
 	var localIndex uint32 = 0
+	var frameOffset uint32 = 0
 
-	collectLocalsRecursive(node, &locals, &localIndex)
+	var traverse func(*ASTNode)
+	traverse = func(node *ASTNode) {
+		switch node.Kind {
+		case NodeVar:
+			// Extract variable name
+			varName := node.Children[0].String
 
-	// Mark addressed variables by scanning for address-of operations
-	markAddressedVariables(node, locals)
+			// Support I64 and I64* (pointers are i64 in WASM)
+			if isWASMI64Type(node.TypeAST) {
+				locals = append(locals, LocalVarInfo{
+					Name:    varName,
+					Type:    node.TypeAST,
+					Storage: VarStorageLocal,
+					Address: localIndex,
+				})
+				localIndex++
+			}
 
-	// Calculate frame offsets for addressed variables
-	calculateFrameOffsets(locals)
-
-	return locals
-}
-
-func collectLocalsRecursive(node *ASTNode, locals *[]LocalVarInfo, index *uint32) {
-	switch node.Kind {
-	case NodeVar:
-		// Extract variable name
-		varName := node.Children[0].String
-
-		// TypeAST should always be available now
-		if node.TypeAST == nil {
-			// This shouldn't happen with the new parser, but handle gracefully
-			return
-		}
-
-		// Support I64 and I64* (pointers are i64 in WASM)
-		if isWASMI64Type(node.TypeAST) {
-			*locals = append(*locals, LocalVarInfo{
-				Name:    varName,
-				Type:    node.TypeAST,
-				Storage: VarStorageLocal,
-				Address: *index,
-			})
-			*index++
-		}
-
-	case NodeBlock, NodeIf, NodeLoop:
-		// Recursively process child statements
-		for _, child := range node.Children {
-			collectLocalsRecursive(child, locals, index)
-		}
-	}
-}
-
-// markAddressedVariables scans the AST to find variables whose addresses are taken
-func markAddressedVariables(node *ASTNode, locals []LocalVarInfo) {
-	switch node.Kind {
-	case NodeUnary:
-		if node.Op == "&" && len(node.Children) > 0 {
-			// This is an address-of operation
-			child := node.Children[0]
-			if child.Kind == NodeIdent {
-				// Address of a variable - mark it as addressed
-				varName := child.String
-				for i := range locals {
-					if locals[i].Name == varName {
-						locals[i].Storage = VarStorageTStack
-						break
+		case NodeUnary:
+			if node.Op == "&" {
+				// This is an address-of operation
+				child := node.Children[0]
+				if child.Kind == NodeIdent {
+					// Address of a variable - mark it as addressed
+					varName := child.String
+					for i := range locals {
+						if locals[i].Name == varName {
+							if locals[i].Storage == VarStorageLocal {
+								// Change from local to stack storage and assign frame offset
+								locals[i].Storage = VarStorageTStack
+								locals[i].Address = frameOffset
+								frameOffset += 8 // Each I64 value takes 8 bytes
+							}
+							break
+						}
 					}
 				}
 			}
+			// Continue scanning the operand
 		}
-		// Continue scanning the operand
 		for _, child := range node.Children {
-			markAddressedVariables(child, locals)
-		}
-
-	case NodeBinary, NodeCall, NodeIndex, NodeBlock, NodeIf, NodeLoop, NodeReturn, NodeVar:
-		// Recursively scan all children
-		for _, child := range node.Children {
-			markAddressedVariables(child, locals)
+			traverse(child)
 		}
 	}
-}
 
-// calculateFrameOffsets assigns frame offsets to addressed variables
-func calculateFrameOffsets(locals []LocalVarInfo) {
-	var offset uint32 = 0
-	for i := range locals {
-		if locals[i].Storage == VarStorageTStack {
-			locals[i].Address = offset
-			offset += 8 // Each I64 value takes 8 bytes
-		}
-	}
-}
-
-// calculateFrameSize computes the total frame size needed for addressed variables
-func calculateFrameSize(locals []LocalVarInfo) uint32 {
-	var size uint32 = 0
-	for _, local := range locals {
-		if local.Storage == VarStorageTStack {
-			size += 8 // Each I64 value takes 8 bytes
-		}
-	}
-	return size
+	traverse(node)
+	return locals, frameOffset
 }
 
 // EmitFrameSetup generates frame setup code at function entry
