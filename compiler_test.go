@@ -503,7 +503,7 @@ func TestEmitExpressionInvalidAssignmentTarget(t *testing.T) {
 		r := recover()
 		be.True(t, r != nil)
 		if r != nil {
-			be.True(t, strings.Contains(r.(string), "Invalid assignment target"))
+			be.True(t, strings.Contains(r.(string), "Invalid assignment target - must be variable, field access, or pointer dereference"))
 		}
 	}()
 
@@ -654,7 +654,7 @@ func TestTypeCheckingErrors(t *testing.T) {
 		{
 			name:          "invalid assignment target",
 			code:          "42 = 10",
-			expectedError: "left side of assignment must be a variable or dereferenced pointer",
+			expectedError: "left side of assignment must be a variable, field access, or dereferenced pointer",
 		},
 		{
 			name:          "dereference non-pointer",
@@ -678,4 +678,204 @@ func TestTypeCheckingErrors(t *testing.T) {
 			expectTypeError(t, tt.code, tt.expectedError)
 		})
 	}
+}
+
+// Struct Integration Tests - Execute programs and verify output
+
+func TestStructBasicFieldAccess(t *testing.T) {
+	code := `{
+		struct Point { var x I64; var y I64; }
+		var p Point;
+		p.x = 42;
+		p.y = 84;
+		print(p.x);
+		print(p.y);
+	}`
+
+	input := []byte(code + "\x00")
+	Init(input)
+	NextToken()
+	ast := ParseStatement()
+
+	wasmBytes := CompileToWASM(ast)
+	executeWasmAndVerify(t, wasmBytes, "42\n84\n")
+}
+
+func TestStructFieldArithmetic(t *testing.T) {
+	code := `{
+		struct Point { var x I64; var y I64; }
+		var p Point;
+		p.x = 10;
+		p.y = 20;
+		print(p.x + p.y);
+		print(p.x * p.y);
+	}`
+
+	input := []byte(code + "\x00")
+	Init(input)
+	NextToken()
+	ast := ParseStatement()
+
+	wasmBytes := CompileToWASM(ast)
+	executeWasmAndVerify(t, wasmBytes, "30\n200\n")
+}
+
+func TestStructMultipleInstances(t *testing.T) {
+	code := `{
+		struct Point { var x I64; var y I64; }
+		var p1 Point;
+		var p2 Point;
+		p1.x = 1;
+		p1.y = 2;
+		p2.x = 10;
+		p2.y = 20;
+		print(p1.x + p2.x);
+		print(p1.y + p2.y);
+	}`
+
+	input := []byte(code + "\x00")
+	Init(input)
+	NextToken()
+	ast := ParseStatement()
+
+	wasmBytes := CompileToWASM(ast)
+	executeWasmAndVerify(t, wasmBytes, "11\n22\n")
+}
+
+func TestStructWithMoreFields(t *testing.T) {
+	code := `{
+		struct Rectangle { var width I64; var height I64; var depth I64; }
+		var rect Rectangle;
+		rect.width = 5;
+		rect.height = 10;
+		rect.depth = 3;
+		print(rect.width);
+		print(rect.height);
+		print(rect.depth);
+		print(rect.width * rect.height * rect.depth);
+	}`
+
+	input := []byte(code + "\x00")
+	Init(input)
+	NextToken()
+	ast := ParseStatement()
+
+	wasmBytes := CompileToWASM(ast)
+	executeWasmAndVerify(t, wasmBytes, "5\n10\n3\n150\n")
+}
+
+func TestStructFieldInExpressions(t *testing.T) {
+	code := `{
+		struct Point { var x I64; var y I64; }
+		var p Point;
+		p.x = 15;
+		p.y = 25;
+		print(p.x < p.y);
+		print(p.x > p.y);
+		print(p.x == 15);
+		print(p.y != 20);
+	}`
+
+	input := []byte(code + "\x00")
+	Init(input)
+	NextToken()
+	ast := ParseStatement()
+
+	wasmBytes := CompileToWASM(ast)
+	executeWasmAndVerify(t, wasmBytes, "1\n0\n1\n1\n")
+}
+
+func TestStructFieldAssignmentChain(t *testing.T) {
+	code := `{
+		struct Point { var x I64; var y I64; }
+		var p1 Point;
+		var p2 Point;
+		p1.x = 100;
+		p2.x = p1.x + 50;
+		p1.y = p2.x - p1.x;
+		print(p1.x);
+		print(p2.x);
+		print(p1.y);
+	}`
+
+	input := []byte(code + "\x00")
+	Init(input)
+	NextToken()
+	ast := ParseStatement()
+
+	wasmBytes := CompileToWASM(ast)
+	executeWasmAndVerify(t, wasmBytes, "100\n150\n50\n")
+}
+
+func TestStructZeroInitialization(t *testing.T) {
+	// Test that struct fields are zero-initialized by default
+	code := `{
+		struct Point { var x I64; var y I64; }
+		var p Point;
+		print(p.x);
+		print(p.y);
+	}`
+
+	input := []byte(code + "\x00")
+	Init(input)
+	NextToken()
+	ast := ParseStatement()
+
+	wasmBytes := CompileToWASM(ast)
+	executeWasmAndVerify(t, wasmBytes, "0\n0\n")
+}
+
+func TestNestedStructOperations(t *testing.T) {
+	code := `{
+		struct Point { var x I64; var y I64; }
+		var p1 Point;
+		var p2 Point;
+		var p3 Point;
+		
+		p1.x = 1;
+		p1.y = 2;
+		p2.x = 3;
+		p2.y = 4;
+		
+		p3.x = p1.x + p2.x;
+		p3.y = p1.y * p2.y;
+		
+		print(p3.x);
+		print(p3.y);
+		print(p3.x + p3.y);
+	}`
+
+	input := []byte(code + "\x00")
+	Init(input)
+	NextToken()
+	ast := ParseStatement()
+
+	wasmBytes := CompileToWASM(ast)
+	executeWasmAndVerify(t, wasmBytes, "4\n8\n12\n")
+}
+
+func TestStructWithMixedVariableTypes(t *testing.T) {
+	// Test that struct variables work alongside regular I64 variables
+	code := `{
+		struct Point { var x I64; var y I64; }
+		var p Point;
+		var regular I64;
+		
+		regular = 100;
+		p.x = regular / 4;
+		p.y = regular / 2;
+		
+		print(regular);
+		print(p.x);
+		print(p.y);
+		print(regular + p.x + p.y);
+	}`
+
+	input := []byte(code + "\x00")
+	Init(input)
+	NextToken()
+	ast := ParseStatement()
+
+	wasmBytes := CompileToWASM(ast)
+	executeWasmAndVerify(t, wasmBytes, "100\n25\n50\n175\n")
 }

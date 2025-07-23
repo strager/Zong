@@ -14,7 +14,7 @@ func TestCollectSingleLocalVariable(t *testing.T) {
 	NextToken()
 	ast := ParseStatement()
 
-	locals, _ := collectLocalVariables(ast)
+	locals, _ := collectLocalVariables(ast, nil)
 
 	expected := []LocalVarInfo{
 		{Name: "x", Type: TypeI64, Storage: VarStorageLocal, Address: 0},
@@ -29,7 +29,7 @@ func TestCollectMultipleLocalVariables(t *testing.T) {
 	NextToken()
 	ast := ParseStatement()
 
-	locals, _ := collectLocalVariables(ast)
+	locals, _ := collectLocalVariables(ast, nil)
 
 	expected := []LocalVarInfo{
 		{Name: "x", Type: TypeI64, Storage: VarStorageLocal, Address: 0},
@@ -45,7 +45,7 @@ func TestCollectNestedBlockVariables(t *testing.T) {
 	NextToken()
 	ast := ParseStatement()
 
-	locals, _ := collectLocalVariables(ast)
+	locals, _ := collectLocalVariables(ast, nil)
 
 	expected := []LocalVarInfo{
 		{Name: "a", Type: TypeI64, Storage: VarStorageLocal, Address: 0},
@@ -61,11 +61,11 @@ func TestNoVariables(t *testing.T) {
 	NextToken()
 	ast := ParseStatement()
 
-	locals, _ := collectLocalVariables(ast)
+	locals, _ := collectLocalVariables(ast, nil)
 	be.Equal(t, 0, len(locals))
 
 	var buf bytes.Buffer
-	EmitCodeSection(&buf, ast)
+	EmitCodeSection(&buf, ast, nil)
 
 	// Should emit 0 locals (existing behavior)
 	bytes_result := buf.Bytes()
@@ -106,7 +106,7 @@ func TestCollectSinglePointerVariable(t *testing.T) {
 	NextToken()
 	ast := ParseStatement()
 
-	locals, _ := collectLocalVariables(ast)
+	locals, _ := collectLocalVariables(ast, nil)
 
 	expected := []LocalVarInfo{
 		{Name: "ptr", Type: &TypeNode{Kind: TypePointer, Child: TypeI64}, Storage: VarStorageLocal, Address: 0},
@@ -121,7 +121,7 @@ func TestCollectMixedPointerAndRegularVariables(t *testing.T) {
 	NextToken()
 	ast := ParseStatement()
 
-	locals, _ := collectLocalVariables(ast)
+	locals, _ := collectLocalVariables(ast, nil)
 
 	expected := []LocalVarInfo{
 		{Name: "x", Type: TypeI64, Storage: VarStorageLocal, Address: 0},
@@ -138,7 +138,7 @@ func TestCollectMultiplePointerVariables(t *testing.T) {
 	NextToken()
 	ast := ParseStatement()
 
-	locals, _ := collectLocalVariables(ast)
+	locals, _ := collectLocalVariables(ast, nil)
 
 	expected := []LocalVarInfo{
 		{Name: "ptr1", Type: &TypeNode{Kind: TypePointer, Child: TypeI64}, Storage: VarStorageLocal, Address: 0},
@@ -154,7 +154,7 @@ func TestCollectNestedBlockPointerVariables(t *testing.T) {
 	NextToken()
 	ast := ParseStatement()
 
-	locals, _ := collectLocalVariables(ast)
+	locals, _ := collectLocalVariables(ast, nil)
 
 	expected := []LocalVarInfo{
 		{Name: "a", Type: TypeI64, Storage: VarStorageLocal, Address: 0},
@@ -172,7 +172,7 @@ func TestPointerVariablesInWASMCodeSection(t *testing.T) {
 	ast := ParseStatement()
 
 	var buf bytes.Buffer
-	EmitCodeSection(&buf, ast)
+	EmitCodeSection(&buf, ast, nil)
 
 	// Should emit locals for both I64 and I64* variables
 	// Both should be counted as i64 locals in WASM
@@ -190,7 +190,7 @@ func TestAddressedSingleVariable(t *testing.T) {
 	NextToken()
 	ast := ParseStatement()
 
-	locals, _ := collectLocalVariables(ast)
+	locals, _ := collectLocalVariables(ast, nil)
 
 	expected := []LocalVarInfo{
 		{Name: "x", Type: TypeI64, Storage: VarStorageTStack, Address: 0},
@@ -205,7 +205,7 @@ func TestAddressedMultipleVariables(t *testing.T) {
 	NextToken()
 	ast := ParseStatement()
 
-	locals, _ := collectLocalVariables(ast)
+	locals, _ := collectLocalVariables(ast, nil)
 
 	expected := []LocalVarInfo{
 		{Name: "x", Type: TypeI64, Storage: VarStorageTStack, Address: 0},
@@ -221,7 +221,7 @@ func TestMixedAddressedAndNonAddressedVariables(t *testing.T) {
 	NextToken()
 	ast := ParseStatement()
 
-	locals, _ := collectLocalVariables(ast)
+	locals, _ := collectLocalVariables(ast, nil)
 
 	expected := []LocalVarInfo{
 		{Name: "a", Type: TypeI64, Storage: VarStorageLocal, Address: 0},
@@ -238,7 +238,7 @@ func TestAddressedVariableFrameOffsetCalculation(t *testing.T) {
 	NextToken()
 	ast := ParseStatement()
 
-	locals, _ := collectLocalVariables(ast)
+	locals, _ := collectLocalVariables(ast, nil)
 
 	expected := []LocalVarInfo{
 		{Name: "a", Type: TypeI64, Storage: VarStorageTStack, Address: 0},
@@ -256,7 +256,7 @@ func TestAddressOfRvalue(t *testing.T) {
 	NextToken()
 	ast := ParseStatement()
 
-	locals, _ := collectLocalVariables(ast)
+	locals, _ := collectLocalVariables(ast, nil)
 
 	// x is not addressed since we're taking address of expression, not variable
 	expected := []LocalVarInfo{
@@ -278,7 +278,7 @@ func TestCollectLocalVariables(t *testing.T) {
 		}
 
 		// This should not panic and should return early
-		locals, _ := collectLocalVariables(node)
+		locals, _ := collectLocalVariables(node, nil)
 
 		// Verify that no variables were collected due to nil TypeAST
 		if len(locals) != 0 {
@@ -299,7 +299,7 @@ func TestCollectLocalVariables(t *testing.T) {
 			},
 		}
 
-		locals, _ := collectLocalVariables(node)
+		locals, _ := collectLocalVariables(node, nil)
 
 		// Verify that the variable was collected
 		if len(locals) != 1 {

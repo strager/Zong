@@ -14,7 +14,7 @@ func TestIntegrationVariablesInExpressions(t *testing.T) {
 	ast := ParseStatement()
 
 	// Check locals collection
-	locals, _ := collectLocalVariables(ast)
+	locals, _ := collectLocalVariables(ast, nil)
 	be.Equal(t, 2, len(locals))
 	be.Equal(t, "a", locals[0].Name)
 	be.Equal(t, "b", locals[1].Name)
@@ -31,7 +31,7 @@ func TestIntegrationNestedVariableScoping(t *testing.T) {
 	NextToken()
 	ast := ParseStatement()
 
-	locals, _ := collectLocalVariables(ast)
+	locals, _ := collectLocalVariables(ast, nil)
 	be.Equal(t, 2, len(locals))
 
 	// Both variables should be available at function level
@@ -50,7 +50,7 @@ func TestIntegrationMixedTypes(t *testing.T) {
 	NextToken()
 	ast := ParseStatement()
 
-	locals, _ := collectLocalVariables(ast)
+	locals, _ := collectLocalVariables(ast, nil)
 	// Only I64 variable should be collected
 	be.Equal(t, 1, len(locals))
 	be.Equal(t, "x", locals[0].Name)
@@ -68,7 +68,7 @@ func TestIntegrationComplexVariableCalculations(t *testing.T) {
 	NextToken()
 	ast := ParseStatement()
 
-	locals, _ := collectLocalVariables(ast)
+	locals, _ := collectLocalVariables(ast, nil)
 	be.Equal(t, 3, len(locals))
 
 	// Compile and execute WASM - should calculate 15 * 3 + 5 = 50
@@ -83,7 +83,7 @@ func TestIntegrationVariableReassignment(t *testing.T) {
 	NextToken()
 	ast := ParseStatement()
 
-	locals, _ := collectLocalVariables(ast)
+	locals, _ := collectLocalVariables(ast, nil)
 	be.Equal(t, 1, len(locals))
 	be.Equal(t, "counter", locals[0].Name)
 
@@ -112,7 +112,7 @@ func TestIntegrationComprehensiveDemo(t *testing.T) {
 	ast := ParseStatement()
 
 	// Verify all variables are collected
-	locals, _ := collectLocalVariables(ast)
+	locals, _ := collectLocalVariables(ast, nil)
 	be.Equal(t, 4, len(locals))
 
 	expectedNames := []string{"a", "b", "temp", "final"}

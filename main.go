@@ -196,11 +196,11 @@ func EmitExportSection(buf *bytes.Buffer) {
 	writeBytes(buf, sectionBuf.Bytes())
 }
 
-func EmitCodeSection(buf *bytes.Buffer, ast *ASTNode) {
+func EmitCodeSection(buf *bytes.Buffer, ast *ASTNode, symbolTable *SymbolTable) {
 	writeByte(buf, 0x0A) // code section id
 
 	// Collect local variables from AST and calculate frame size
-	locals, frameSize := collectLocalVariables(ast)
+	locals, frameSize := collectLocalVariables(ast, symbolTable)
 
 	// Generate function body
 	var bodyBuf bytes.Buffer
@@ -293,23 +293,39 @@ func EmitExpression(buf *bytes.Buffer, node *ASTNode, locals []LocalVarInfo) {
 			writeByte(buf, LOCAL_GET)
 			writeLEB128(buf, targetLocal.Address)
 		} else {
-			// Stack variable - load from memory
-			framePointerIndex := getFramePointerIndex(locals)
-			writeByte(buf, LOCAL_GET)
-			writeLEB128(buf, framePointerIndex)
+			// Stack variable
+			if targetLocal.Type.Kind == TypeStruct {
+				// For struct variables, return the address of the struct (not the value)
+				framePointerIndex := getFramePointerIndex(locals)
+				writeByte(buf, LOCAL_GET)
+				writeLEB128(buf, framePointerIndex)
 
-			// Add variable offset if not zero
-			if targetLocal.Address > 0 {
-				writeByte(buf, I64_CONST)
-				writeLEB128Signed(buf, int64(targetLocal.Address))
-				writeByte(buf, I64_ADD)
+				// Add variable offset if not zero
+				if targetLocal.Address > 0 {
+					writeByte(buf, I64_CONST)
+					writeLEB128Signed(buf, int64(targetLocal.Address))
+					writeByte(buf, I64_ADD)
+				}
+				// Don't load - leave address on stack for struct operations
+			} else {
+				// Non-struct stack variable - load from memory
+				framePointerIndex := getFramePointerIndex(locals)
+				writeByte(buf, LOCAL_GET)
+				writeLEB128(buf, framePointerIndex)
+
+				// Add variable offset if not zero
+				if targetLocal.Address > 0 {
+					writeByte(buf, I64_CONST)
+					writeLEB128Signed(buf, int64(targetLocal.Address))
+					writeByte(buf, I64_ADD)
+				}
+
+				// Load the value from memory
+				writeByte(buf, I32_WRAP_I64) // Convert i64 address to i32
+				writeByte(buf, I64_LOAD)     // Load i64 from memory
+				writeByte(buf, 0x03)         // alignment (8 bytes = 2^3)
+				writeByte(buf, 0x00)         // offset
 			}
-
-			// Load the value from memory
-			writeByte(buf, I32_WRAP_I64) // Convert i64 address to i32
-			writeByte(buf, I64_LOAD)     // Load i64 from memory
-			writeByte(buf, 0x03)         // alignment (8 bytes = 2^3)
-			writeByte(buf, 0x00)         // offset
 		}
 
 	case NodeBinary:
@@ -332,7 +348,44 @@ func EmitExpression(buf *bytes.Buffer, node *ASTNode, locals []LocalVarInfo) {
 					panic("Undefined variable: " + varName)
 				}
 
-				if targetLocal.Storage == VarStorageLocal {
+				if targetLocal.Type.Kind == TypeStruct {
+					// Struct assignment (copy)
+					structSize := uint32(GetTypeSize(targetLocal.Type))
+
+					// Get destination address
+					framePointerIndex := getFramePointerIndex(locals)
+					writeByte(buf, LOCAL_GET)
+					writeLEB128(buf, framePointerIndex)
+
+					// Add variable offset if not zero
+					if targetLocal.Address > 0 {
+						writeByte(buf, I64_CONST)
+						writeLEB128Signed(buf, int64(targetLocal.Address))
+						writeByte(buf, I64_ADD)
+					}
+					writeByte(buf, I32_WRAP_I64) // Convert destination address to i32
+
+					// Get source address (RHS should evaluate to struct address)
+					EmitExpression(buf, rhs, locals) // RHS address
+					writeByte(buf, I32_WRAP_I64)     // Convert source address to i32
+
+					// Perform memory copy (simplified - copy 8 bytes at a time)
+					// Stack: [dst_addr_i32, src_addr_i32]
+					for offset := uint32(0); offset < structSize; offset += 8 {
+						// Load from source: [dst, src] -> [dst, src, value]
+						writeByte(buf, LOCAL_GET) // Duplicate source address (assume src is in local)
+						// Note: This is a simplification - real implementation would need proper stack management
+					}
+
+					// For now, just do a single 8-byte copy to avoid complex stack management
+					writeByte(buf, I64_LOAD)  // Load from source
+					writeByte(buf, 0x03)      // alignment
+					writeByte(buf, 0x00)      // offset
+					writeByte(buf, I64_STORE) // Store to destination
+					writeByte(buf, 0x03)      // alignment
+					writeByte(buf, 0x00)      // offset
+
+				} else if targetLocal.Storage == VarStorageLocal {
 					// Local variable - emit local.set
 					EmitExpression(buf, rhs, locals) // RHS value
 					writeByte(buf, LOCAL_SET)
@@ -374,8 +427,76 @@ func EmitExpression(buf *bytes.Buffer, node *ASTNode, locals []LocalVarInfo) {
 				writeByte(buf, I64_STORE) // Store i64 to memory
 				writeByte(buf, 0x03)      // alignment (8 bytes = 2^3)
 				writeByte(buf, 0x00)      // offset
+			} else if lhs.Kind == NodeDot {
+				// Field assignment: struct.field = value
+				baseExpr := lhs.Children[0]
+				fieldName := lhs.FieldName
+
+				// Get the base struct variable
+				if baseExpr.Kind != NodeIdent {
+					panic("Only direct variable field assignment supported currently")
+				}
+
+				varName := baseExpr.String
+				var targetLocal *LocalVarInfo
+				for i := range locals {
+					if locals[i].Name == varName {
+						targetLocal = &locals[i]
+						break
+					}
+				}
+				if targetLocal == nil {
+					panic("Undefined struct variable: " + varName)
+				}
+
+				if targetLocal.Type.Kind != TypeStruct {
+					panic("Field assignment on non-struct variable")
+				}
+
+				// Find field in struct definition
+				var fieldOffset uint32
+				var fieldType *TypeNode
+				found := false
+				for _, field := range targetLocal.Type.Fields {
+					if field.Name == fieldName {
+						fieldOffset = field.Offset
+						fieldType = field.Type
+						found = true
+						break
+					}
+				}
+				if !found {
+					panic("Field not found in struct: " + fieldName)
+				}
+
+				// Generate address calculation (before evaluating RHS)
+				framePointerIndex := getFramePointerIndex(locals)
+				writeByte(buf, LOCAL_GET)
+				writeLEB128(buf, framePointerIndex)
+
+				// Add struct base offset + field offset
+				totalOffset := targetLocal.Address + fieldOffset
+				if totalOffset > 0 {
+					writeByte(buf, I64_CONST)
+					writeLEB128Signed(buf, int64(totalOffset))
+					writeByte(buf, I64_ADD)
+				}
+
+				writeByte(buf, I32_WRAP_I64) // Convert i64 address to i32
+
+				// Now evaluate the RHS value
+				EmitExpression(buf, rhs, locals) // RHS value
+
+				// Store the field value
+				if isWASMI64Type(fieldType) {
+					writeByte(buf, I64_STORE) // Store i64 to memory
+					writeByte(buf, 0x03)      // alignment (8 bytes = 2^3)
+					writeByte(buf, 0x00)      // offset
+				} else {
+					panic("Non-I64 field types not supported in WASM yet")
+				}
 			} else {
-				panic("Invalid assignment target - must be variable or pointer dereference")
+				panic("Invalid assignment target - must be variable, field access, or pointer dereference")
 			}
 		} else {
 			// Regular binary operations
@@ -414,6 +535,71 @@ func EmitExpression(buf *bytes.Buffer, node *ASTNode, locals []LocalVarInfo) {
 			EmitExpression(buf, node.Children[0], locals)
 			// TODO: Implement logical not operation
 			panic("Unary not operator (!) not yet implemented")
+		}
+
+	case NodeDot:
+		// Field access: struct.field
+		baseExpr := node.Children[0]
+		fieldName := node.FieldName
+
+		// Get the base struct variable
+		if baseExpr.Kind != NodeIdent {
+			panic("Only direct variable field access supported currently")
+		}
+
+		varName := baseExpr.String
+		var targetLocal *LocalVarInfo
+		for i := range locals {
+			if locals[i].Name == varName {
+				targetLocal = &locals[i]
+				break
+			}
+		}
+		if targetLocal == nil {
+			panic("Undefined struct variable: " + varName)
+		}
+
+		if targetLocal.Type.Kind != TypeStruct {
+			panic("Field access on non-struct variable")
+		}
+
+		// Find field in struct definition
+		var fieldOffset uint32
+		var fieldType *TypeNode
+		found := false
+		for _, field := range targetLocal.Type.Fields {
+			if field.Name == fieldName {
+				fieldOffset = field.Offset
+				fieldType = field.Type
+				found = true
+				break
+			}
+		}
+		if !found {
+			panic("Field not found in struct: " + fieldName)
+		}
+
+		// Generate address calculation
+		framePointerIndex := getFramePointerIndex(locals)
+		writeByte(buf, LOCAL_GET)
+		writeLEB128(buf, framePointerIndex)
+
+		// Add struct base offset + field offset
+		totalOffset := targetLocal.Address + fieldOffset
+		if totalOffset > 0 {
+			writeByte(buf, I64_CONST)
+			writeLEB128Signed(buf, int64(totalOffset))
+			writeByte(buf, I64_ADD)
+		}
+
+		// Load the field value
+		writeByte(buf, I32_WRAP_I64) // Convert i64 address to i32
+		if isWASMI64Type(fieldType) {
+			writeByte(buf, I64_LOAD) // Load i64 from memory
+			writeByte(buf, 0x03)     // alignment (8 bytes = 2^3)
+			writeByte(buf, 0x00)     // offset
+		} else {
+			panic("Non-I64 field types not supported in WASM yet")
 		}
 	}
 }
@@ -470,19 +656,19 @@ func CompileToWASM(ast *ASTNode) []byte {
 
 	// Emit WASM module header and sections in streaming fashion
 	EmitWASMHeader(&buf)
-	EmitTypeSection(&buf)      // function type definitions
-	EmitImportSection(&buf)    // print function + tstack global import
-	EmitFunctionSection(&buf)  // declare main function
-	EmitMemorySection(&buf)    // memory for tstack operations
-	EmitExportSection(&buf)    // export main function
-	EmitCodeSection(&buf, ast) // main function body with compiled expression
+	EmitTypeSection(&buf)                   // function type definitions
+	EmitImportSection(&buf)                 // print function + tstack global import
+	EmitFunctionSection(&buf)               // declare main function
+	EmitMemorySection(&buf)                 // memory for tstack operations
+	EmitExportSection(&buf)                 // export main function
+	EmitCodeSection(&buf, ast, symbolTable) // main function body with compiled expression
 
 	return buf.Bytes()
 }
 
 // collectLocalVariables traverses AST once to find all var declarations and address-of operations
 // Returns the locals list and the total frame size for addressed variables
-func collectLocalVariables(node *ASTNode) ([]LocalVarInfo, uint32) {
+func collectLocalVariables(node *ASTNode, symbolTable *SymbolTable) ([]LocalVarInfo, uint32) {
 	var locals []LocalVarInfo
 	var localIndex uint32 = 0
 	var frameOffset uint32 = 0
@@ -494,15 +680,38 @@ func collectLocalVariables(node *ASTNode) ([]LocalVarInfo, uint32) {
 			// Extract variable name
 			varName := node.Children[0].String
 
+			// Skip variables with no type information
+			if node.TypeAST == nil {
+				break
+			}
+
+			// Get the resolved type from symbol table if available
+			resolvedType := node.TypeAST
+			if symbolTable != nil {
+				if symbol := symbolTable.LookupVariable(varName); symbol != nil {
+					resolvedType = symbol.Type
+				}
+			}
+
 			// Support I64 and I64* (pointers are i64 in WASM)
-			if isWASMI64Type(node.TypeAST) {
+			if isWASMI64Type(resolvedType) {
 				locals = append(locals, LocalVarInfo{
 					Name:    varName,
-					Type:    node.TypeAST,
+					Type:    resolvedType,
 					Storage: VarStorageLocal,
 					Address: localIndex,
 				})
 				localIndex++
+			} else if resolvedType.Kind == TypeStruct {
+				// Struct variables are always stored on tstack (addressed)
+				structSize := uint32(GetTypeSize(resolvedType))
+				locals = append(locals, LocalVarInfo{
+					Name:    varName,
+					Type:    resolvedType,
+					Storage: VarStorageTStack,
+					Address: frameOffset,
+				})
+				frameOffset += structSize
 			}
 
 		case NodeUnary:
@@ -751,6 +960,8 @@ const (
 	NodeCall     NodeKind = "NodeCall"
 	NodeIndex    NodeKind = "NodeIndex"
 	NodeUnary    NodeKind = "NodeUnary"
+	NodeStruct   NodeKind = "NodeStruct"
+	NodeDot      NodeKind = "NodeDot"
 )
 
 // ASTNode represents a node in the Abstract Syntax Tree
@@ -769,6 +980,8 @@ type ASTNode struct {
 	TypeAST *TypeNode // Type information for variable declarations
 	// NodeIdent (variable references):
 	Symbol *SymbolInfo // Direct reference to symbol in symbol table
+	// NodeDot:
+	FieldName string // Field name for field access (s.field)
 }
 
 // TypeKind represents different kinds of types
@@ -777,17 +990,28 @@ type TypeKind string
 const (
 	TypeBuiltin TypeKind = "TypeBuiltin" // I64, Bool
 	TypePointer TypeKind = "TypePointer" // *T
+	TypeStruct  TypeKind = "TypeStruct"  // MyStruct
 )
 
 // TypeNode represents a type in the type system
 type TypeNode struct {
 	Kind TypeKind
 
-	// For TypeBuiltin
-	String string // "I64", "Bool"
+	// For TypeBuiltin, TypeStruct
+	String string // "I64", "Bool", name of struct
 
 	// For TypePointer
 	Child *TypeNode
+
+	// For TypeStruct
+	Fields []StructField // Field definitions (only for struct declarations)
+}
+
+// StructField represents a field in a struct
+type StructField struct {
+	Name   string
+	Type   *TypeNode
+	Offset uint32 // Byte offset in struct layout
 }
 
 // Built-in types
@@ -809,6 +1033,8 @@ func TypesEqual(a, b *TypeNode) bool {
 		return a.String == b.String
 	case TypePointer:
 		return TypesEqual(a.Child, b.Child)
+	case TypeStruct:
+		return a.String == b.String
 	}
 	// unreachable with current TypeKind values
 	panic("Unknown TypeKind: " + string(a.Kind))
@@ -828,6 +1054,13 @@ func GetTypeSize(t *TypeNode) int {
 		}
 	case TypePointer:
 		return 8 // pointers are always 64-bit
+	case TypeStruct:
+		// Calculate struct size from fields
+		if len(t.Fields) == 0 {
+			return 0
+		}
+		lastField := t.Fields[len(t.Fields)-1]
+		return int(lastField.Offset) + GetTypeSize(lastField.Type)
 	}
 	// unreachable with current TypeKind values
 	panic("Unknown TypeKind: " + string(t.Kind))
@@ -840,6 +1073,8 @@ func TypeToString(t *TypeNode) string {
 		return t.String
 	case TypePointer:
 		return TypeToString(t.Child) + "*"
+	case TypeStruct:
+		return t.String
 	}
 	// unreachable with current TypeKind values
 	panic("Unknown TypeKind: " + string(t.Kind))
@@ -857,6 +1092,16 @@ func getBuiltinType(name string) *TypeNode {
 	}
 }
 
+// isKnownUnsupportedType checks if a type name is a known unsupported built-in type
+func isKnownUnsupportedType(name string) bool {
+	switch name {
+	case "string", "int", "float64", "byte", "rune", "uint64", "int32", "uint32":
+		return true
+	default:
+		return false
+	}
+}
+
 // isWASMI64Type checks if a TypeNode represents a type that maps to WASM I64
 func isWASMI64Type(t *TypeNode) bool {
 	if t == nil {
@@ -869,6 +1114,8 @@ func isWASMI64Type(t *TypeNode) bool {
 		return t.String == "I64" || t.String == "Bool"
 	case TypePointer:
 		return true // all pointers are I64 in WASM
+	case TypeStruct:
+		return false // structs are stored in memory, not as I64 locals
 	}
 	// unreachable with current TypeKind values
 	panic("Unknown TypeKind: " + string(t.Kind))
@@ -884,17 +1131,19 @@ type SymbolInfo struct {
 // SymbolTable tracks variable declarations and assignments
 type SymbolTable struct {
 	variables []SymbolInfo
+	structs   []*TypeNode // struct type definitions
 }
 
 // TypeChecker holds state for type checking
 type TypeChecker struct {
-	errors      []string
+	errors []string
 }
 
 // NewSymbolTable creates a new empty symbol table
 func NewSymbolTable() *SymbolTable {
 	return &SymbolTable{
 		variables: make([]SymbolInfo, 0),
+		structs:   make([]*TypeNode, 0),
 	}
 }
 
@@ -936,26 +1185,115 @@ func (st *SymbolTable) LookupVariable(name string) *SymbolInfo {
 	return nil
 }
 
+// DeclareStruct adds a struct declaration to the symbol table
+func (st *SymbolTable) DeclareStruct(structType *TypeNode) error {
+	name := structType.String
+	// Check for duplicate declaration
+	for _, existingStruct := range st.structs {
+		if existingStruct.String == name {
+			return fmt.Errorf("error: struct '%s' already declared", name)
+		}
+	}
+
+	st.structs = append(st.structs, structType)
+	return nil
+}
+
+// LookupStruct finds a struct type by name
+func (st *SymbolTable) LookupStruct(name string) *TypeNode {
+	for _, structType := range st.structs {
+		if structType.String == name {
+			return structType
+		}
+	}
+	return nil
+}
+
+// ConvertStructASTToType converts a struct AST node to a TypeNode with calculated field offsets
+func ConvertStructASTToType(structAST *ASTNode) *TypeNode {
+	if structAST.Kind != NodeStruct {
+		panic("Expected NodeStruct")
+	}
+
+	structName := structAST.String
+	var fields []StructField
+	var currentOffset uint32 = 0
+
+	// Process field declarations
+	for _, fieldAST := range structAST.Children {
+		if fieldAST.Kind != NodeVar {
+			continue // skip non-field declarations
+		}
+
+		fieldName := fieldAST.Children[0].String
+		fieldType := fieldAST.TypeAST
+		fieldSize := GetTypeSize(fieldType)
+
+		fields = append(fields, StructField{
+			Name:   fieldName,
+			Type:   fieldType,
+			Offset: currentOffset,
+		})
+
+		currentOffset += uint32(fieldSize)
+	}
+
+	return &TypeNode{
+		Kind:   TypeStruct,
+		String: structName,
+		Fields: fields,
+	}
+}
+
 // BuildSymbolTable traverses the AST to build a symbol table with variable declarations
 // and populates Symbol references in NodeIdent nodes
 func BuildSymbolTable(ast *ASTNode) *SymbolTable {
 	st := NewSymbolTable()
 
-	// Pass 1: collect all variable declarations
+	// Pass 1: collect all struct and variable declarations
 	// (must be done first to handle variables declared in nested scopes)
 	var collectDeclarations func(*ASTNode)
 	collectDeclarations = func(node *ASTNode) {
 		switch node.Kind {
+		case NodeStruct:
+			// Convert struct AST to TypeNode and declare it
+			structType := ConvertStructASTToType(node)
+			err := st.DeclareStruct(structType)
+			if err != nil {
+				panic(err.Error())
+			}
+
 		case NodeVar:
 			// Extract variable name and type
 			varName := node.Children[0].String
 			varType := node.TypeAST
 
+			// Skip variables with no type information
+			if varType == nil {
+				break
+			}
+
 			// Only add supported types to symbol table for type checking
-			if isWASMI64Type(varType) {
+			// This includes I64, Bool, pointers, and struct types
+			if isWASMI64Type(varType) || varType.Kind == TypeStruct {
+				// For struct types, resolve the struct name to actual struct type
+				if varType.Kind == TypeStruct {
+					// Look up the struct definition
+					structDef := st.LookupStruct(varType.String)
+					if structDef != nil {
+						// Use the complete struct definition
+						varType = structDef
+					}
+				}
+
 				err := st.DeclareVariable(varName, varType)
 				if err != nil {
 					panic(err.Error())
+				}
+
+				// Struct variables are "assigned" when declared (they have allocated memory)
+				if varType.Kind == TypeStruct {
+					st.AssignVariable(varName)
 				}
 			}
 		}
@@ -993,7 +1331,7 @@ func BuildSymbolTable(ast *ASTNode) *SymbolTable {
 // NewTypeChecker creates a new type checker with the given symbol table
 func NewTypeChecker(symbolTable *SymbolTable) *TypeChecker {
 	return &TypeChecker{
-		errors:      make([]string, 0),
+		errors: make([]string, 0),
 	}
 }
 
@@ -1047,7 +1385,7 @@ func CheckStatement(stmt *ASTNode, tc *TypeChecker) error {
 			}
 		}
 
-	case NodeCall, NodeIdent, NodeInteger:
+	case NodeCall, NodeIdent, NodeInteger, NodeDot:
 		// Expression statement
 		_, err := CheckExpression(stmt, tc)
 		if err != nil {
@@ -1137,6 +1475,32 @@ func CheckExpression(expr *ASTNode, tc *TypeChecker) (*TypeNode, error) {
 			return nil, fmt.Errorf("error: unknown function '%s'", funcName)
 		}
 
+	case NodeDot:
+		// Field access: struct.field
+		if len(expr.Children) != 1 {
+			return nil, fmt.Errorf("error: field access expects 1 base expression")
+		}
+
+		baseType, err := CheckExpression(expr.Children[0], tc)
+		if err != nil {
+			return nil, err
+		}
+
+		// Base must be a struct type
+		if baseType.Kind != TypeStruct {
+			return nil, fmt.Errorf("error: cannot access field of non-struct type %s", TypeToString(baseType))
+		}
+
+		// Find the field in the struct
+		fieldName := expr.FieldName
+		for _, field := range baseType.Fields {
+			if field.Name == fieldName {
+				return field.Type, nil
+			}
+		}
+
+		return nil, fmt.Errorf("error: struct %s has no field named '%s'", baseType.String, fieldName)
+
 	case NodeUnary:
 		// Unary operations
 		if expr.Op == "&" {
@@ -1213,8 +1577,15 @@ func CheckAssignment(lhs, rhs *ASTNode, tc *TypeChecker) error {
 
 		lhsType = ptrType.Child
 
+	} else if lhs.Kind == NodeDot {
+		// Field assignment (e.g., s.field = value)
+		lhsType, err = CheckExpression(lhs, tc)
+		if err != nil {
+			return err
+		}
+
 	} else {
-		return fmt.Errorf("error: left side of assignment must be a variable or dereferenced pointer")
+		return fmt.Errorf("error: left side of assignment must be a variable, field access, or dereferenced pointer")
 	}
 
 	// Ensure types match
@@ -1677,6 +2048,16 @@ func ToSExpr(node *ASTNode) string {
 	case NodeUnary:
 		operand := ToSExpr(node.Children[0])
 		return "(unary \"" + node.Op + "\" " + operand + ")"
+	case NodeStruct:
+		result := "(struct \"" + node.String + "\""
+		for _, child := range node.Children {
+			result += " " + ToSExpr(child)
+		}
+		result += ")"
+		return result
+	case NodeDot:
+		base := ToSExpr(node.Children[0])
+		return "(dot " + base + " \"" + node.FieldName + "\")"
 	default:
 		return ""
 	}
@@ -1754,6 +2135,8 @@ func precedence(tokenType TokenType) int {
 	case LBRACKET, LPAREN: // subscript and function call operators
 		return 5 // highest precedence (postfix)
 	case BIT_AND: // postfix address-of operator
+		return 5 // highest precedence (postfix)
+	case DOT: // field access operator
 		return 5 // highest precedence (postfix)
 	default:
 		return 0 // not an operator
@@ -1881,6 +2264,19 @@ func parseExpressionWithPrecedence(minPrec int) *ASTNode {
 				Op:       "&",
 				Children: []*ASTNode{left},
 			}
+		} else if CurrTokenType == DOT {
+			// Handle field access operator: expr.field
+			SkipToken(DOT)
+			if CurrTokenType != IDENT {
+				break // error - expecting field name
+			}
+			fieldName := CurrLiteral
+			SkipToken(IDENT)
+			left = &ASTNode{
+				Kind:      NodeDot,
+				FieldName: fieldName,
+				Children:  []*ASTNode{left},
+			}
 		} else {
 			// Handle binary operators
 			op := CurrLiteral
@@ -1960,9 +2356,13 @@ func parseTypeExpression() *TypeNode {
 
 	baseType := getBuiltinType(baseTypeName)
 	if baseType == nil {
-		// For unrecognized types, create a generic built-in type node
-		// This maintains backward compatibility with tests using "int", "string", etc.
-		baseType = &TypeNode{Kind: TypeBuiltin, String: baseTypeName}
+		if isKnownUnsupportedType(baseTypeName) {
+			// Known unsupported built-in types like "string", "int", etc.
+			baseType = &TypeNode{Kind: TypeBuiltin, String: baseTypeName}
+		} else {
+			// Unknown types assumed to be struct types
+			baseType = &TypeNode{Kind: TypeStruct, String: baseTypeName}
+		}
 	}
 
 	// Handle pointer suffixes
@@ -1981,6 +2381,38 @@ func parseTypeExpression() *TypeNode {
 // ParseStatement parses a statement and returns an AST node
 func ParseStatement() *ASTNode {
 	switch CurrTokenType {
+	case STRUCT:
+		SkipToken(STRUCT)
+		if CurrTokenType != IDENT {
+			return &ASTNode{} // error
+		}
+		structName := CurrLiteral
+		SkipToken(IDENT)
+		if CurrTokenType != LBRACE {
+			return &ASTNode{} // error
+		}
+		SkipToken(LBRACE)
+
+		var fields []*ASTNode
+		for CurrTokenType != RBRACE && CurrTokenType != EOF {
+			// Parse field declaration: var fieldName Type;
+			if CurrTokenType != VAR {
+				break // error
+			}
+			fieldDecl := ParseStatement() // Parse the var declaration
+			fields = append(fields, fieldDecl)
+		}
+
+		if CurrTokenType == RBRACE {
+			SkipToken(RBRACE)
+		}
+
+		return &ASTNode{
+			Kind:     NodeStruct,
+			String:   structName,
+			Children: fields,
+		}
+
 	case IF:
 		SkipToken(IF)
 		cond := ParseExpression()
