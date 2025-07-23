@@ -1,6 +1,9 @@
 package main
 
-import "bytes"
+import (
+	"bytes"
+	"fmt"
+)
 
 // VarStorage represents how a variable is stored
 type VarStorage int
@@ -454,6 +457,15 @@ func isComparisonOp(op string) bool {
 }
 
 func CompileToWASM(ast *ASTNode) []byte {
+	// Build symbol table
+	symbolTable := BuildSymbolTable(ast)
+
+	// Perform type checking
+	err := CheckProgram(ast, symbolTable)
+	if err != nil {
+		panic(err.Error())
+	}
+
 	var buf bytes.Buffer
 
 	// Emit WASM module header and sections in streaming fashion
@@ -858,6 +870,352 @@ func isWASMI64Type(t *TypeNode) bool {
 	}
 	// unreachable with current TypeKind values
 	panic("Unknown TypeKind: " + string(t.Kind))
+}
+
+// SymbolInfo represents information about a declared variable
+type SymbolInfo struct {
+	Name     string
+	Type     *TypeNode
+	Assigned bool // tracks if variable has been assigned a value
+}
+
+// SymbolTable tracks variable declarations and assignments
+type SymbolTable struct {
+	variables []SymbolInfo
+}
+
+// TypeChecker holds state for type checking
+type TypeChecker struct {
+	symbolTable *SymbolTable
+	errors      []string
+}
+
+// NewSymbolTable creates a new empty symbol table
+func NewSymbolTable() *SymbolTable {
+	return &SymbolTable{
+		variables: make([]SymbolInfo, 0),
+	}
+}
+
+// DeclareVariable adds a variable declaration to the symbol table
+func (st *SymbolTable) DeclareVariable(name string, varType *TypeNode) error {
+	// Check for duplicate declaration
+	for _, v := range st.variables {
+		if v.Name == name {
+			return fmt.Errorf("error: variable '%s' already declared", name)
+		}
+	}
+
+	st.variables = append(st.variables, SymbolInfo{
+		Name:     name,
+		Type:     varType,
+		Assigned: false,
+	})
+	return nil
+}
+
+// AssignVariable marks a variable as assigned
+func (st *SymbolTable) AssignVariable(name string) {
+	for i := range st.variables {
+		if st.variables[i].Name == name {
+			st.variables[i].Assigned = true
+			return
+		}
+	}
+	panic(fmt.Sprintf("error: variable '%s' used before declaration", name))
+}
+
+// LookupVariable finds a variable in the symbol table
+func (st *SymbolTable) LookupVariable(name string) *SymbolInfo {
+	for i := range st.variables {
+		if st.variables[i].Name == name {
+			return &st.variables[i]
+		}
+	}
+	return nil
+}
+
+// BuildSymbolTable traverses the AST to build a symbol table with variable declarations
+func BuildSymbolTable(ast *ASTNode) *SymbolTable {
+	st := NewSymbolTable()
+
+	var traverse func(*ASTNode)
+	traverse = func(node *ASTNode) {
+		switch node.Kind {
+		case NodeVar:
+			// Extract variable name and type
+			varName := node.Children[0].String
+			varType := node.TypeAST
+
+			// Only add supported types to symbol table for type checking
+			if isWASMI64Type(varType) {
+				err := st.DeclareVariable(varName, varType)
+				if err != nil {
+					panic(err.Error())
+				}
+			}
+		}
+
+		// Traverse children
+		for _, child := range node.Children {
+			traverse(child)
+		}
+	}
+
+	traverse(ast)
+	return st
+}
+
+// NewTypeChecker creates a new type checker with the given symbol table
+func NewTypeChecker(symbolTable *SymbolTable) *TypeChecker {
+	return &TypeChecker{
+		symbolTable: symbolTable,
+		errors:      make([]string, 0),
+	}
+}
+
+// CheckProgram performs type checking on the entire AST
+func CheckProgram(ast *ASTNode, symbolTable *SymbolTable) error {
+	tc := NewTypeChecker(symbolTable)
+
+	err := CheckStatement(ast, tc)
+	if err != nil {
+		return err
+	}
+
+	// Return any accumulated errors
+	if len(tc.errors) > 0 {
+		return fmt.Errorf("type checking failed: %s", tc.errors[0])
+	}
+
+	return nil
+}
+
+// CheckStatement validates a statement node
+func CheckStatement(stmt *ASTNode, tc *TypeChecker) error {
+	switch stmt.Kind {
+	case NodeVar:
+		// Variable declaration - validate type is provided
+		varType := stmt.TypeAST
+		if varType == nil {
+			return fmt.Errorf("error: variable declaration missing type")
+		}
+		// Note: We allow unsupported types but only type-check supported ones
+		// Unsupported types are simply ignored during WASM generation
+
+	case NodeBlock:
+		// Check all statements in the block
+		for _, child := range stmt.Children {
+			err := CheckStatement(child, tc)
+			if err != nil {
+				return err
+			}
+		}
+
+	case NodeBinary:
+		// Check if this is an assignment statement
+		if stmt.Op == "=" {
+			return CheckAssignment(stmt.Children[0], stmt.Children[1], tc)
+		} else {
+			// Regular expression statement
+			_, err := CheckExpression(stmt, tc)
+			if err != nil {
+				return err
+			}
+		}
+
+	case NodeCall, NodeIdent, NodeInteger:
+		// Expression statement
+		_, err := CheckExpression(stmt, tc)
+		if err != nil {
+			return err
+		}
+
+	case NodeReturn:
+		// TODO: Implement return type checking in the future
+		if len(stmt.Children) > 0 {
+			_, err := CheckExpression(stmt.Children[0], tc)
+			if err != nil {
+				return err
+			}
+		}
+
+	default:
+		// Other statement types are valid for now
+	}
+
+	return nil
+}
+
+// CheckExpression validates an expression and returns its type
+func CheckExpression(expr *ASTNode, tc *TypeChecker) (*TypeNode, error) {
+	switch expr.Kind {
+	case NodeInteger:
+		return TypeI64, nil
+
+	case NodeIdent:
+		// Variable reference - ensure declared and assigned
+		varName := expr.String
+		symbol := tc.symbolTable.LookupVariable(varName)
+		if symbol == nil {
+			return nil, fmt.Errorf("error: variable '%s' used before declaration", varName)
+		}
+		if !symbol.Assigned {
+			return nil, fmt.Errorf("error: variable '%s' used before assignment", varName)
+		}
+		return symbol.Type, nil
+
+	case NodeBinary:
+		if expr.Op == "=" {
+			// Assignment expression
+			return CheckAssignmentExpression(expr.Children[0], expr.Children[1], tc)
+		} else {
+			// Binary operation
+			leftType, err := CheckExpression(expr.Children[0], tc)
+			if err != nil {
+				return nil, err
+			}
+			rightType, err := CheckExpression(expr.Children[1], tc)
+			if err != nil {
+				return nil, err
+			}
+
+			// Ensure operand types match
+			if !TypesEqual(leftType, rightType) {
+				return nil, fmt.Errorf("error: type mismatch in binary operation")
+			}
+
+			// Return result type based on operator
+			switch expr.Op {
+			case "==", "!=", "<", ">", "<=", ">=":
+				return TypeI64, nil // Comparison operators return integers (0 or 1)
+			case "+", "-", "*", "/", "%":
+				return leftType, nil // Arithmetic operators return operand type
+			default:
+				return nil, fmt.Errorf("error: unsupported binary operator '%s'", expr.Op)
+			}
+		}
+
+	case NodeCall:
+		// Function call - for now only validate print() function
+		if len(expr.Children) == 0 || expr.Children[0].Kind != NodeIdent {
+			return nil, fmt.Errorf("error: invalid function call")
+		}
+		funcName := expr.Children[0].String
+		if funcName == "print" {
+			// Validate arguments
+			if len(expr.Children) != 2 {
+				return nil, fmt.Errorf("error: print() function expects 1 argument")
+			}
+			_, err := CheckExpression(expr.Children[1], tc)
+			if err != nil {
+				return nil, err
+			}
+			return TypeI64, nil // print returns nothing, but use I64 for now
+		} else {
+			return nil, fmt.Errorf("error: unknown function '%s'", funcName)
+		}
+
+	case NodeUnary:
+		// Unary operations
+		if expr.Op == "&" {
+			// Address-of operator
+			if len(expr.Children) != 1 {
+				return nil, fmt.Errorf("error: address-of operator expects 1 operand")
+			}
+
+			operandType, err := CheckExpression(expr.Children[0], tc)
+			if err != nil {
+				return nil, err
+			}
+
+			// Return pointer type
+			return &TypeNode{Kind: TypePointer, Child: operandType}, nil
+		} else if expr.Op == "*" {
+			// Dereference operator
+			if len(expr.Children) != 1 {
+				return nil, fmt.Errorf("error: dereference operator expects 1 operand")
+			}
+
+			operandType, err := CheckExpression(expr.Children[0], tc)
+			if err != nil {
+				return nil, err
+			}
+
+			// Operand must be a pointer type
+			if operandType.Kind != TypePointer {
+				return nil, fmt.Errorf("error: cannot dereference non-pointer type %s", TypeToString(operandType))
+			}
+
+			// Return the pointed-to type
+			return operandType.Child, nil
+		} else {
+			return nil, fmt.Errorf("error: unsupported unary operator '%s'", expr.Op)
+		}
+
+	default:
+		return nil, fmt.Errorf("error: unsupported expression type '%s'", expr.Kind)
+	}
+}
+
+// CheckAssignment validates an assignment statement
+func CheckAssignment(lhs, rhs *ASTNode, tc *TypeChecker) error {
+	// Validate RHS type first
+	rhsType, err := CheckExpression(rhs, tc)
+	if err != nil {
+		return err
+	}
+
+	// Validate LHS is assignable
+	var lhsType *TypeNode
+
+	if lhs.Kind == NodeIdent {
+		// Direct variable assignment
+		varName := lhs.String
+		symbol := tc.symbolTable.LookupVariable(varName)
+		if symbol == nil {
+			return fmt.Errorf("error: variable '%s' used before declaration", varName)
+		}
+		lhsType = symbol.Type
+
+		// Mark variable as assigned
+		tc.symbolTable.AssignVariable(varName)
+
+	} else if lhs.Kind == NodeUnary && lhs.Op == "*" {
+		// Pointer dereference assignment (e.g., ptr* = value)
+		ptrType, err := CheckExpression(lhs.Children[0], tc)
+		if err != nil {
+			return err
+		}
+
+		if ptrType.Kind != TypePointer {
+			return fmt.Errorf("error: cannot dereference non-pointer type %s", TypeToString(ptrType))
+		}
+
+		lhsType = ptrType.Child
+
+	} else {
+		return fmt.Errorf("error: left side of assignment must be a variable or dereferenced pointer")
+	}
+
+	// Ensure types match
+	if !TypesEqual(lhsType, rhsType) {
+		return fmt.Errorf("error: cannot assign %s to %s",
+			TypeToString(rhsType), TypeToString(lhsType))
+	}
+
+	return nil
+}
+
+// CheckAssignmentExpression validates an assignment expression and returns its type
+func CheckAssignmentExpression(lhs, rhs *ASTNode, tc *TypeChecker) (*TypeNode, error) {
+	err := CheckAssignment(lhs, rhs, tc)
+	if err != nil {
+		return nil, err
+	}
+
+	// Assignment expression returns the type of the assigned value
+	return CheckExpression(rhs, tc)
 }
 
 // Init initializes the lexer with the given input (must end with a 0 byte).

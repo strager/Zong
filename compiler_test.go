@@ -604,3 +604,78 @@ func TestStackVariableAddressAccess(t *testing.T) {
 	// Addresses should be different (distinct values)
 	be.True(t, lines[0] != lines[1])
 }
+
+// Helper function to test that compilation fails with type checking error
+func expectTypeError(t *testing.T, code string, expectedError string) {
+	input := []byte(code + "\x00")
+
+	// Parse
+	Init(input)
+	NextToken()
+	ast := ParseStatement()
+
+	// Should parse successfully
+	if ast == nil {
+		t.Fatal("Failed to parse source code")
+	}
+
+	// Compilation should fail with type error
+	defer func() {
+		r := recover()
+		be.True(t, r != nil)
+		errorMsg := fmt.Sprintf("%v", r)
+		be.True(t, strings.Contains(errorMsg, expectedError))
+	}()
+
+	CompileToWASM(ast)
+}
+
+func TestTypeCheckingErrors(t *testing.T) {
+	tests := []struct {
+		name          string
+		code          string
+		expectedError string
+	}{
+		{
+			name:          "variable used before declaration",
+			code:          "print(undefined_var)",
+			expectedError: "variable 'undefined_var' used before declaration",
+		},
+		{
+			name:          "variable used before assignment",
+			code:          "{ var x I64; print(x); }",
+			expectedError: "variable 'x' used before assignment",
+		},
+		{
+			name:          "duplicate variable declaration",
+			code:          "{ var x I64; var x I64; }",
+			expectedError: "variable 'x' already declared",
+		},
+		{
+			name:          "invalid assignment target",
+			code:          "42 = 10",
+			expectedError: "left side of assignment must be a variable or dereferenced pointer",
+		},
+		{
+			name:          "dereference non-pointer",
+			code:          "{ var x I64; x = 42; print(x*); }",
+			expectedError: "cannot dereference non-pointer type I64",
+		},
+		{
+			name:          "unknown function call",
+			code:          "unknown_func(42)",
+			expectedError: "unknown function 'unknown_func'",
+		},
+		{
+			name:          "print with wrong argument count",
+			code:          "print()",
+			expectedError: "print() function expects 1 argument",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			expectTypeError(t, tt.code, tt.expectedError)
+		})
+	}
+}
