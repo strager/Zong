@@ -54,6 +54,8 @@ func writeLEB128Signed(buf *bytes.Buffer, val int64) {
 
 // WASM Opcode Constants
 const (
+	I32_CONST        = 0x41
+	I32_ADD          = 0x6A
 	I32_WRAP_I64     = 0xA7
 	I64_CONST        = 0x42
 	I64_ADD          = 0x7C
@@ -121,8 +123,8 @@ func EmitImportSection(buf *bytes.Buffer) {
 	// Import kind: global (0x03)
 	writeByte(&sectionBuf, 0x03)
 
-	// Global type: i64 mutable (0x7E 0x01)
-	writeByte(&sectionBuf, 0x7E) // i64
+	// Global type: i32 mutable (0x7F 0x01)
+	writeByte(&sectionBuf, 0x7F) // i32
 	writeByte(&sectionBuf, 0x01) // mutable
 
 	// Write section size and content
@@ -206,23 +208,40 @@ func EmitCodeSection(buf *bytes.Buffer, ast *ASTNode, symbolTable *SymbolTable) 
 	var bodyBuf bytes.Buffer
 
 	// Emit locals declarations (include frame pointer)
-	localCount := 0
+	i32LocalCount := 0
+	i64LocalCount := 0
 	for _, local := range locals {
-		if isWASMI64Type(local.Type) && local.Storage == VarStorageLocal {
-			localCount++
+		if local.Storage == VarStorageLocal {
+			if isWASMI32Type(local.Type) {
+				i32LocalCount++
+			} else if isWASMI64Type(local.Type) {
+				i64LocalCount++
+			}
 		}
 	}
 
 	if frameSize > 0 {
-		localCount++ // Add frame pointer local
+		i32LocalCount++ // Add frame pointer local (now i32)
 	}
 
-	if localCount > 0 {
-		writeLEB128(&bodyBuf, 1)                  // 1 local type group
-		writeLEB128(&bodyBuf, uint32(localCount)) // count of I64 locals
-		writeByte(&bodyBuf, 0x7E)                 // I64 type
-	} else {
-		writeLEB128(&bodyBuf, 0) // 0 locals
+	// Emit local type groups
+	groupCount := 0
+	if i32LocalCount > 0 {
+		groupCount++
+	}
+	if i64LocalCount > 0 {
+		groupCount++
+	}
+
+	writeLEB128(&bodyBuf, uint32(groupCount))
+
+	if i32LocalCount > 0 {
+		writeLEB128(&bodyBuf, uint32(i32LocalCount)) // count of I32 locals
+		writeByte(&bodyBuf, 0x7F)                    // I32 type
+	}
+	if i64LocalCount > 0 {
+		writeLEB128(&bodyBuf, uint32(i64LocalCount)) // count of I64 locals
+		writeByte(&bodyBuf, 0x7E)                    // I64 type
 	}
 
 	// Emit frame setup code if we have addressed variables
@@ -315,16 +334,15 @@ func EmitExpression(buf *bytes.Buffer, node *ASTNode, locals []LocalVarInfo) {
 
 				// Add variable offset if not zero
 				if targetLocal.Address > 0 {
-					writeByte(buf, I64_CONST)
+					writeByte(buf, I32_CONST)
 					writeLEB128Signed(buf, int64(targetLocal.Address))
-					writeByte(buf, I64_ADD)
+					writeByte(buf, I32_ADD)
 				}
 
 				// Load the value from memory
-				writeByte(buf, I32_WRAP_I64) // Convert i64 address to i32
-				writeByte(buf, I64_LOAD)     // Load i64 from memory
-				writeByte(buf, 0x03)         // alignment (8 bytes = 2^3)
-				writeByte(buf, 0x00)         // offset
+				writeByte(buf, I64_LOAD) // Load i64 from memory
+				writeByte(buf, 0x03)     // alignment (8 bytes = 2^3)
+				writeByte(buf, 0x00)     // offset
 			}
 		}
 
@@ -359,15 +377,13 @@ func EmitExpression(buf *bytes.Buffer, node *ASTNode, locals []LocalVarInfo) {
 
 					// Add variable offset if not zero
 					if targetLocal.Address > 0 {
-						writeByte(buf, I64_CONST)
+						writeByte(buf, I32_CONST)
 						writeLEB128Signed(buf, int64(targetLocal.Address))
-						writeByte(buf, I64_ADD)
+						writeByte(buf, I32_ADD)
 					}
-					writeByte(buf, I32_WRAP_I64) // Convert destination address to i32
 
 					// Get source address (RHS should evaluate to struct address)
 					EmitExpression(buf, rhs, locals) // RHS address
-					writeByte(buf, I32_WRAP_I64)     // Convert source address to i32
 
 					// Perform memory copy (simplified - copy 8 bytes at a time)
 					// Stack: [dst_addr_i32, src_addr_i32]
@@ -399,12 +415,10 @@ func EmitExpression(buf *bytes.Buffer, node *ASTNode, locals []LocalVarInfo) {
 
 					// Add variable offset if not zero
 					if targetLocal.Address > 0 {
-						writeByte(buf, I64_CONST)
+						writeByte(buf, I32_CONST)
 						writeLEB128Signed(buf, int64(targetLocal.Address))
-						writeByte(buf, I64_ADD)
+						writeByte(buf, I32_ADD)
 					}
-
-					writeByte(buf, I32_WRAP_I64) // Convert i64 address to i32
 
 					// Now evaluate the RHS value
 					EmitExpression(buf, rhs, locals) // RHS value
@@ -417,8 +431,7 @@ func EmitExpression(buf *bytes.Buffer, node *ASTNode, locals []LocalVarInfo) {
 			} else if lhs.Kind == NodeUnary && lhs.Op == "*" {
 				// Pointer dereference assignment: ptr* = value
 				// First get the address where to store
-				EmitExpression(buf, lhs.Children[0], locals) // Get pointer value
-				writeByte(buf, I32_WRAP_I64)                 // Convert i64 pointer to i32 address
+				EmitExpression(buf, lhs.Children[0], locals) // Get pointer value (i32)
 
 				// Now evaluate the RHS value
 				EmitExpression(buf, rhs, locals) // RHS value
@@ -477,12 +490,10 @@ func EmitExpression(buf *bytes.Buffer, node *ASTNode, locals []LocalVarInfo) {
 				// Add struct base offset + field offset
 				totalOffset := targetLocal.Address + fieldOffset
 				if totalOffset > 0 {
-					writeByte(buf, I64_CONST)
+					writeByte(buf, I32_CONST)
 					writeLEB128Signed(buf, int64(totalOffset))
-					writeByte(buf, I64_ADD)
+					writeByte(buf, I32_ADD)
 				}
-
-				writeByte(buf, I32_WRAP_I64) // Convert i64 address to i32
 
 				// Now evaluate the RHS value
 				EmitExpression(buf, rhs, locals) // RHS value
@@ -513,7 +524,14 @@ func EmitExpression(buf *bytes.Buffer, node *ASTNode, locals []LocalVarInfo) {
 	case NodeCall:
 		if len(node.Children) > 0 && node.Children[0].Kind == NodeIdent && node.Children[0].String == "print" {
 			if len(node.Children) > 1 {
-				EmitExpression(buf, node.Children[1], locals) // argument
+				arg := node.Children[1]
+				EmitExpression(buf, arg, locals) // argument
+
+				// If the argument is a pointer type, we need to widen it from i32 to i64
+				// because print() expects i64
+				if needsI32ToI64Widening(arg, locals) {
+					writeByte(buf, I64_EXTEND_I32_S) // Convert i32 pointer to i64
+				}
 			}
 			writeByte(buf, CALL) // call instruction
 			writeLEB128(buf, 0)  // function index 0 (print import)
@@ -525,9 +543,8 @@ func EmitExpression(buf *bytes.Buffer, node *ASTNode, locals []LocalVarInfo) {
 			EmitAddressOf(buf, node.Children[0], locals)
 		} else if node.Op == "*" {
 			// Dereference operator
-			EmitExpression(buf, node.Children[0], locals) // Get the pointer value
-			writeByte(buf, I32_WRAP_I64)                  // Convert i64 pointer to i32 address
-			writeByte(buf, I64_LOAD)                      // Load i64 from memory
+			EmitExpression(buf, node.Children[0], locals) // Get the pointer value (i32)
+			writeByte(buf, I64_LOAD)                      // Load i64 from memory using i32 address
 			writeByte(buf, 0x03)                          // alignment (8 bytes = 2^3)
 			writeByte(buf, 0x00)                          // offset
 		} else if node.Op == "!" {
@@ -587,13 +604,12 @@ func EmitExpression(buf *bytes.Buffer, node *ASTNode, locals []LocalVarInfo) {
 		// Add struct base offset + field offset
 		totalOffset := targetLocal.Address + fieldOffset
 		if totalOffset > 0 {
-			writeByte(buf, I64_CONST)
+			writeByte(buf, I32_CONST)
 			writeLEB128Signed(buf, int64(totalOffset))
-			writeByte(buf, I64_ADD)
+			writeByte(buf, I32_ADD)
 		}
 
 		// Load the field value
-		writeByte(buf, I32_WRAP_I64) // Convert i64 address to i32
 		if isWASMI64Type(fieldType) {
 			writeByte(buf, I64_LOAD) // Load i64 from memory
 			writeByte(buf, 0x03)     // alignment (8 bytes = 2^3)
@@ -670,7 +686,6 @@ func CompileToWASM(ast *ASTNode) []byte {
 // Returns the locals list and the total frame size for addressed variables
 func collectLocalVariables(node *ASTNode, symbolTable *SymbolTable) ([]LocalVarInfo, uint32) {
 	var locals []LocalVarInfo
-	var localIndex uint32 = 0
 	var frameOffset uint32 = 0
 
 	var traverse func(*ASTNode)
@@ -693,15 +708,14 @@ func collectLocalVariables(node *ASTNode, symbolTable *SymbolTable) ([]LocalVarI
 				}
 			}
 
-			// Support I64 and I64* (pointers are i64 in WASM)
-			if isWASMI64Type(resolvedType) {
+			// Support I64, I64* (pointers are i32 in WASM), and other types
+			if isWASMI32Type(resolvedType) || isWASMI64Type(resolvedType) {
 				locals = append(locals, LocalVarInfo{
 					Name:    varName,
 					Type:    resolvedType,
 					Storage: VarStorageLocal,
-					Address: localIndex,
+					// Address will be allocated later.
 				})
-				localIndex++
 			} else if resolvedType.Kind == TypeStruct {
 				// Struct variables are always stored on tstack (addressed)
 				structSize := uint32(GetTypeSize(resolvedType))
@@ -742,6 +756,38 @@ func collectLocalVariables(node *ASTNode, symbolTable *SymbolTable) ([]LocalVarI
 	}
 
 	traverse(node)
+
+	// Reassign WASM local indices: i32 locals first, then i64 locals
+	var i32Index uint32 = 0
+	var i64Index uint32 = 0
+
+	// Count i32 locals to know where i64 locals start
+	i32Count := uint32(0)
+	for i := range locals {
+		if locals[i].Storage == VarStorageLocal && isWASMI32Type(locals[i].Type) {
+			i32Count++
+		}
+	}
+
+	// Calculate total i32 locals including frame pointer
+	totalI32Locals := i32Count
+	if frameOffset > 0 { // frameOffset > 0 means we need a frame pointer
+		totalI32Locals++ // Add 1 for frame pointer
+	}
+
+	// Assign correct indices
+	for i := range locals {
+		if locals[i].Storage == VarStorageLocal {
+			if isWASMI32Type(locals[i].Type) {
+				locals[i].Address = i32Index
+				i32Index++
+			} else if isWASMI64Type(locals[i].Type) {
+				locals[i].Address = totalI32Locals + i64Index
+				i64Index++
+			}
+		}
+	}
+
 	return locals, frameOffset
 }
 
@@ -759,9 +805,9 @@ func EmitFrameSetup(buf *bytes.Buffer, locals []LocalVarInfo, frameSize uint32) 
 	// Advance tstack pointer by frame size: tstack_pointer += frame_size
 	writeByte(buf, GLOBAL_GET) // global.get $tstack_pointer
 	writeLEB128(buf, 0)        // tstack global index (0)
-	writeByte(buf, I64_CONST)  // i64.const frame_size
+	writeByte(buf, I32_CONST)  // i32.const frame_size
 	writeLEB128Signed(buf, int64(frameSize))
-	writeByte(buf, I64_ADD)    // i64.add
+	writeByte(buf, I32_ADD)    // i32.add
 	writeByte(buf, GLOBAL_SET) // global.set $tstack_pointer
 	writeLEB128(buf, 0)        // tstack global index (0)
 }
@@ -769,13 +815,20 @@ func EmitFrameSetup(buf *bytes.Buffer, locals []LocalVarInfo, frameSize uint32) 
 // getFramePointerIndex returns the local index for the frame pointer
 func getFramePointerIndex(locals []LocalVarInfo) uint32 {
 	// Frame pointer is the last local (after all VarStorageLocal variable locals)
-	localCount := uint32(0)
+	// Count both i32 and i64 locals
+	i32Count := uint32(0)
+	i64Count := uint32(0)
 	for _, local := range locals {
 		if local.Storage == VarStorageLocal {
-			localCount++
+			if isWASMI32Type(local.Type) {
+				i32Count++
+			} else if isWASMI64Type(local.Type) {
+				i64Count++
+			}
 		}
 	}
-	return localCount
+	// Frame pointer is the last i32 local (comes after user i32 locals, before i64 locals)
+	return i32Count
 }
 
 // EmitAddressOf generates code for address-of operations
@@ -808,9 +861,9 @@ func EmitAddressOf(buf *bytes.Buffer, operand *ASTNode, locals []LocalVarInfo) {
 
 		// Add variable offset
 		if targetLocal.Address > 0 {
-			writeByte(buf, I64_CONST)
+			writeByte(buf, I32_CONST)
 			writeLEB128Signed(buf, int64(targetLocal.Address))
-			writeByte(buf, I64_ADD)
+			writeByte(buf, I32_ADD)
 		}
 	} else {
 		// Rvalue case: &(expression)
@@ -819,9 +872,8 @@ func EmitAddressOf(buf *bytes.Buffer, operand *ASTNode, locals []LocalVarInfo) {
 		writeLEB128(buf, 0)        // tstack global index (0)
 
 		// Get address for store operation: Stack: [result_addr, store_addr_i32]
-		writeByte(buf, GLOBAL_GET)   // global.get $tstack_pointer -> Stack: [result_addr, store_addr]
-		writeLEB128(buf, 0)          // tstack global index (0)
-		writeByte(buf, I32_WRAP_I64) // i32.wrap_i64 (convert i64 address to i32) -> Stack: [result_addr, store_addr_i32]
+		writeByte(buf, GLOBAL_GET) // global.get $tstack_pointer -> Stack: [result_addr, store_addr]
+		writeLEB128(buf, 0)        // tstack global index (0)
 
 		// Evaluate expression to get value: Stack: [result_addr, store_addr_i32, value]
 		EmitExpression(buf, operand, locals)
@@ -834,9 +886,9 @@ func EmitAddressOf(buf *bytes.Buffer, operand *ASTNode, locals []LocalVarInfo) {
 		// Advance tstack pointer by 8 bytes
 		writeByte(buf, GLOBAL_GET) // global.get $tstack_pointer
 		writeLEB128(buf, 0)        // tstack global index (0)
-		writeByte(buf, I64_CONST)  // i64.const 8
+		writeByte(buf, I32_CONST)  // i32.const 8
 		writeLEB128Signed(buf, 8)
-		writeByte(buf, I64_ADD)    // i64.add
+		writeByte(buf, I32_ADD)    // i32.add
 		writeByte(buf, GLOBAL_SET) // global.set $tstack_pointer
 		writeLEB128(buf, 0)        // tstack global index (0)
 
@@ -1113,12 +1165,55 @@ func isWASMI64Type(t *TypeNode) bool {
 		// Other types like "int", "string" are not supported in WASM generation
 		return t.String == "I64" || t.String == "Bool"
 	case TypePointer:
-		return true // all pointers are I64 in WASM
+		return false // pointers are I32 in WASM
 	case TypeStruct:
 		return false // structs are stored in memory, not as I64 locals
 	}
 	// unreachable with current TypeKind values
 	panic("Unknown TypeKind: " + string(t.Kind))
+}
+
+// isWASMI32Type checks if a TypeNode represents a type that maps to WASM I32
+func isWASMI32Type(t *TypeNode) bool {
+	if t == nil {
+		return false
+	}
+	switch t.Kind {
+	case TypeBuiltin:
+		return false // builtin types are not I32
+	case TypePointer:
+		return true // all pointers are I32 in WASM
+	case TypeStruct:
+		return false // structs are stored in memory, not as I32 locals
+	}
+	// unreachable with current TypeKind values
+	panic("Unknown TypeKind: " + string(t.Kind))
+}
+
+// needsI32ToI64Widening checks if an expression produces i32 and needs widening to i64
+func needsI32ToI64Widening(expr *ASTNode, locals []LocalVarInfo) bool {
+	switch expr.Kind {
+	case NodeIdent:
+		// Look up variable in locals
+		varName := expr.String
+		for _, local := range locals {
+			if local.Name == varName && isWASMI32Type(local.Type) {
+				return true
+			}
+		}
+		return false
+
+	case NodeUnary:
+		if expr.Op == "&" {
+			// Address-of operator produces a pointer (i32)
+			return true
+		}
+		return false
+
+	default:
+		// Other expressions don't produce i32 values that need widening
+		return false
+	}
 }
 
 // SymbolInfo represents information about a declared variable
@@ -1275,7 +1370,7 @@ func BuildSymbolTable(ast *ASTNode) *SymbolTable {
 
 			// Only add supported types to symbol table for type checking
 			// This includes I64, Bool, pointers, and struct types
-			if isWASMI64Type(varType) || varType.Kind == TypeStruct {
+			if isWASMI64Type(varType) || isWASMI32Type(varType) || varType.Kind == TypeStruct {
 				// For struct types, resolve the struct name to actual struct type
 				if varType.Kind == TypeStruct {
 					// Look up the struct definition

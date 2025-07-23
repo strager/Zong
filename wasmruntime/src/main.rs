@@ -22,11 +22,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("{}", n);
     });
 
-    // Create tstack global (mutable i64 initialized to 0)
+    // Create tstack global (mutable i32 initialized to 0)
     let tstack_global = Global::new(
         &mut store,
-        GlobalType::new(ValType::I64, Mutability::Var),
-        Val::I64(0),
+        GlobalType::new(ValType::I32, Mutability::Var),
+        Val::I32(0),
     )?;
 
     // Create imports array - order must match WASM import order: print function, tstack global

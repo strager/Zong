@@ -385,8 +385,8 @@ func TestTypeUtilityFunctions(t *testing.T) {
 		t.Error("Bool should be a WASM I64 type")
 	}
 
-	if !isWASMI64Type(i64Ptr) {
-		t.Error("I64* should be a WASM I64 type")
+	if !isWASMI32Type(i64Ptr) {
+		t.Error("I64* should be a WASM I32 type")
 	}
 
 	unknownType := &TypeNode{Kind: TypeBuiltin, String: "string"}

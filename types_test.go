@@ -87,12 +87,12 @@ func TestIsWASMI64Type(t *testing.T) {
 		{
 			name:     "pointer type",
 			t:        &TypeNode{Kind: TypePointer, Child: &TypeNode{Kind: TypeBuiltin, String: "I64"}},
-			expected: true,
+			expected: false, // pointers are now i32, not i64
 		},
 		{
 			name:     "pointer to unsupported type",
 			t:        &TypeNode{Kind: TypePointer, Child: &TypeNode{Kind: TypeBuiltin, String: "String"}},
-			expected: true,
+			expected: false, // pointers are now i32, not i64
 		},
 	}
 
