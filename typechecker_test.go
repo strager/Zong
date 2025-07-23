@@ -7,15 +7,6 @@ import (
 	"github.com/nalgeon/be"
 )
 
-func TestNewTypeChecker(t *testing.T) {
-	st := NewSymbolTable()
-	tc := NewTypeChecker(st)
-
-	be.True(t, tc != nil)
-	be.Equal(t, st, tc.symbolTable)
-	be.Equal(t, 0, len(tc.errors))
-}
-
 func TestCheckExpressionInteger(t *testing.T) {
 	st := NewSymbolTable()
 	tc := NewTypeChecker(st)
@@ -40,10 +31,12 @@ func TestCheckExpressionVariableAssigned(t *testing.T) {
 
 	tc := NewTypeChecker(st)
 
-	// Create variable reference node
+	// Create variable reference node with symbol reference
+	symbol := st.LookupVariable("x")
 	varNode := &ASTNode{
 		Kind:   NodeIdent,
 		String: "x",
+		Symbol: symbol,
 	}
 
 	// Check expression
@@ -75,10 +68,12 @@ func TestCheckExpressionVariableNotAssigned(t *testing.T) {
 
 	tc := NewTypeChecker(st)
 
-	// Create variable reference node
+	// Create variable reference node with symbol reference
+	symbol := st.LookupVariable("x")
 	varNode := &ASTNode{
 		Kind:   NodeIdent,
 		String: "x",
+		Symbol: symbol,
 	}
 
 	// Check expression
@@ -135,12 +130,13 @@ func TestCheckExpressionAddressOf(t *testing.T) {
 
 	tc := NewTypeChecker(st)
 
-	// Create address-of expression: x&
+	// Create address-of expression: x& with symbol reference
+	symbol := st.LookupVariable("x")
 	addrNode := &ASTNode{
 		Kind: NodeUnary,
 		Op:   "&",
 		Children: []*ASTNode{
-			{Kind: NodeIdent, String: "x"},
+			{Kind: NodeIdent, String: "x", Symbol: symbol},
 		},
 	}
 
@@ -160,12 +156,13 @@ func TestCheckExpressionDereference(t *testing.T) {
 
 	tc := NewTypeChecker(st)
 
-	// Create dereference expression: ptr*
+	// Create dereference expression: ptr* with symbol reference
+	symbol := st.LookupVariable("ptr")
 	derefNode := &ASTNode{
 		Kind: NodeUnary,
 		Op:   "*",
 		Children: []*ASTNode{
-			{Kind: NodeIdent, String: "ptr"},
+			{Kind: NodeIdent, String: "ptr", Symbol: symbol},
 		},
 	}
 
@@ -183,12 +180,13 @@ func TestCheckExpressionDereferenceNonPointer(t *testing.T) {
 
 	tc := NewTypeChecker(st)
 
-	// Create dereference expression: x*
+	// Create dereference expression: x* with symbol reference
+	symbol := st.LookupVariable("x")
 	derefNode := &ASTNode{
 		Kind: NodeUnary,
 		Op:   "*",
 		Children: []*ASTNode{
-			{Kind: NodeIdent, String: "x"},
+			{Kind: NodeIdent, String: "x", Symbol: symbol},
 		},
 	}
 
@@ -243,8 +241,9 @@ func TestCheckAssignmentValid(t *testing.T) {
 
 	tc := NewTypeChecker(st)
 
-	// Create assignment nodes: x = 42
-	lhs := &ASTNode{Kind: NodeIdent, String: "x"}
+	// Create assignment nodes: x = 42 with symbol reference
+	symbol := st.LookupVariable("x")
+	lhs := &ASTNode{Kind: NodeIdent, String: "x", Symbol: symbol}
 	rhs := &ASTNode{Kind: NodeInteger, Integer: 42}
 
 	// Check assignment
@@ -252,7 +251,6 @@ func TestCheckAssignmentValid(t *testing.T) {
 	be.Err(t, err, nil)
 
 	// Verify variable is now assigned
-	symbol := st.LookupVariable("x")
 	be.Equal(t, true, symbol.Assigned)
 }
 
@@ -279,12 +277,13 @@ func TestCheckAssignmentPointerDereference(t *testing.T) {
 
 	tc := NewTypeChecker(st)
 
-	// Create assignment nodes: ptr* = 42
+	// Create assignment nodes: ptr* = 42 with symbol reference
+	symbol := st.LookupVariable("ptr")
 	lhs := &ASTNode{
 		Kind: NodeUnary,
 		Op:   "*",
 		Children: []*ASTNode{
-			{Kind: NodeIdent, String: "ptr"},
+			{Kind: NodeIdent, String: "ptr", Symbol: symbol},
 		},
 	}
 	rhs := &ASTNode{Kind: NodeInteger, Integer: 42}

@@ -767,6 +767,8 @@ type ASTNode struct {
 	ParameterNames []string
 	// NodeVar:
 	TypeAST *TypeNode // Type information for variable declarations
+	// NodeIdent (variable references):
+	Symbol *SymbolInfo // Direct reference to symbol in symbol table
 }
 
 // TypeKind represents different kinds of types
@@ -886,7 +888,6 @@ type SymbolTable struct {
 
 // TypeChecker holds state for type checking
 type TypeChecker struct {
-	symbolTable *SymbolTable
 	errors      []string
 }
 
@@ -936,11 +937,14 @@ func (st *SymbolTable) LookupVariable(name string) *SymbolInfo {
 }
 
 // BuildSymbolTable traverses the AST to build a symbol table with variable declarations
+// and populates Symbol references in NodeIdent nodes
 func BuildSymbolTable(ast *ASTNode) *SymbolTable {
 	st := NewSymbolTable()
 
-	var traverse func(*ASTNode)
-	traverse = func(node *ASTNode) {
+	// Pass 1: collect all variable declarations
+	// (must be done first to handle variables declared in nested scopes)
+	var collectDeclarations func(*ASTNode)
+	collectDeclarations = func(node *ASTNode) {
 		switch node.Kind {
 		case NodeVar:
 			// Extract variable name and type
@@ -958,18 +962,37 @@ func BuildSymbolTable(ast *ASTNode) *SymbolTable {
 
 		// Traverse children
 		for _, child := range node.Children {
-			traverse(child)
+			collectDeclarations(child)
 		}
 	}
 
-	traverse(ast)
+	// Pass 2: populate Symbol references for all NodeIdent nodes
+	var populateReferences func(*ASTNode)
+	populateReferences = func(node *ASTNode) {
+		if node.Kind == NodeIdent {
+			varName := node.String
+			symbol := st.LookupVariable(varName)
+			if symbol != nil {
+				node.Symbol = symbol
+			}
+		}
+
+		// Traverse children
+		for _, child := range node.Children {
+			populateReferences(child)
+		}
+	}
+
+	// Execute both passes
+	collectDeclarations(ast)
+	populateReferences(ast)
+
 	return st
 }
 
 // NewTypeChecker creates a new type checker with the given symbol table
 func NewTypeChecker(symbolTable *SymbolTable) *TypeChecker {
 	return &TypeChecker{
-		symbolTable: symbolTable,
 		errors:      make([]string, 0),
 	}
 }
@@ -1054,16 +1077,14 @@ func CheckExpression(expr *ASTNode, tc *TypeChecker) (*TypeNode, error) {
 		return TypeI64, nil
 
 	case NodeIdent:
-		// Variable reference - ensure declared and assigned
-		varName := expr.String
-		symbol := tc.symbolTable.LookupVariable(varName)
-		if symbol == nil {
-			return nil, fmt.Errorf("error: variable '%s' used before declaration", varName)
+		// Variable reference - use cached symbol reference
+		if expr.Symbol == nil {
+			return nil, fmt.Errorf("error: variable '%s' used before declaration", expr.String)
 		}
-		if !symbol.Assigned {
-			return nil, fmt.Errorf("error: variable '%s' used before assignment", varName)
+		if !expr.Symbol.Assigned {
+			return nil, fmt.Errorf("error: variable '%s' used before assignment", expr.String)
 		}
-		return symbol.Type, nil
+		return expr.Symbol.Type, nil
 
 	case NodeBinary:
 		if expr.Op == "=" {
@@ -1170,16 +1191,14 @@ func CheckAssignment(lhs, rhs *ASTNode, tc *TypeChecker) error {
 	var lhsType *TypeNode
 
 	if lhs.Kind == NodeIdent {
-		// Direct variable assignment
-		varName := lhs.String
-		symbol := tc.symbolTable.LookupVariable(varName)
-		if symbol == nil {
-			return fmt.Errorf("error: variable '%s' used before declaration", varName)
+		// Direct variable assignment - use cached symbol reference
+		if lhs.Symbol == nil {
+			return fmt.Errorf("error: variable '%s' used before declaration", lhs.String)
 		}
-		lhsType = symbol.Type
+		lhsType = lhs.Symbol.Type
 
 		// Mark variable as assigned
-		tc.symbolTable.AssignVariable(varName)
+		lhs.Symbol.Assigned = true
 
 	} else if lhs.Kind == NodeUnary && lhs.Op == "*" {
 		// Pointer dereference assignment (e.g., ptr* = value)
