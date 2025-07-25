@@ -9,8 +9,9 @@ import (
 type VarStorage int
 
 const (
-	VarStorageLocal  VarStorage = iota // Variable stored in WASM local
-	VarStorageTStack                   // Variable stored on the stack (addressed)
+	VarStorageLocal          VarStorage = iota // Variable stored in WASM local
+	VarStorageParameterLocal                   // Variable stored as function parameter (like VarStorageLocal but allocated differently)
+	VarStorageTStack                           // Variable stored on the stack (addressed)
 )
 
 // LocalVarInfo represents information about a local variable
@@ -19,6 +20,19 @@ type LocalVarInfo struct {
 	Type    *TypeNode  // TypeNode representation of the type
 	Storage VarStorage // How the variable is stored
 	Address uint32     // For VarStorageLocal: WASM local index; For VarStorageTStack: byte offset in stack frame
+}
+
+// LocalContext represents unified local variable management for both legacy and function compilation paths
+type LocalContext struct {
+	// Variable registry
+	Variables []LocalVarInfo
+
+	// Layout configuration
+	ParameterCount    uint32
+	I32LocalCount     uint32
+	I64LocalCount     uint32
+	FramePointerIndex uint32
+	FrameSize         uint32
 }
 
 // WASM Binary Encoding Utilities
@@ -146,36 +160,197 @@ func EmitMemorySection(buf *bytes.Buffer) {
 	writeBytes(buf, sectionBuf.Bytes())
 }
 
-func EmitTypeSection(buf *bytes.Buffer) {
+// Global type registry for consistent type indices
+var globalTypeRegistry []FunctionType
+var globalTypeMap map[string]int
+
+// Global function registry for consistent function indices
+var globalFunctionRegistry []string
+var globalFunctionMap map[string]int
+
+func initTypeRegistry() {
+	globalTypeRegistry = []FunctionType{}
+	globalTypeMap = make(map[string]int)
+
+	// Type 0: print function (i64) -> ()
+	printType := FunctionType{
+		Parameters: []byte{0x7E}, // i64
+		Results:    []byte{},     // void
+	}
+	globalTypeRegistry = append(globalTypeRegistry, printType)
+	globalTypeMap["(i64)->()"] = 0
+}
+
+func initFunctionRegistry(functions []*ASTNode) {
+	globalFunctionRegistry = []string{}
+	globalFunctionMap = make(map[string]int)
+
+	// Function 0 is print (imported)
+	globalFunctionRegistry = append(globalFunctionRegistry, "print")
+	globalFunctionMap["print"] = 0
+
+	// Add user functions starting from index 1
+	for _, fn := range functions {
+		index := len(globalFunctionRegistry)
+		globalFunctionRegistry = append(globalFunctionRegistry, fn.FunctionName)
+		globalFunctionMap[fn.FunctionName] = index
+	}
+}
+
+func EmitTypeSection(buf *bytes.Buffer, functions []*ASTNode) {
 	writeByte(buf, 0x01) // type section id
 
 	var sectionBuf bytes.Buffer
-	writeLEB128(&sectionBuf, 2) // 2 function types
 
-	// Type 0: print function (i64) -> ()
-	writeByte(&sectionBuf, 0x60) // func type
-	writeLEB128(&sectionBuf, 1)  // 1 param
-	writeByte(&sectionBuf, 0x7E) // i64
-	writeLEB128(&sectionBuf, 0)  // 0 results
+	// Initialize registries
+	initTypeRegistry()
+	initFunctionRegistry(functions)
 
-	// Type 1: main function () -> ()
-	writeByte(&sectionBuf, 0x60) // func type
-	writeLEB128(&sectionBuf, 0)  // 0 params
-	writeLEB128(&sectionBuf, 0)  // 0 results
+	if len(functions) == 0 {
+		// Legacy path - add main function type (void -> void)
+		mainType := FunctionType{
+			Parameters: []byte{},
+			Results:    []byte{},
+		}
+		globalTypeRegistry = append(globalTypeRegistry, mainType)
+	} else {
+		// Register types for user functions
+		for _, fn := range functions {
+			sig := generateFunctionSignature(fn)
+			if _, exists := globalTypeMap[sig]; !exists {
+				globalTypeMap[sig] = len(globalTypeRegistry)
+				globalTypeRegistry = append(globalTypeRegistry, createFunctionType(fn))
+			}
+		}
+	}
+
+	writeLEB128(&sectionBuf, uint32(len(globalTypeRegistry)))
+
+	// Emit each function type
+	for _, funcType := range globalTypeRegistry {
+		writeByte(&sectionBuf, 0x60) // func type
+		writeLEB128(&sectionBuf, uint32(len(funcType.Parameters)))
+		for _, param := range funcType.Parameters {
+			writeByte(&sectionBuf, param)
+		}
+		writeLEB128(&sectionBuf, uint32(len(funcType.Results)))
+		for _, result := range funcType.Results {
+			writeByte(&sectionBuf, result)
+		}
+	}
 
 	writeLEB128(buf, uint32(sectionBuf.Len()))
 	writeBytes(buf, sectionBuf.Bytes())
 }
 
-func EmitFunctionSection(buf *bytes.Buffer) {
+// FunctionType represents a WASM function type signature
+type FunctionType struct {
+	Parameters []byte
+	Results    []byte
+}
+
+// generateFunctionSignature creates a string signature for deduplication
+func generateFunctionSignature(fn *ASTNode) string {
+	sig := "("
+	for i, param := range fn.Parameters {
+		if i > 0 {
+			sig += ","
+		}
+		sig += wasmTypeString(param.Type)
+	}
+	sig += ")->("
+	if fn.ReturnType != nil {
+		sig += wasmTypeString(fn.ReturnType)
+	}
+	sig += ")"
+	return sig
+}
+
+// createFunctionType creates a FunctionType from a function AST node
+func createFunctionType(fn *ASTNode) FunctionType {
+	var params []byte
+	for _, param := range fn.Parameters {
+		params = append(params, wasmTypeByte(param.Type))
+	}
+
+	var results []byte
+	if fn.ReturnType != nil {
+		results = append(results, wasmTypeByte(fn.ReturnType))
+	}
+
+	return FunctionType{
+		Parameters: params,
+		Results:    results,
+	}
+}
+
+// wasmTypeByte returns the WASM type byte for a TypeNode
+func wasmTypeByte(typeNode *TypeNode) byte {
+	if typeNode.Kind == TypeBuiltin && typeNode.String == "I64" {
+		return 0x7E // i64
+	}
+	if typeNode.Kind == TypePointer {
+		return 0x7F // i32 (pointer)
+	}
+	if typeNode.Kind == TypeStruct {
+		return 0x7F // i32 (struct parameters are passed as pointers)
+	}
+	panic("Unsupported type for WASM: " + TypeToString(typeNode))
+}
+
+// wasmTypeString returns the WASM type string for a TypeNode
+func wasmTypeString(typeNode *TypeNode) string {
+	if typeNode.Kind == TypeBuiltin && typeNode.String == "I64" {
+		return "i64"
+	}
+	if typeNode.Kind == TypePointer {
+		return "i32"
+	}
+	if typeNode.Kind == TypeStruct {
+		// Struct parameters are passed as i32 pointers in WASM
+		return "i32"
+	}
+	panic("Unsupported type for WASM: " + TypeToString(typeNode))
+}
+
+func EmitFunctionSection(buf *bytes.Buffer, functions []*ASTNode) {
 	writeByte(buf, 0x03) // function section id
 
 	var sectionBuf bytes.Buffer
-	writeLEB128(&sectionBuf, 1) // 1 function
-	writeLEB128(&sectionBuf, 1) // function 0 uses type index 1 (main function type)
+
+	if len(functions) == 0 {
+		// Legacy path - emit single main function
+		writeLEB128(&sectionBuf, 1) // 1 function
+		writeLEB128(&sectionBuf, 1) // type index 1 (void -> void)
+	} else {
+		writeLEB128(&sectionBuf, uint32(len(functions))) // number of functions
+
+		// For each function, emit its type index
+		for _, fn := range functions {
+			typeIndex := findFunctionTypeIndex(fn)
+			writeLEB128(&sectionBuf, uint32(typeIndex))
+		}
+	}
 
 	writeLEB128(buf, uint32(sectionBuf.Len()))
 	writeBytes(buf, sectionBuf.Bytes())
+}
+
+// findFunctionTypeIndex finds the type index for a function
+func findFunctionTypeIndex(fn *ASTNode) int {
+	sig := generateFunctionSignature(fn)
+	if index, exists := globalTypeMap[sig]; exists {
+		return index
+	}
+	panic("Function type not found in registry: " + sig)
+}
+
+// findUserFunctionIndex finds the WASM index for a user-defined function
+func findUserFunctionIndex(functionName string) int {
+	if index, exists := globalFunctionMap[functionName]; exists {
+		return index
+	}
+	panic("Function not found in registry: " + functionName)
 }
 
 func EmitExportSection(buf *bytes.Buffer) {
@@ -191,81 +366,67 @@ func EmitExportSection(buf *bytes.Buffer) {
 	// Export kind: function (0x00)
 	writeByte(&sectionBuf, 0x00)
 
-	// Function index (1 - main function comes after import)
-	writeLEB128(&sectionBuf, 1)
+	// Find main function index - fallback to index 1 if main not found
+	var mainIndex int
+	if globalFunctionMap != nil {
+		if index, exists := globalFunctionMap["main"]; exists {
+			mainIndex = index
+		} else {
+			// Legacy fallback for single-expression tests
+			mainIndex = 1
+		}
+	} else {
+		// Legacy fallback when no function registry
+		mainIndex = 1
+	}
+	writeLEB128(&sectionBuf, uint32(mainIndex))
 
 	writeLEB128(buf, uint32(sectionBuf.Len()))
 	writeBytes(buf, sectionBuf.Bytes())
 }
 
-func EmitCodeSection(buf *bytes.Buffer, ast *ASTNode, symbolTable *SymbolTable) {
+func EmitCodeSection(buf *bytes.Buffer, functions []*ASTNode) {
 	writeByte(buf, 0x0A) // code section id
 
-	// Collect local variables from AST and calculate frame size
-	locals, frameSize := collectLocalVariables(ast, symbolTable)
+	var sectionBuf bytes.Buffer
+	writeLEB128(&sectionBuf, uint32(len(functions))) // number of function bodies
+
+	// Emit each function body
+	for _, fn := range functions {
+		emitSingleFunction(&sectionBuf, fn)
+	}
+
+	writeLEB128(buf, uint32(sectionBuf.Len()))
+	writeBytes(buf, sectionBuf.Bytes())
+}
+
+// emitSingleFunction emits the code for a single function
+func emitSingleFunction(buf *bytes.Buffer, fn *ASTNode) {
+	// Use unified local management
+	localCtx := BuildLocalContext(fn.Body, fn.Parameters)
 
 	// Generate function body
 	var bodyBuf bytes.Buffer
 
-	// Emit locals declarations (include frame pointer)
-	i32LocalCount := 0
-	i64LocalCount := 0
-	for _, local := range locals {
-		if local.Storage == VarStorageLocal {
-			if isWASMI32Type(local.Type) {
-				i32LocalCount++
-			} else if isWASMI64Type(local.Type) {
-				i64LocalCount++
-			}
-		}
+	// Generate WASM locals declaration
+	emitLocalDeclarations(&bodyBuf, localCtx)
+
+	// Generate frame setup if needed
+	if localCtx.FrameSize > 0 {
+		EmitFrameSetupFromContext(&bodyBuf, localCtx)
 	}
 
-	if frameSize > 0 {
-		i32LocalCount++ // Add frame pointer local (now i32)
-	}
-
-	// Emit local type groups
-	groupCount := 0
-	if i32LocalCount > 0 {
-		groupCount++
-	}
-	if i64LocalCount > 0 {
-		groupCount++
-	}
-
-	writeLEB128(&bodyBuf, uint32(groupCount))
-
-	if i32LocalCount > 0 {
-		writeLEB128(&bodyBuf, uint32(i32LocalCount)) // count of I32 locals
-		writeByte(&bodyBuf, 0x7F)                    // I32 type
-	}
-	if i64LocalCount > 0 {
-		writeLEB128(&bodyBuf, uint32(i64LocalCount)) // count of I64 locals
-		writeByte(&bodyBuf, 0x7E)                    // I64 type
-	}
-
-	// Emit frame setup code if we have addressed variables
-	if frameSize > 0 {
-		EmitFrameSetup(&bodyBuf, locals, frameSize)
-	}
-
-	// Emit statement bytecode
-	EmitStatement(&bodyBuf, ast, locals)
+	// Generate function body
+	EmitStatement(&bodyBuf, fn.Body, localCtx)
 	writeByte(&bodyBuf, END) // end instruction
 
-	// Build section content
-	var sectionBuf bytes.Buffer
-	writeLEB128(&sectionBuf, 1)                     // 1 function
-	writeLEB128(&sectionBuf, uint32(bodyBuf.Len())) // function body size
-	writeBytes(&sectionBuf, bodyBuf.Bytes())
-
-	// Write section size and content
-	writeLEB128(buf, uint32(sectionBuf.Len()))
-	writeBytes(buf, sectionBuf.Bytes())
+	// Write function body size and content
+	writeLEB128(buf, uint32(bodyBuf.Len())) // function body size
+	writeBytes(buf, bodyBuf.Bytes())
 }
 
 // EmitStatement generates WASM bytecode for statements
-func EmitStatement(buf *bytes.Buffer, node *ASTNode, locals []LocalVarInfo) {
+func EmitStatement(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 	switch node.Kind {
 	case NodeVar:
 		// Variable declarations don't generate runtime code
@@ -275,20 +436,29 @@ func EmitStatement(buf *bytes.Buffer, node *ASTNode, locals []LocalVarInfo) {
 	case NodeBlock:
 		// Emit all statements in the block
 		for _, stmt := range node.Children {
-			EmitStatement(buf, stmt, locals)
+			EmitStatement(buf, stmt, localCtx)
 		}
 
 	case NodeCall:
 		// Handle expression statements (e.g., print calls)
-		EmitExpression(buf, node, locals)
+		EmitExpression(buf, node, localCtx)
+
+	case NodeReturn:
+		// Return statement
+		if len(node.Children) > 0 {
+			// Function returns a value - emit the expression
+			EmitExpression(buf, node.Children[0], localCtx)
+		}
+		// WASM return instruction (implicitly returns the value on stack)
+		writeByte(buf, 0x0F) // RETURN opcode
 
 	default:
 		// For now, treat unknown statements as expressions
-		EmitExpression(buf, node, locals)
+		EmitExpression(buf, node, localCtx)
 	}
 }
 
-func EmitExpression(buf *bytes.Buffer, node *ASTNode, locals []LocalVarInfo) {
+func EmitExpression(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 	switch node.Kind {
 	case NodeInteger:
 		writeByte(buf, I64_CONST)
@@ -296,18 +466,12 @@ func EmitExpression(buf *bytes.Buffer, node *ASTNode, locals []LocalVarInfo) {
 
 	case NodeIdent:
 		// Variable reference
-		var targetLocal *LocalVarInfo
-		for i := range locals {
-			if locals[i].Name == node.String {
-				targetLocal = &locals[i]
-				break
-			}
-		}
+		targetLocal := localCtx.FindVariable(node.String)
 		if targetLocal == nil {
 			panic("Undefined variable: " + node.String)
 		}
 
-		if targetLocal.Storage == VarStorageLocal {
+		if targetLocal.Storage == VarStorageLocal || targetLocal.Storage == VarStorageParameterLocal {
 			// Local variable - emit local.get
 			writeByte(buf, LOCAL_GET)
 			writeLEB128(buf, targetLocal.Address)
@@ -315,9 +479,8 @@ func EmitExpression(buf *bytes.Buffer, node *ASTNode, locals []LocalVarInfo) {
 			// Stack variable
 			if targetLocal.Type.Kind == TypeStruct {
 				// For struct variables, return the address of the struct (not the value)
-				framePointerIndex := getFramePointerIndex(locals)
 				writeByte(buf, LOCAL_GET)
-				writeLEB128(buf, framePointerIndex)
+				writeLEB128(buf, localCtx.FramePointerIndex)
 
 				// Add variable offset if not zero
 				if targetLocal.Address > 0 {
@@ -328,9 +491,8 @@ func EmitExpression(buf *bytes.Buffer, node *ASTNode, locals []LocalVarInfo) {
 				// Don't load - leave address on stack for struct operations
 			} else {
 				// Non-struct stack variable - load from memory
-				framePointerIndex := getFramePointerIndex(locals)
 				writeByte(buf, LOCAL_GET)
-				writeLEB128(buf, framePointerIndex)
+				writeLEB128(buf, localCtx.FramePointerIndex)
 
 				// Add variable offset if not zero
 				if targetLocal.Address > 0 {
@@ -355,25 +517,18 @@ func EmitExpression(buf *bytes.Buffer, node *ASTNode, locals []LocalVarInfo) {
 			if lhs.Kind == NodeIdent {
 				// Variable assignment: var = value
 				varName := lhs.String
-				var targetLocal *LocalVarInfo
-				for i := range locals {
-					if locals[i].Name == varName {
-						targetLocal = &locals[i]
-						break
-					}
-				}
+				targetLocal := localCtx.FindVariable(varName)
 				if targetLocal == nil {
 					panic("Undefined variable: " + varName)
 				}
 
 				if targetLocal.Type.Kind == TypeStruct {
-					// Struct assignment (copy)
+					// Struct assignment (copy) using memory.copy
 					structSize := uint32(GetTypeSize(targetLocal.Type))
 
 					// Get destination address
-					framePointerIndex := getFramePointerIndex(locals)
 					writeByte(buf, LOCAL_GET)
-					writeLEB128(buf, framePointerIndex)
+					writeLEB128(buf, localCtx.FramePointerIndex)
 
 					// Add variable offset if not zero
 					if targetLocal.Address > 0 {
@@ -383,35 +538,29 @@ func EmitExpression(buf *bytes.Buffer, node *ASTNode, locals []LocalVarInfo) {
 					}
 
 					// Get source address (RHS should evaluate to struct address)
-					EmitExpression(buf, rhs, locals) // RHS address
+					EmitExpression(buf, rhs, localCtx) // RHS address
 
-					// Perform memory copy (simplified - copy 8 bytes at a time)
-					// Stack: [dst_addr_i32, src_addr_i32]
-					for offset := uint32(0); offset < structSize; offset += 8 {
-						// Load from source: [dst, src] -> [dst, src, value]
-						writeByte(buf, LOCAL_GET) // Duplicate source address (assume src is in local)
-						// Note: This is a simplification - real implementation would need proper stack management
-					}
+					// Push size for memory.copy
+					writeByte(buf, I32_CONST)
+					writeLEB128(buf, structSize)
 
-					// For now, just do a single 8-byte copy to avoid complex stack management
-					writeByte(buf, I64_LOAD)  // Load from source
-					writeByte(buf, 0x03)      // alignment
-					writeByte(buf, 0x00)      // offset
-					writeByte(buf, I64_STORE) // Store to destination
-					writeByte(buf, 0x03)      // alignment
-					writeByte(buf, 0x00)      // offset
+					// Emit memory.copy instruction
+					// Stack: [dst_addr, src_addr, size]
+					writeByte(buf, 0xFC) // Multi-byte instruction prefix
+					writeLEB128(buf, 10) // memory.copy opcode
+					writeByte(buf, 0x00) // dst memory index (0)
+					writeByte(buf, 0x00) // src memory index (0)
 
-				} else if targetLocal.Storage == VarStorageLocal {
+				} else if targetLocal.Storage == VarStorageLocal || targetLocal.Storage == VarStorageParameterLocal {
 					// Local variable - emit local.set
-					EmitExpression(buf, rhs, locals) // RHS value
+					EmitExpression(buf, rhs, localCtx) // RHS value
 					writeByte(buf, LOCAL_SET)
 					writeLEB128(buf, targetLocal.Address)
 				} else {
 					// Stack variable - store to memory
 					// First get the address (before evaluating RHS)
-					framePointerIndex := getFramePointerIndex(locals)
 					writeByte(buf, LOCAL_GET)
-					writeLEB128(buf, framePointerIndex)
+					writeLEB128(buf, localCtx.FramePointerIndex)
 
 					// Add variable offset if not zero
 					if targetLocal.Address > 0 {
@@ -421,7 +570,7 @@ func EmitExpression(buf *bytes.Buffer, node *ASTNode, locals []LocalVarInfo) {
 					}
 
 					// Now evaluate the RHS value
-					EmitExpression(buf, rhs, locals) // RHS value
+					EmitExpression(buf, rhs, localCtx) // RHS value
 
 					// Stack is now: [address_i32, value] - perfect for i64.store
 					writeByte(buf, I64_STORE) // Store i64 to memory
@@ -431,10 +580,10 @@ func EmitExpression(buf *bytes.Buffer, node *ASTNode, locals []LocalVarInfo) {
 			} else if lhs.Kind == NodeUnary && lhs.Op == "*" {
 				// Pointer dereference assignment: ptr* = value
 				// First get the address where to store
-				EmitExpression(buf, lhs.Children[0], locals) // Get pointer value (i32)
+				EmitExpression(buf, lhs.Children[0], localCtx) // Get pointer value (i32)
 
 				// Now evaluate the RHS value
-				EmitExpression(buf, rhs, locals) // RHS value
+				EmitExpression(buf, rhs, localCtx) // RHS value
 
 				// Stack is now: [address_i32, value] - perfect for i64.store
 				writeByte(buf, I64_STORE) // Store i64 to memory
@@ -451,18 +600,24 @@ func EmitExpression(buf *bytes.Buffer, node *ASTNode, locals []LocalVarInfo) {
 				}
 
 				varName := baseExpr.String
-				var targetLocal *LocalVarInfo
-				for i := range locals {
-					if locals[i].Name == varName {
-						targetLocal = &locals[i]
-						break
-					}
-				}
+				targetLocal := localCtx.FindVariable(varName)
 				if targetLocal == nil {
 					panic("Undefined struct variable: " + varName)
 				}
 
-				if targetLocal.Type.Kind != TypeStruct {
+				// Handle both direct struct variables and pointer-to-struct parameters
+				var structType *TypeNode
+				var isPointerToStruct bool
+
+				if targetLocal.Type.Kind == TypeStruct {
+					// Direct struct variable
+					structType = targetLocal.Type
+					isPointerToStruct = false
+				} else if targetLocal.Type.Kind == TypePointer && targetLocal.Type.Child.Kind == TypeStruct {
+					// Pointer to struct (struct parameter) - use the child type directly
+					structType = targetLocal.Type.Child
+					isPointerToStruct = true
+				} else {
 					panic("Field assignment on non-struct variable")
 				}
 
@@ -470,7 +625,7 @@ func EmitExpression(buf *bytes.Buffer, node *ASTNode, locals []LocalVarInfo) {
 				var fieldOffset uint32
 				var fieldType *TypeNode
 				found := false
-				for _, field := range targetLocal.Type.Fields {
+				for _, field := range structType.Fields {
 					if field.Name == fieldName {
 						fieldOffset = field.Offset
 						fieldType = field.Type
@@ -483,20 +638,33 @@ func EmitExpression(buf *bytes.Buffer, node *ASTNode, locals []LocalVarInfo) {
 				}
 
 				// Generate address calculation (before evaluating RHS)
-				framePointerIndex := getFramePointerIndex(locals)
-				writeByte(buf, LOCAL_GET)
-				writeLEB128(buf, framePointerIndex)
+				if isPointerToStruct {
+					// For struct parameters: load pointer from parameter, then add field offset
+					writeByte(buf, LOCAL_GET)
+					writeLEB128(buf, targetLocal.Address)
 
-				// Add struct base offset + field offset
-				totalOffset := targetLocal.Address + fieldOffset
-				if totalOffset > 0 {
-					writeByte(buf, I32_CONST)
-					writeLEB128Signed(buf, int64(totalOffset))
-					writeByte(buf, I32_ADD)
+					// Add field offset
+					if fieldOffset > 0 {
+						writeByte(buf, I32_CONST)
+						writeLEB128Signed(buf, int64(fieldOffset))
+						writeByte(buf, I32_ADD)
+					}
+				} else {
+					// For direct struct variables: use frame pointer + struct address + field offset
+					writeByte(buf, LOCAL_GET)
+					writeLEB128(buf, localCtx.FramePointerIndex)
+
+					// Add struct base offset + field offset
+					totalOffset := targetLocal.Address + fieldOffset
+					if totalOffset > 0 {
+						writeByte(buf, I32_CONST)
+						writeLEB128Signed(buf, int64(totalOffset))
+						writeByte(buf, I32_ADD)
+					}
 				}
 
 				// Now evaluate the RHS value
-				EmitExpression(buf, rhs, locals) // RHS value
+				EmitExpression(buf, rhs, localCtx) // RHS value
 
 				// Store the field value
 				if isWASMI64Type(fieldType) {
@@ -511,8 +679,8 @@ func EmitExpression(buf *bytes.Buffer, node *ASTNode, locals []LocalVarInfo) {
 			}
 		} else {
 			// Regular binary operations
-			EmitExpression(buf, node.Children[0], locals) // left operand
-			EmitExpression(buf, node.Children[1], locals) // right operand
+			EmitExpression(buf, node.Children[0], localCtx) // left operand
+			EmitExpression(buf, node.Children[1], localCtx) // right operand
 			writeByte(buf, getBinaryOpcode(node.Op))
 
 			// Comparison operations return i32, but we need i64 for consistency
@@ -522,34 +690,95 @@ func EmitExpression(buf *bytes.Buffer, node *ASTNode, locals []LocalVarInfo) {
 		}
 
 	case NodeCall:
-		if len(node.Children) > 0 && node.Children[0].Kind == NodeIdent && node.Children[0].String == "print" {
-			if len(node.Children) > 1 {
-				arg := node.Children[1]
-				EmitExpression(buf, arg, locals) // argument
+		if len(node.Children) > 0 && node.Children[0].Kind == NodeIdent {
+			functionName := node.Children[0].String
 
-				// If the argument is a pointer type, we need to widen it from i32 to i64
-				// because print() expects i64
-				if needsI32ToI64Widening(arg, locals) {
-					writeByte(buf, I64_EXTEND_I32_S) // Convert i32 pointer to i64
+			if functionName == "print" {
+				// Built-in print function
+				if len(node.Children) > 1 {
+					arg := node.Children[1]
+					EmitExpression(buf, arg, localCtx) // argument
+
+					// If the argument is a pointer type, we need to widen it from i32 to i64
+					// because print() expects i64
+					if needsI32ToI64Widening(arg, localCtx.Variables) {
+						writeByte(buf, I64_EXTEND_I32_S) // Convert i32 pointer to i64
+					}
 				}
+				writeByte(buf, CALL) // call instruction
+				writeLEB128(buf, 0)  // function index 0 (print import)
+			} else {
+				// User-defined function call
+				// Emit arguments in order
+				for i := 1; i < len(node.Children); i++ {
+					arg := node.Children[i]
+
+					// Check if this argument is a struct that needs to be copied
+					if arg.Kind == NodeIdent {
+						argLocal := localCtx.FindVariable(arg.String)
+						if argLocal != nil && argLocal.Type.Kind == TypeStruct {
+							// This is a struct argument - we need to copy it
+							// First allocate space on the stack for the copy
+							structSize := uint32(GetTypeSize(argLocal.Type))
+
+							// Get current tstack pointer as destination address
+							writeByte(buf, GLOBAL_GET)
+							writeLEB128(buf, 0) // tstack global index
+
+							// Get source address
+							EmitExpression(buf, arg, localCtx)
+
+							// Copy size
+							writeByte(buf, I32_CONST)
+							writeLEB128(buf, structSize)
+
+							// Emit memory.copy to copy struct
+							writeByte(buf, 0xFC) // Multi-byte instruction prefix
+							writeLEB128(buf, 10) // memory.copy opcode
+							writeByte(buf, 0x00) // dst memory index (0)
+							writeByte(buf, 0x00) // src memory index (0)
+
+							// Push the copy address as the function argument
+							writeByte(buf, GLOBAL_GET)
+							writeLEB128(buf, 0) // tstack global index (points to the copy)
+
+							// Advance tstack pointer past the copy
+							writeByte(buf, GLOBAL_GET)
+							writeLEB128(buf, 0) // tstack global index
+							writeByte(buf, I32_CONST)
+							writeLEB128(buf, structSize)
+							writeByte(buf, I32_ADD)
+							writeByte(buf, GLOBAL_SET)
+							writeLEB128(buf, 0) // tstack global index
+
+							continue
+						}
+					}
+
+					// Regular argument (not a struct needing copy)
+					EmitExpression(buf, arg, localCtx)
+				}
+
+				// Find function index
+				functionIndex := findUserFunctionIndex(functionName)
+				writeByte(buf, CALL)
+				writeLEB128(buf, uint32(functionIndex))
 			}
-			writeByte(buf, CALL) // call instruction
-			writeLEB128(buf, 0)  // function index 0 (print import)
 		}
 
 	case NodeUnary:
 		if node.Op == "&" {
 			// Address-of operator
-			EmitAddressOf(buf, node.Children[0], locals)
+			EmitAddressOf(buf, node.Children[0], localCtx)
 		} else if node.Op == "*" {
 			// Dereference operator
-			EmitExpression(buf, node.Children[0], locals) // Get the pointer value (i32)
-			writeByte(buf, I64_LOAD)                      // Load i64 from memory using i32 address
-			writeByte(buf, 0x03)                          // alignment (8 bytes = 2^3)
-			writeByte(buf, 0x00)                          // offset
+			EmitExpression(buf, node.Children[0], localCtx) // Get the pointer value (i32)
+			writeByte(buf, I64_LOAD)                        // Load i64 from memory using i32 address
+			writeByte(buf, 0x03)                            // alignment (8 bytes = 2^3)
+			writeByte(buf, 0x00)                            // offset
 		} else if node.Op == "!" {
 			// Handle existing unary not operator
-			EmitExpression(buf, node.Children[0], locals)
+			EmitExpression(buf, node.Children[0], localCtx)
 			// TODO: Implement logical not operation
 			panic("Unary not operator (!) not yet implemented")
 		}
@@ -565,18 +794,24 @@ func EmitExpression(buf *bytes.Buffer, node *ASTNode, locals []LocalVarInfo) {
 		}
 
 		varName := baseExpr.String
-		var targetLocal *LocalVarInfo
-		for i := range locals {
-			if locals[i].Name == varName {
-				targetLocal = &locals[i]
-				break
-			}
-		}
+		targetLocal := localCtx.FindVariable(varName)
 		if targetLocal == nil {
 			panic("Undefined struct variable: " + varName)
 		}
 
-		if targetLocal.Type.Kind != TypeStruct {
+		// Handle both direct struct variables and pointer-to-struct parameters
+		var structType *TypeNode
+		var isPointerToStruct bool
+
+		if targetLocal.Type.Kind == TypeStruct {
+			// Direct struct variable
+			structType = targetLocal.Type
+			isPointerToStruct = false
+		} else if targetLocal.Type.Kind == TypePointer && targetLocal.Type.Child.Kind == TypeStruct {
+			// Pointer to struct (struct parameter) - use the child type directly
+			structType = targetLocal.Type.Child
+			isPointerToStruct = true
+		} else {
 			panic("Field access on non-struct variable")
 		}
 
@@ -584,7 +819,7 @@ func EmitExpression(buf *bytes.Buffer, node *ASTNode, locals []LocalVarInfo) {
 		var fieldOffset uint32
 		var fieldType *TypeNode
 		found := false
-		for _, field := range targetLocal.Type.Fields {
+		for _, field := range structType.Fields {
 			if field.Name == fieldName {
 				fieldOffset = field.Offset
 				fieldType = field.Type
@@ -597,16 +832,29 @@ func EmitExpression(buf *bytes.Buffer, node *ASTNode, locals []LocalVarInfo) {
 		}
 
 		// Generate address calculation
-		framePointerIndex := getFramePointerIndex(locals)
-		writeByte(buf, LOCAL_GET)
-		writeLEB128(buf, framePointerIndex)
+		if isPointerToStruct {
+			// For struct parameters: load pointer from parameter, then add field offset
+			writeByte(buf, LOCAL_GET)
+			writeLEB128(buf, targetLocal.Address)
 
-		// Add struct base offset + field offset
-		totalOffset := targetLocal.Address + fieldOffset
-		if totalOffset > 0 {
-			writeByte(buf, I32_CONST)
-			writeLEB128Signed(buf, int64(totalOffset))
-			writeByte(buf, I32_ADD)
+			// Add field offset
+			if fieldOffset > 0 {
+				writeByte(buf, I32_CONST)
+				writeLEB128Signed(buf, int64(fieldOffset))
+				writeByte(buf, I32_ADD)
+			}
+		} else {
+			// For direct struct variables: use frame pointer + struct address + field offset
+			writeByte(buf, LOCAL_GET)
+			writeLEB128(buf, localCtx.FramePointerIndex)
+
+			// Add struct base offset + field offset
+			totalOffset := targetLocal.Address + fieldOffset
+			if totalOffset > 0 {
+				writeByte(buf, I32_CONST)
+				writeLEB128Signed(buf, int64(totalOffset))
+				writeByte(buf, I32_ADD)
+			}
 		}
 
 		// Load the field value
@@ -668,29 +916,129 @@ func CompileToWASM(ast *ASTNode) []byte {
 		panic(err.Error())
 	}
 
+	// Extract functions from the program
+	functions := extractFunctions(ast)
+
 	var buf bytes.Buffer
+
+	// Check if this is legacy expression compilation (no functions)
+	if len(functions) == 0 {
+		// Legacy path for single expressions
+		return compileLegacyExpression(ast)
+	}
 
 	// Emit WASM module header and sections in streaming fashion
 	EmitWASMHeader(&buf)
-	EmitTypeSection(&buf)                   // function type definitions
-	EmitImportSection(&buf)                 // print function + tstack global import
-	EmitFunctionSection(&buf)               // declare main function
-	EmitMemorySection(&buf)                 // memory for tstack operations
-	EmitExportSection(&buf)                 // export main function
-	EmitCodeSection(&buf, ast, symbolTable) // main function body with compiled expression
+	EmitTypeSection(&buf, functions)     // function type definitions
+	EmitImportSection(&buf)              // print function + tstack global import
+	EmitFunctionSection(&buf, functions) // declare all functions
+	EmitMemorySection(&buf)              // memory for tstack operations
+	EmitExportSection(&buf)              // export main function
+	EmitCodeSection(&buf, functions)     // all function bodies
 
 	return buf.Bytes()
 }
 
-// collectLocalVariables traverses AST once to find all var declarations and address-of operations
-// Returns the locals list and the total frame size for addressed variables
-func collectLocalVariables(node *ASTNode, symbolTable *SymbolTable) ([]LocalVarInfo, uint32) {
-	var locals []LocalVarInfo
+// extractFunctions finds all function declarations in the program
+func extractFunctions(ast *ASTNode) []*ASTNode {
+	var functions []*ASTNode
+
+	// For single statements, check if it's a function
+	if ast.Kind == NodeFunc {
+		return []*ASTNode{ast}
+	}
+
+	// For programs (blocks), find all functions
+	if ast.Kind == NodeBlock {
+		for _, child := range ast.Children {
+			if child.Kind == NodeFunc {
+				functions = append(functions, child)
+			}
+		}
+	}
+
+	return functions
+}
+
+// compileLegacyExpression compiles single expressions (backward compatibility)
+func compileLegacyExpression(ast *ASTNode) []byte {
+	// Use same unified system
+	localCtx := BuildLocalContext(ast, []FunctionParameter{})
+
+	// Generate function body
+	var bodyBuf bytes.Buffer
+
+	// Generate WASM with unified approach
+	emitLocalDeclarations(&bodyBuf, localCtx)
+	if localCtx.FrameSize > 0 {
+		EmitFrameSetupFromContext(&bodyBuf, localCtx)
+	}
+	EmitStatement(&bodyBuf, ast, localCtx)
+	writeByte(&bodyBuf, END) // end instruction
+
+	// Build the full WASM module
+	var buf bytes.Buffer
+	EmitWASMHeader(&buf)
+	EmitTypeSection(&buf, []*ASTNode{}) // empty functions for legacy
+	EmitImportSection(&buf)
+	EmitFunctionSection(&buf, []*ASTNode{}) // empty functions for legacy
+	EmitMemorySection(&buf)
+	EmitExportSection(&buf)
+
+	// Emit code section with single function
+	writeByte(&buf, 0x0A) // code section id
+	var sectionBuf bytes.Buffer
+	writeLEB128(&sectionBuf, 1)                     // 1 function
+	writeLEB128(&sectionBuf, uint32(bodyBuf.Len())) // function body size
+	writeBytes(&sectionBuf, bodyBuf.Bytes())
+	writeLEB128(&buf, uint32(sectionBuf.Len()))
+	writeBytes(&buf, sectionBuf.Bytes())
+
+	return buf.Bytes()
+}
+
+// BuildLocalContext creates a unified LocalContext for both legacy and function compilation paths
+func BuildLocalContext(ast *ASTNode, params []FunctionParameter) *LocalContext {
+	ctx := &LocalContext{}
+
+	// Phase 1: Add parameters
+	ctx.addParameters(params)
+
+	// Phase 2: Collect body variables
+	ctx.collectBodyVariables(ast)
+
+	// Phase 3: Calculate frame pointer (if needed)
+	ctx.calculateFramePointer()
+
+	// Phase 4: Assign final WASM indices
+	ctx.assignWASMIndices()
+
+	return ctx
+}
+
+// addParameters adds function parameters to the LocalContext
+func (ctx *LocalContext) addParameters(params []FunctionParameter) {
+	for _, param := range params {
+		ctx.Variables = append(ctx.Variables, LocalVarInfo{
+			Name:    param.Name,
+			Type:    param.Type,
+			Storage: VarStorageParameterLocal,
+			// Address will be assigned later in assignWASMIndices
+		})
+		ctx.ParameterCount++
+	}
+}
+
+// collectBodyVariables traverses AST to find all var declarations and address-of operations
+func (ctx *LocalContext) collectBodyVariables(node *ASTNode) {
 	var frameOffset uint32 = 0
 
 	var traverse func(*ASTNode)
 	traverse = func(node *ASTNode) {
 		switch node.Kind {
+		case NodeStruct:
+			// Don't traverse struct children - field declarations are not local variables
+			return
 		case NodeVar:
 			// Extract variable name
 			varName := node.Children[0].String
@@ -700,13 +1048,188 @@ func collectLocalVariables(node *ASTNode, symbolTable *SymbolTable) ([]LocalVarI
 				break
 			}
 
-			// Get the resolved type from symbol table if available
 			resolvedType := node.TypeAST
-			if symbolTable != nil {
-				if symbol := symbolTable.LookupVariable(varName); symbol != nil {
-					resolvedType = symbol.Type
+
+			// Support I64, I64* (pointers are i32 in WASM), and other types
+			if isWASMI32Type(resolvedType) || isWASMI64Type(resolvedType) {
+				ctx.Variables = append(ctx.Variables, LocalVarInfo{
+					Name:    varName,
+					Type:    resolvedType,
+					Storage: VarStorageLocal,
+					// Address will be allocated later.
+				})
+			} else if resolvedType.Kind == TypeStruct {
+				// Struct variables are always stored on tstack (addressed)
+				structSize := uint32(GetTypeSize(resolvedType))
+				ctx.Variables = append(ctx.Variables, LocalVarInfo{
+					Name:    varName,
+					Type:    resolvedType,
+					Storage: VarStorageTStack,
+					Address: frameOffset,
+				})
+				frameOffset += structSize
+			}
+
+		case NodeUnary:
+			if node.Op == "&" {
+				// This is an address-of operation
+				child := node.Children[0]
+				if child.Kind == NodeIdent {
+					// Address of a variable - mark it as addressed
+					varName := child.String
+					ctx.markVariableAsAddressed(varName, &frameOffset)
 				}
 			}
+		}
+
+		// Recursively traverse children
+		for _, child := range node.Children {
+			traverse(child)
+		}
+	}
+
+	traverse(node)
+	ctx.FrameSize = frameOffset
+}
+
+// markVariableAsAddressed converts a variable from VarStorageLocal to VarStorageTStack
+func (ctx *LocalContext) markVariableAsAddressed(varName string, frameOffset *uint32) {
+	for i := range ctx.Variables {
+		if ctx.Variables[i].Name == varName && ctx.Variables[i].Storage == VarStorageLocal {
+			// Convert to addressed storage
+			ctx.Variables[i].Storage = VarStorageTStack
+			ctx.Variables[i].Address = *frameOffset
+			*frameOffset += uint32(GetTypeSize(ctx.Variables[i].Type))
+			break
+		}
+	}
+}
+
+// calculateFramePointer determines if we need a frame pointer and reserves space
+func (ctx *LocalContext) calculateFramePointer() {
+	// Frame pointer is needed if we have any addressed variables
+	if ctx.FrameSize > 0 {
+		// Frame pointer will be assigned an index in assignWASMIndices
+		ctx.I32LocalCount++ // Frame pointer is always i32
+	}
+}
+
+// assignWASMIndices assigns WASM local indices according to the unified layout
+func (ctx *LocalContext) assignWASMIndices() {
+	wasmIndex := uint32(0)
+
+	// Step 1: Assign parameter indices (parameters come first in WASM)
+	for i := range ctx.Variables {
+		if ctx.Variables[i].Storage == VarStorageParameterLocal {
+			ctx.Variables[i].Address = wasmIndex
+			wasmIndex++
+		}
+	}
+
+	// Step 2: Assign i32 body locals (including eventual frame pointer space)
+	for i := range ctx.Variables {
+		if ctx.Variables[i].Storage == VarStorageLocal && isWASMI32Type(ctx.Variables[i].Type) {
+			ctx.Variables[i].Address = wasmIndex
+			wasmIndex++
+			ctx.I32LocalCount++
+		}
+	}
+
+	// Step 3: Assign frame pointer if needed
+	if ctx.FrameSize > 0 {
+		ctx.FramePointerIndex = wasmIndex
+		wasmIndex++
+	}
+
+	// Step 4: Assign i64 body locals
+	for i := range ctx.Variables {
+		if ctx.Variables[i].Storage == VarStorageLocal && isWASMI64Type(ctx.Variables[i].Type) {
+			ctx.Variables[i].Address = wasmIndex
+			wasmIndex++
+			ctx.I64LocalCount++
+		}
+	}
+}
+
+// FindVariable looks up a variable by name in the LocalContext
+func (ctx *LocalContext) FindVariable(varName string) *LocalVarInfo {
+	for i := range ctx.Variables {
+		if ctx.Variables[i].Name == varName {
+			return &ctx.Variables[i]
+		}
+	}
+	return nil
+}
+
+// emitLocalDeclarations generates WASM local variable declarations
+func emitLocalDeclarations(buf *bytes.Buffer, localCtx *LocalContext) {
+	// Count locals by type (excluding parameters)
+	i32Count := localCtx.countBodyLocalsByType("I32")
+	i64Count := localCtx.countBodyLocalsByType("I64")
+
+	// Add frame pointer to i32 count if needed
+	if localCtx.FrameSize > 0 {
+		i32Count++
+	}
+
+	// Emit local declarations
+	groupCount := 0
+	if i32Count > 0 {
+		groupCount++
+	}
+	if i64Count > 0 {
+		groupCount++
+	}
+
+	writeLEB128(buf, uint32(groupCount))
+
+	if i32Count > 0 {
+		writeLEB128(buf, uint32(i32Count))
+		writeByte(buf, 0x7F) // i32
+	}
+
+	if i64Count > 0 {
+		writeLEB128(buf, uint32(i64Count))
+		writeByte(buf, 0x7E) // i64
+	}
+}
+
+// countBodyLocalsByType counts how many body locals (not parameters) are of a given type
+func (ctx *LocalContext) countBodyLocalsByType(typeName string) uint32 {
+	count := uint32(0)
+	for _, local := range ctx.Variables {
+		if local.Storage == VarStorageLocal {
+			if (typeName == "I32" && isWASMI32Type(local.Type)) ||
+				(typeName == "I64" && isWASMI64Type(local.Type)) {
+				count++
+			}
+		}
+	}
+	return count
+}
+
+// collectLocalVariables traverses AST once to find all var declarations and address-of operations
+// Returns the locals list and the total frame size for addressed variables
+func collectLocalVariables(node *ASTNode) ([]LocalVarInfo, uint32) {
+	var locals []LocalVarInfo
+	var frameOffset uint32 = 0
+
+	var traverse func(*ASTNode)
+	traverse = func(node *ASTNode) {
+		switch node.Kind {
+		case NodeStruct:
+			// Don't traverse struct children - field declarations are not local variables
+			return
+		case NodeVar:
+			// Extract variable name
+			varName := node.Children[0].String
+
+			// Skip variables with no type information
+			if node.TypeAST == nil {
+				break
+			}
+
+			resolvedType := node.TypeAST
 
 			// Support I64, I64* (pointers are i32 in WASM), and other types
 			if isWASMI32Type(resolvedType) || isWASMI64Type(resolvedType) {
@@ -769,11 +1292,9 @@ func collectLocalVariables(node *ASTNode, symbolTable *SymbolTable) ([]LocalVarI
 		}
 	}
 
-	// Calculate total i32 locals including frame pointer
+	// Calculate total i32 locals
+	// Note: frame pointer is handled separately by the compilation phase
 	totalI32Locals := i32Count
-	if frameOffset > 0 { // frameOffset > 0 means we need a frame pointer
-		totalI32Locals++ // Add 1 for frame pointer
-	}
 
 	// Assign correct indices
 	for i := range locals {
@@ -792,10 +1313,7 @@ func collectLocalVariables(node *ASTNode, symbolTable *SymbolTable) ([]LocalVarI
 }
 
 // EmitFrameSetup generates frame setup code at function entry
-func EmitFrameSetup(buf *bytes.Buffer, locals []LocalVarInfo, frameSize uint32) {
-	// Get frame pointer local index (last local variable)
-	framePointerIndex := getFramePointerIndex(locals)
-
+func EmitFrameSetup(buf *bytes.Buffer, locals []LocalVarInfo, frameSize uint32, framePointerIndex uint32) {
 	// Set frame pointer to current tstack pointer: frame_pointer = tstack_pointer
 	writeByte(buf, GLOBAL_GET) // global.get $tstack_pointer
 	writeLEB128(buf, 0)        // tstack global index (0)
@@ -812,40 +1330,32 @@ func EmitFrameSetup(buf *bytes.Buffer, locals []LocalVarInfo, frameSize uint32) 
 	writeLEB128(buf, 0)        // tstack global index (0)
 }
 
-// getFramePointerIndex returns the local index for the frame pointer
-func getFramePointerIndex(locals []LocalVarInfo) uint32 {
-	// Frame pointer is the last local (after all VarStorageLocal variable locals)
-	// Count both i32 and i64 locals
-	i32Count := uint32(0)
-	i64Count := uint32(0)
-	for _, local := range locals {
-		if local.Storage == VarStorageLocal {
-			if isWASMI32Type(local.Type) {
-				i32Count++
-			} else if isWASMI64Type(local.Type) {
-				i64Count++
-			}
-		}
-	}
-	// Frame pointer is the last i32 local (comes after user i32 locals, before i64 locals)
-	return i32Count
+// EmitFrameSetupFromContext generates frame setup code using LocalContext
+func EmitFrameSetupFromContext(buf *bytes.Buffer, localCtx *LocalContext) {
+	// Set frame pointer to current tstack pointer: frame_pointer = tstack_pointer
+	writeByte(buf, GLOBAL_GET) // global.get $tstack_pointer
+	writeLEB128(buf, 0)        // tstack global index (0)
+	writeByte(buf, LOCAL_SET)  // local.set $frame_pointer
+	writeLEB128(buf, localCtx.FramePointerIndex)
+
+	// Advance tstack pointer by frame size: tstack_pointer += frame_size
+	writeByte(buf, GLOBAL_GET) // global.get $tstack_pointer
+	writeLEB128(buf, 0)        // tstack global index (0)
+	writeByte(buf, I32_CONST)  // i32.const frame_size
+	writeLEB128Signed(buf, int64(localCtx.FrameSize))
+	writeByte(buf, I32_ADD)    // i32.add
+	writeByte(buf, GLOBAL_SET) // global.set $tstack_pointer
+	writeLEB128(buf, 0)        // tstack global index (0)
 }
 
 // EmitAddressOf generates code for address-of operations
-func EmitAddressOf(buf *bytes.Buffer, operand *ASTNode, locals []LocalVarInfo) {
+func EmitAddressOf(buf *bytes.Buffer, operand *ASTNode, localCtx *LocalContext) {
 	if operand.Kind == NodeIdent {
 		// Lvalue case: &variable
 		varName := operand.String
 
 		// Find the variable in locals
-		var targetLocal *LocalVarInfo
-		for i := range locals {
-			if locals[i].Name == varName {
-				targetLocal = &locals[i]
-				break
-			}
-		}
-
+		targetLocal := localCtx.FindVariable(varName)
 		if targetLocal == nil {
 			panic("Undefined variable in address-of: " + varName)
 		}
@@ -855,9 +1365,8 @@ func EmitAddressOf(buf *bytes.Buffer, operand *ASTNode, locals []LocalVarInfo) {
 		}
 
 		// Load frame pointer
-		framePointerIndex := getFramePointerIndex(locals)
 		writeByte(buf, LOCAL_GET)
-		writeLEB128(buf, framePointerIndex)
+		writeLEB128(buf, localCtx.FramePointerIndex)
 
 		// Add variable offset
 		if targetLocal.Address > 0 {
@@ -876,7 +1385,7 @@ func EmitAddressOf(buf *bytes.Buffer, operand *ASTNode, locals []LocalVarInfo) {
 		writeLEB128(buf, 0)        // tstack global index (0)
 
 		// Evaluate expression to get value: Stack: [result_addr, store_addr_i32, value]
-		EmitExpression(buf, operand, locals)
+		EmitExpression(buf, operand, localCtx)
 
 		// Store value at address: i64.store expects [address, value]
 		writeByte(buf, I64_STORE) // i64.store -> Stack: [result_addr]
@@ -1014,6 +1523,7 @@ const (
 	NodeUnary    NodeKind = "NodeUnary"
 	NodeStruct   NodeKind = "NodeStruct"
 	NodeDot      NodeKind = "NodeDot"
+	NodeFunc     NodeKind = "NodeFunc"
 )
 
 // ASTNode represents a node in the Abstract Syntax Tree
@@ -1034,6 +1544,11 @@ type ASTNode struct {
 	Symbol *SymbolInfo // Direct reference to symbol in symbol table
 	// NodeDot:
 	FieldName string // Field name for field access (s.field)
+	// NodeFunc:
+	FunctionName string              // Function name
+	Parameters   []FunctionParameter // Function parameters
+	ReturnType   *TypeNode           // Return type (nil for void)
+	Body         *ASTNode            // Function body (block statement)
 }
 
 // TypeKind represents different kinds of types
@@ -1223,15 +1738,32 @@ type SymbolInfo struct {
 	Assigned bool // tracks if variable has been assigned a value
 }
 
+// FunctionInfo represents information about a declared function
+type FunctionInfo struct {
+	Name       string
+	Parameters []FunctionParameter
+	ReturnType *TypeNode // nil for void functions
+	WasmIndex  uint32    // WASM function index
+}
+
+// FunctionParameter represents a function parameter
+type FunctionParameter struct {
+	Name    string
+	Type    *TypeNode
+	IsNamed bool // true for named parameters, false for positional
+}
+
 // SymbolTable tracks variable declarations and assignments
 type SymbolTable struct {
 	variables []SymbolInfo
-	structs   []*TypeNode // struct type definitions
+	structs   []*TypeNode    // struct type definitions
+	functions []FunctionInfo // function declarations
 }
 
 // TypeChecker holds state for type checking
 type TypeChecker struct {
-	errors []string
+	errors      []string
+	symbolTable *SymbolTable
 }
 
 // NewSymbolTable creates a new empty symbol table
@@ -1239,6 +1771,7 @@ func NewSymbolTable() *SymbolTable {
 	return &SymbolTable{
 		variables: make([]SymbolInfo, 0),
 		structs:   make([]*TypeNode, 0),
+		functions: make([]FunctionInfo, 0),
 	}
 }
 
@@ -1299,6 +1832,37 @@ func (st *SymbolTable) LookupStruct(name string) *TypeNode {
 	for _, structType := range st.structs {
 		if structType.String == name {
 			return structType
+		}
+	}
+	return nil
+}
+
+// DeclareFunction adds a function declaration to the symbol table
+func (st *SymbolTable) DeclareFunction(name string, parameters []FunctionParameter, returnType *TypeNode) error {
+	// Check for duplicate declaration
+	for _, fn := range st.functions {
+		if fn.Name == name {
+			return fmt.Errorf("function '%s' already declared", name)
+		}
+	}
+
+	// Assign WASM index (builtin functions like print start at 0, user functions follow)
+	wasmIndex := uint32(1 + len(st.functions)) // print is at index 0
+
+	st.functions = append(st.functions, FunctionInfo{
+		Name:       name,
+		Parameters: parameters,
+		ReturnType: returnType,
+		WasmIndex:  wasmIndex,
+	})
+	return nil
+}
+
+// LookupFunction finds a function by name
+func (st *SymbolTable) LookupFunction(name string) *FunctionInfo {
+	for i := range st.functions {
+		if st.functions[i].Name == name {
+			return &st.functions[i]
 		}
 	}
 	return nil
@@ -1378,6 +1942,7 @@ func BuildSymbolTable(ast *ASTNode) *SymbolTable {
 					if structDef != nil {
 						// Use the complete struct definition
 						varType = structDef
+						node.TypeAST = varType
 					}
 				}
 
@@ -1391,6 +1956,38 @@ func BuildSymbolTable(ast *ASTNode) *SymbolTable {
 					st.AssignVariable(varName)
 				}
 			}
+
+		case NodeFunc:
+			// Resolve struct types in function parameters and update the AST node
+			for i, param := range node.Parameters {
+				resolvedType := param.Type
+
+				// For pointer-to-struct parameters, resolve the child struct type
+				if resolvedType.Kind == TypePointer && resolvedType.Child.Kind == TypeStruct {
+					structDef := st.LookupStruct(resolvedType.Child.String)
+					if structDef != nil {
+						// Create new pointer type with resolved struct child
+						resolvedType = &TypeNode{
+							Kind:  TypePointer,
+							Child: structDef,
+						}
+						// Update the AST node with resolved type
+						node.Parameters[i].Type = resolvedType
+					}
+				}
+			}
+
+			// Declare function with resolved parameter types (from updated AST node)
+			err := st.DeclareFunction(node.FunctionName, node.Parameters, node.ReturnType)
+			if err != nil {
+				panic(err.Error())
+			}
+
+			// Only traverse the function body, not the children (which would include parameters)
+			if node.Body != nil {
+				collectDeclarations(node.Body)
+			}
+			return // Don't traverse children normally for functions
 		}
 
 		// Traverse children
@@ -1410,9 +2007,35 @@ func BuildSymbolTable(ast *ASTNode) *SymbolTable {
 			}
 		}
 
-		// Traverse children
-		for _, child := range node.Children {
-			populateReferences(child)
+		// Special handling for function nodes - declare parameters and traverse the body with scoping
+		if node.Kind == NodeFunc {
+			// Store the original symbol table variables count to restore later
+			originalVarCount := len(st.variables)
+
+			// Declare function parameters in symbol table
+			for _, param := range node.Parameters {
+				err := st.DeclareVariable(param.Name, param.Type)
+				if err != nil {
+					// If parameter conflicts with global variable, that's okay for now
+					// We'll handle proper scoping in a future improvement
+				} else {
+					// Mark parameter as assigned (since it gets its value from the call)
+					st.AssignVariable(param.Name)
+				}
+			}
+
+			// Populate references in function body with parameters in scope
+			if node.Body != nil {
+				populateReferences(node.Body)
+			}
+
+			// Remove function parameters from symbol table to avoid conflicts with other functions
+			st.variables = st.variables[:originalVarCount]
+		} else {
+			// Traverse children
+			for _, child := range node.Children {
+				populateReferences(child)
+			}
 		}
 	}
 
@@ -1426,12 +2049,14 @@ func BuildSymbolTable(ast *ASTNode) *SymbolTable {
 // NewTypeChecker creates a new type checker with the given symbol table
 func NewTypeChecker(symbolTable *SymbolTable) *TypeChecker {
 	return &TypeChecker{
-		errors: make([]string, 0),
+		errors:      make([]string, 0),
+		symbolTable: symbolTable,
 	}
 }
 
 // CheckProgram performs type checking on the entire AST
 func CheckProgram(ast *ASTNode, symbolTable *SymbolTable) error {
+
 	tc := NewTypeChecker(symbolTable)
 
 	err := CheckStatement(ast, tc)
@@ -1449,6 +2074,7 @@ func CheckProgram(ast *ASTNode, symbolTable *SymbolTable) error {
 
 // CheckStatement validates a statement node
 func CheckStatement(stmt *ASTNode, tc *TypeChecker) error {
+
 	switch stmt.Kind {
 	case NodeVar:
 		// Variable declaration - validate type is provided
@@ -1496,6 +2122,15 @@ func CheckStatement(stmt *ASTNode, tc *TypeChecker) error {
 			}
 		}
 
+	case NodeFunc:
+		// Function declaration - check the function body
+		if stmt.Body != nil {
+			err := CheckStatement(stmt.Body, tc)
+			if err != nil {
+				return err
+			}
+		}
+
 	default:
 		// Other statement types are valid for now
 	}
@@ -1505,6 +2140,7 @@ func CheckStatement(stmt *ASTNode, tc *TypeChecker) error {
 
 // CheckExpression validates an expression and returns its type
 func CheckExpression(expr *ASTNode, tc *TypeChecker) (*TypeNode, error) {
+
 	switch expr.Kind {
 	case NodeInteger:
 		return TypeI64, nil
@@ -1551,13 +2187,14 @@ func CheckExpression(expr *ASTNode, tc *TypeChecker) (*TypeNode, error) {
 		}
 
 	case NodeCall:
-		// Function call - for now only validate print() function
+		// Function call validation
 		if len(expr.Children) == 0 || expr.Children[0].Kind != NodeIdent {
 			return nil, fmt.Errorf("error: invalid function call")
 		}
 		funcName := expr.Children[0].String
+
 		if funcName == "print" {
-			// Validate arguments
+			// Built-in print function
 			if len(expr.Children) != 2 {
 				return nil, fmt.Errorf("error: print() function expects 1 argument")
 			}
@@ -1567,7 +2204,29 @@ func CheckExpression(expr *ASTNode, tc *TypeChecker) (*TypeNode, error) {
 			}
 			return TypeI64, nil // print returns nothing, but use I64 for now
 		} else {
-			return nil, fmt.Errorf("error: unknown function '%s'", funcName)
+			// User-defined function
+			if tc.symbolTable == nil {
+				return nil, fmt.Errorf("error: no symbol table for function validation")
+			}
+
+			// Look up function in symbol table
+			function := tc.symbolTable.LookupFunction(funcName)
+			if function == nil {
+				return nil, fmt.Errorf("error: unknown function '%s'", funcName)
+			}
+
+			// Validate and match parameters
+			err := validateFunctionCall(expr, function, tc)
+			if err != nil {
+				return nil, err
+			}
+
+			// Return function's return type (or void)
+			if function.ReturnType != nil {
+				return function.ReturnType, nil
+			} else {
+				return TypeI64, nil // Void functions return I64 for now
+			}
 		}
 
 	case NodeDot:
@@ -1581,20 +2240,27 @@ func CheckExpression(expr *ASTNode, tc *TypeChecker) (*TypeNode, error) {
 			return nil, err
 		}
 
-		// Base must be a struct type
-		if baseType.Kind != TypeStruct {
+		// Handle both direct struct and pointer-to-struct access
+		var structType *TypeNode
+		if baseType.Kind == TypeStruct {
+			// Direct struct access
+			structType = baseType
+		} else if baseType.Kind == TypePointer && baseType.Child.Kind == TypeStruct {
+			// Pointer-to-struct access (struct parameters)
+			structType = baseType.Child
+		} else {
 			return nil, fmt.Errorf("error: cannot access field of non-struct type %s", TypeToString(baseType))
 		}
 
 		// Find the field in the struct
 		fieldName := expr.FieldName
-		for _, field := range baseType.Fields {
+		for _, field := range structType.Fields {
 			if field.Name == fieldName {
 				return field.Type, nil
 			}
 		}
 
-		return nil, fmt.Errorf("error: struct %s has no field named '%s'", baseType.String, fieldName)
+		return nil, fmt.Errorf("error: struct %s has no field named '%s'", structType.String, fieldName)
 
 	case NodeUnary:
 		// Unary operations
@@ -1636,6 +2302,167 @@ func CheckExpression(expr *ASTNode, tc *TypeChecker) (*TypeNode, error) {
 	default:
 		return nil, fmt.Errorf("error: unsupported expression type '%s'", expr.Kind)
 	}
+}
+
+// validateFunctionCall validates a function call and reorders parameters if necessary
+func validateFunctionCall(callExpr *ASTNode, function *FunctionInfo, tc *TypeChecker) error {
+	args := callExpr.Children[1:] // Skip function name
+	paramNames := callExpr.ParameterNames
+
+	// Check parameter count
+	if len(args) != len(function.Parameters) {
+		return fmt.Errorf("error: function '%s' expects %d arguments, got %d",
+			function.Name, len(function.Parameters), len(args))
+	}
+
+	// Separate positional and named parameters
+	var positionalArgs []*ASTNode
+	var namedArgs []*ASTNode
+	var namedArgNames []string
+
+	for i, arg := range args {
+		if i < len(paramNames) && paramNames[i] != "" {
+			// Named parameter
+			namedArgs = append(namedArgs, arg)
+			namedArgNames = append(namedArgNames, paramNames[i])
+		} else {
+			// Positional parameter
+			positionalArgs = append(positionalArgs, arg)
+		}
+	}
+
+	// Validate that positional parameters come before named parameters
+	if len(positionalArgs) > 0 && len(namedArgs) > 0 {
+		// Find the first named parameter position
+		firstNamedPos := -1
+		for i, name := range paramNames {
+			if name != "" {
+				firstNamedPos = i
+				break
+			}
+		}
+		// Check that all positional args come before first named arg
+		if firstNamedPos >= 0 && len(positionalArgs) > firstNamedPos {
+			return fmt.Errorf("error: positional arguments must come before named arguments")
+		}
+	}
+
+	// Validate positional parameters match function signature
+	for i, arg := range positionalArgs {
+		if i >= len(function.Parameters) {
+			return fmt.Errorf("error: too many positional arguments")
+		}
+		if function.Parameters[i].IsNamed {
+			return fmt.Errorf("error: cannot pass positional argument to named parameter '%s'",
+				function.Parameters[i].Name)
+		}
+
+		// Type check the argument
+		_, err := CheckExpression(arg, tc)
+		if err != nil {
+			return err
+		}
+	}
+
+	// Validate named parameters
+	usedParams := make(map[string]bool)
+	for i, argName := range namedArgNames {
+		// Check for duplicate parameter names
+		if usedParams[argName] {
+			return fmt.Errorf("error: duplicate parameter name '%s'", argName)
+		}
+		usedParams[argName] = true
+
+		// Find the parameter in function signature
+		paramIndex := -1
+		for j, param := range function.Parameters {
+			if param.Name == argName {
+				paramIndex = j
+				break
+			}
+		}
+
+		if paramIndex == -1 {
+			return fmt.Errorf("error: unknown parameter name '%s' for function '%s'",
+				argName, function.Name)
+		}
+
+		if !function.Parameters[paramIndex].IsNamed {
+			return fmt.Errorf("error: parameter '%s' is positional, not named", argName)
+		}
+
+		// Type check the argument
+		_, err := CheckExpression(namedArgs[i], tc)
+		if err != nil {
+			return err
+		}
+	}
+
+	// Check that all required parameters are provided
+	providedPositional := len(positionalArgs)
+	for i, param := range function.Parameters {
+		if i < providedPositional {
+			continue // Already handled by positional args
+		}
+
+		// Check if this named parameter was provided
+		found := false
+		for _, argName := range namedArgNames {
+			if argName == param.Name {
+				found = true
+				break
+			}
+		}
+
+		if !found {
+			return fmt.Errorf("error: missing required parameter '%s' for function '%s'",
+				param.Name, function.Name)
+		}
+	}
+
+	// Reorder arguments to match function signature
+	reorderFunctionCallArguments(callExpr, function)
+
+	return nil
+}
+
+// reorderFunctionCallArguments reorders the arguments in a function call to match the function signature
+func reorderFunctionCallArguments(callExpr *ASTNode, function *FunctionInfo) {
+	if len(callExpr.ParameterNames) == 0 {
+		// No named parameters, no reordering needed
+		return
+	}
+
+	args := callExpr.Children[1:] // Skip function name
+	paramNames := callExpr.ParameterNames
+	newArgs := make([]*ASTNode, len(function.Parameters))
+
+	// First, place positional arguments
+	positionalCount := 0
+	for i, name := range paramNames {
+		if name == "" {
+			newArgs[i] = args[i]
+			positionalCount++
+		}
+	}
+
+	// Then, place named arguments in correct positions
+	for i, name := range paramNames {
+		if name != "" {
+			// Find the parameter index in function signature
+			for j, param := range function.Parameters {
+				if param.Name == name {
+					newArgs[j] = args[i]
+					break
+				}
+			}
+		}
+	}
+
+	// Update the call expression with reordered arguments
+	callExpr.Children = append([]*ASTNode{callExpr.Children[0]}, newArgs...)
+	// Clear parameter names since arguments are now in order
+	callExpr.ParameterNames = make([]string, len(newArgs))
 }
 
 // CheckAssignment validates an assignment statement
@@ -2153,6 +2980,26 @@ func ToSExpr(node *ASTNode) string {
 	case NodeDot:
 		base := ToSExpr(node.Children[0])
 		return "(dot " + base + " \"" + node.FieldName + "\")"
+	case NodeFunc:
+		result := "(func \"" + node.FunctionName + "\" ("
+		for i, param := range node.Parameters {
+			if i > 0 {
+				result += " "
+			}
+			paramType := "positional"
+			if param.IsNamed {
+				paramType = "named"
+			}
+			result += "(param \"" + param.Name + "\" \"" + TypeToString(param.Type) + "\" " + paramType + ")"
+		}
+		result += ")"
+		if node.ReturnType != nil {
+			result += " \"" + TypeToString(node.ReturnType) + "\""
+		} else {
+			result += " void"
+		}
+		result += " " + ToSExpr(node.Body) + ")"
+		return result
 	default:
 		return ""
 	}
@@ -2625,6 +3472,9 @@ func ParseStatement() *ASTNode {
 			Kind: NodeContinue,
 		}
 
+	case FUNC:
+		return parseFunctionDeclaration()
+
 	default:
 		// Expression statement
 		expr := ParseExpression()
@@ -2632,5 +3482,127 @@ func ParseStatement() *ASTNode {
 			SkipToken(SEMICOLON)
 		}
 		return expr
+	}
+}
+
+// parseFunctionDeclaration parses a function declaration
+// Syntax: func name(param1: Type, param2: Type): ReturnType { body }
+// Or:     func name(param1: Type, param2: Type) { body } // void return
+func parseFunctionDeclaration() *ASTNode {
+	SkipToken(FUNC) // consume 'func'
+
+	// Parse function name
+	if CurrTokenType != IDENT {
+		panic("Expected function name")
+	}
+	functionName := CurrLiteral
+	SkipToken(IDENT)
+
+	// Parse parameter list
+	if CurrTokenType != LPAREN {
+		panic("Expected '(' after function name")
+	}
+	SkipToken(LPAREN)
+
+	var parameters []FunctionParameter
+	for CurrTokenType != RPAREN && CurrTokenType != EOF {
+		// Parse parameter: _ name: Type (positional) or name: Type (named)
+		isPositional := false
+		var paramName string
+
+		if CurrTokenType == IDENT && CurrLiteral == "_" {
+			// Positional parameter: _ name: Type
+			isPositional = true
+			SkipToken(IDENT) // skip the "_"
+			if CurrTokenType != IDENT {
+				panic("Expected parameter name after '_'")
+			}
+			paramName = CurrLiteral
+			SkipToken(IDENT)
+		} else if CurrTokenType == IDENT {
+			// Named parameter: name: Type
+			paramName = CurrLiteral
+			SkipToken(IDENT)
+		} else {
+			panic("Expected parameter name")
+		}
+
+		// Parse colon
+		if CurrTokenType != COLON {
+			panic("Expected ':' after parameter name")
+		}
+		SkipToken(COLON)
+
+		// Parse parameter type
+		paramType := parseTypeExpression()
+		if paramType == nil {
+			panic("Expected parameter type")
+		}
+
+		// Convert struct parameters to pointer types (per Phase 3 spec)
+		finalParamType := paramType
+		if paramType.Kind == TypeStruct {
+			finalParamType = &TypeNode{
+				Kind:  TypePointer,
+				Child: paramType,
+			}
+		}
+
+		parameters = append(parameters, FunctionParameter{
+			Name:    paramName,
+			Type:    finalParamType,
+			IsNamed: !isPositional,
+		})
+
+		// Check for comma or end of parameters
+		if CurrTokenType == COMMA {
+			SkipToken(COMMA)
+		} else if CurrTokenType != RPAREN {
+			panic("Expected ',' or ')' in parameter list")
+		}
+	}
+
+	if CurrTokenType != RPAREN {
+		panic("Expected ')' after parameter list")
+	}
+	SkipToken(RPAREN)
+
+	// Parse optional return type
+	var returnType *TypeNode
+	if CurrTokenType == COLON {
+		SkipToken(COLON)
+		returnType = parseTypeExpression()
+		if returnType == nil {
+			panic("Expected return type after ':'")
+		}
+	}
+
+	// Parse function body
+	if CurrTokenType != LBRACE {
+		panic("Expected '{' for function body")
+	}
+	body := ParseStatement() // This will parse the block statement
+
+	return &ASTNode{
+		Kind:         NodeFunc,
+		FunctionName: functionName,
+		Parameters:   parameters,
+		ReturnType:   returnType,
+		Body:         body,
+	}
+}
+
+// ParseProgram parses a complete program (multiple functions and statements)
+func ParseProgram() *ASTNode {
+	var statements []*ASTNode
+
+	for CurrTokenType != EOF {
+		stmt := ParseStatement()
+		statements = append(statements, stmt)
+	}
+
+	return &ASTNode{
+		Kind:     NodeBlock,
+		Children: statements,
 	}
 }

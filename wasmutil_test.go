@@ -95,7 +95,7 @@ func TestEmitImportSection(t *testing.T) {
 func TestEmitFunctionSection(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer
-	EmitFunctionSection(&buf)
+	EmitFunctionSection(&buf, []*ASTNode{}) // empty functions list
 
 	result := buf.Bytes()
 
@@ -158,7 +158,10 @@ func TestEmitExpression(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			var buf bytes.Buffer
-			EmitExpression(&buf, test.ast, []LocalVarInfo{})
+			localCtx := &LocalContext{
+				Variables: []LocalVarInfo{},
+			}
+			EmitExpression(&buf, test.ast, localCtx)
 			be.True(t, bytes.Equal(buf.Bytes(), test.expected))
 		})
 	}

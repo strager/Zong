@@ -17,7 +17,7 @@ func main() {
 	// Parse the expression
 	Init(input)
 	NextToken()
-	ast := ParseExpression()
+	ast := ParseProgram()
 
 	fmt.Printf("Input: %s\n", expression)
 	fmt.Printf("AST: %s\n", ToSExpr(ast))

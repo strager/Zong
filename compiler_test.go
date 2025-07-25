@@ -22,7 +22,7 @@ func convertWasmToWat(wasmBytes []byte, wasmFilePath string) (string, error) {
 	}
 
 	// Fallback to wasm-objdump
-	cmd = exec.Command("wasm-objdump", "-d", wasmFilePath)
+	cmd = exec.Command("wasm-objdump", "-d", "-h", wasmFilePath)
 	output, err = cmd.Output()
 	if err == nil {
 		return strings.TrimSpace(string(output)), nil
@@ -74,9 +74,7 @@ func executeWasmAndVerify(t *testing.T, wasmBytes []byte, expected string) {
 	}
 
 	output, err := executeWasmFromFile(t, wasmFile)
-	be.Err(t, err, nil)
-
-	if output != expected {
+	if err != nil || output != expected {
 		absPath, _ := filepath.Abs(wasmFile)
 		t.Logf("WASM file path: %s", absPath)
 
@@ -86,7 +84,7 @@ func executeWasmAndVerify(t *testing.T, wasmBytes []byte, expected string) {
 			t.Logf("Could not convert to WAT: %v", watErr)
 		}
 	}
-
+	be.Err(t, err, nil)
 	be.Equal(t, output, expected)
 }
 
@@ -483,7 +481,9 @@ func TestEmitExpressionUndefinedVariable(t *testing.T) {
 	}()
 
 	var buf bytes.Buffer
-	locals := []LocalVarInfo{}
+	localCtx := &LocalContext{
+		Variables: []LocalVarInfo{},
+	}
 
 	// Create assignment to undefined variable
 	node := &ASTNode{
@@ -495,7 +495,7 @@ func TestEmitExpressionUndefinedVariable(t *testing.T) {
 		},
 	}
 
-	EmitExpression(&buf, node, locals)
+	EmitExpression(&buf, node, localCtx)
 }
 
 func TestEmitExpressionInvalidAssignmentTarget(t *testing.T) {
@@ -508,7 +508,9 @@ func TestEmitExpressionInvalidAssignmentTarget(t *testing.T) {
 	}()
 
 	var buf bytes.Buffer
-	locals := []LocalVarInfo{}
+	localCtx := &LocalContext{
+		Variables: []LocalVarInfo{},
+	}
 
 	// Create assignment to integer literal (invalid)
 	node := &ASTNode{
@@ -520,7 +522,7 @@ func TestEmitExpressionInvalidAssignmentTarget(t *testing.T) {
 		},
 	}
 
-	EmitExpression(&buf, node, locals)
+	EmitExpression(&buf, node, localCtx)
 }
 
 // Tests for EmitAddressOf edge cases
@@ -534,14 +536,16 @@ func TestEmitAddressOfUndefinedVariable(t *testing.T) {
 	}()
 
 	var buf bytes.Buffer
-	locals := []LocalVarInfo{}
+	localCtx := &LocalContext{
+		Variables: []LocalVarInfo{},
+	}
 
 	operand := &ASTNode{
 		Kind:   NodeIdent,
 		String: "undefinedVar",
 	}
 
-	EmitAddressOf(&buf, operand, locals)
+	EmitAddressOf(&buf, operand, localCtx)
 }
 
 func TestEmitAddressOfNonAddressedVariable(t *testing.T) {
@@ -554,12 +558,14 @@ func TestEmitAddressOfNonAddressedVariable(t *testing.T) {
 	}()
 
 	var buf bytes.Buffer
-	locals := []LocalVarInfo{
-		{
-			Name:    "localVar",
-			Type:    &TypeNode{Kind: TypeBuiltin, String: "I64"},
-			Storage: VarStorageLocal, // Not VarStorageTStack
-			Address: 0,
+	localCtx := &LocalContext{
+		Variables: []LocalVarInfo{
+			{
+				Name:    "localVar",
+				Type:    &TypeNode{Kind: TypeBuiltin, String: "I64"},
+				Storage: VarStorageLocal, // Not VarStorageTStack
+				Address: 0,
+			},
 		},
 	}
 
@@ -568,7 +574,7 @@ func TestEmitAddressOfNonAddressedVariable(t *testing.T) {
 		String: "localVar",
 	}
 
-	EmitAddressOf(&buf, operand, locals)
+	EmitAddressOf(&buf, operand, localCtx)
 }
 
 // Test for stack variable access with address-of operator
@@ -878,4 +884,57 @@ func TestStructWithMixedVariableTypes(t *testing.T) {
 
 	wasmBytes := CompileToWASM(ast)
 	executeWasmAndVerify(t, wasmBytes, "100\n25\n50\n175\n")
+}
+
+// Phase 1 Function Tests - Basic function support
+func TestPhase1Functions(t *testing.T) {
+	tests := []struct {
+		name     string
+		source   string
+		expected string
+	}{
+		{
+			name: "simple function call",
+			source: `func add(_ a: I64, _ b: I64): I64 { return a + b; }
+					 func main() { print(add(5, 3)); }`,
+			expected: "8\n",
+		},
+		{
+			name: "void function",
+			source: `func printTwice(_ x: I64) { print(x); print(x); }
+					 func main() { printTwice(42); }`,
+			expected: "42\n42\n",
+		},
+		{
+			name: "multiple function calls",
+			source: `func double(_ x: I64): I64 { return x * 2; }
+					 func triple(_ x: I64): I64 { return x * 3; }
+					 func main() { print(double(5)); print(triple(4)); }`,
+			expected: "10\n12\n",
+		},
+		{
+			name: "nested function calls",
+			source: `func add(_ a: I64, _ b: I64): I64 { return a + b; }
+					 func multiply(_ a: I64, _ b: I64): I64 { return a * b; }
+					 func main() { print(add(multiply(2, 3), multiply(4, 5))); }`,
+			expected: "26\n",
+		},
+		{
+			name: "function with complex expression",
+			source: `func compute(_ a: I64, _ b: I64, _ c: I64): I64 { return (a + b) * c - 10; }
+					 func main() { print(compute(3, 4, 5)); }`,
+			expected: "25\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			input := []byte(tt.source + "\x00")
+			Init(input)
+			NextToken()
+			ast := ParseProgram()
+			wasmBytes := CompileToWASM(ast)
+			executeWasmAndVerify(t, wasmBytes, tt.expected)
+		})
+	}
 }

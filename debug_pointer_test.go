@@ -45,11 +45,11 @@ func debugCompilePointerTest(t *testing.T, testCode string) {
 	t.Logf("AST: %s", ToSExpr(ast))
 
 	// Build symbol table
-	symbolTable := BuildSymbolTable(ast)
+	_ = BuildSymbolTable(ast)
 	t.Logf("Symbol table built successfully")
 
 	// Collect local variables
-	locals, frameSize := collectLocalVariables(ast, symbolTable)
+	locals, frameSize := collectLocalVariables(ast)
 	t.Logf("Frame size: %d bytes", frameSize)
 
 	for i, local := range locals {
@@ -149,8 +149,8 @@ func TestDebugWASMInstructionAnalysis(t *testing.T) {
 	}
 
 	// Build symbol table and collect locals
-	symbolTable := BuildSymbolTable(ast)
-	locals, _ := collectLocalVariables(ast, symbolTable)
+	_ = BuildSymbolTable(ast)
+	locals, _ := collectLocalVariables(ast)
 
 	t.Logf("Locals collected:")
 	for i, local := range locals {
