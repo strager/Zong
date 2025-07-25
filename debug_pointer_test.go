@@ -54,7 +54,7 @@ func debugCompilePointerTest(t *testing.T, testCode string) {
 
 	for i, local := range locals {
 		t.Logf("  Local[%d]: %s, Type: %s, Storage: %v, Address: %d",
-			i, local.Name, TypeToString(local.Type), local.Storage, local.Address)
+			i, local.Symbol.Name, TypeToString(local.Symbol.Type), local.Storage, local.Address)
 	}
 
 	// Try to compile - this should reveal where the error occurs
@@ -155,7 +155,7 @@ func TestDebugWASMInstructionAnalysis(t *testing.T) {
 	t.Logf("Locals collected:")
 	for i, local := range locals {
 		t.Logf("  [%d] %s: %s, storage=%v, addr=%d",
-			i, local.Name, TypeToString(local.Type), local.Storage, local.Address)
+			i, local.Symbol.Name, TypeToString(local.Symbol.Type), local.Storage, local.Address)
 	}
 
 	// Now let's manually trace through the EmitExpression calls to see where the issue occurs

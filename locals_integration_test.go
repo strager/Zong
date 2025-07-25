@@ -16,8 +16,8 @@ func TestIntegrationVariablesInExpressions(t *testing.T) {
 	// Check locals collection
 	locals, _ := collectLocalVariables(ast)
 	be.Equal(t, 2, len(locals))
-	be.Equal(t, "a", locals[0].Name)
-	be.Equal(t, "b", locals[1].Name)
+	be.Equal(t, "a", locals[0].Symbol.Name)
+	be.Equal(t, "b", locals[1].Symbol.Name)
 
 	// Compile and execute WASM
 	wasmBytes := CompileToWASM(ast)
@@ -35,8 +35,8 @@ func TestIntegrationNestedVariableScoping(t *testing.T) {
 	be.Equal(t, 2, len(locals))
 
 	// Both variables should be available at function level
-	be.Equal(t, "x", locals[0].Name)
-	be.Equal(t, "y", locals[1].Name)
+	be.Equal(t, "x", locals[0].Symbol.Name)
+	be.Equal(t, "y", locals[1].Symbol.Name)
 
 	// Compile and execute WASM - should print the value of y (which was assigned from x)
 	wasmBytes := CompileToWASM(ast)
@@ -53,8 +53,8 @@ func TestIntegrationMixedTypes(t *testing.T) {
 	locals, _ := collectLocalVariables(ast)
 	// Only I64 variable should be collected
 	be.Equal(t, 1, len(locals))
-	be.Equal(t, "x", locals[0].Name)
-	be.Equal(t, TypeI64, locals[0].Type)
+	be.Equal(t, "x", locals[0].Symbol.Name)
+	be.Equal(t, TypeI64, locals[0].Symbol.Type)
 
 	// Compile and execute WASM - should print the value of x
 	wasmBytes := CompileToWASM(ast)
@@ -85,7 +85,7 @@ func TestIntegrationVariableReassignment(t *testing.T) {
 
 	locals, _ := collectLocalVariables(ast)
 	be.Equal(t, 1, len(locals))
-	be.Equal(t, "counter", locals[0].Name)
+	be.Equal(t, "counter", locals[0].Symbol.Name)
 
 	// Compile and execute WASM - should calculate 5 + 10 = 15
 	wasmBytes := CompileToWASM(ast)
@@ -117,8 +117,8 @@ func TestIntegrationComprehensiveDemo(t *testing.T) {
 
 	expectedNames := []string{"a", "b", "temp", "final"}
 	for i, local := range locals {
-		be.Equal(t, expectedNames[i], local.Name)
-		be.Equal(t, TypeI64, local.Type)
+		be.Equal(t, expectedNames[i], local.Symbol.Name)
+		be.Equal(t, TypeI64, local.Symbol.Type)
 		be.Equal(t, uint32(i), local.Address)
 	}
 

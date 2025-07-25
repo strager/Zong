@@ -52,9 +52,9 @@ func TestI64PointerReturnParsing(t *testing.T) {
 func TestStructParameterPassing(t *testing.T) {
 	source := `struct Point { var x I64; var y I64; }
 	
-	func processPoint(_ p: Point) {
-		print(p.x);
-		print(p.y);
+	func processPoint(_ processPointP: Point) {
+		print(processPointP.x);
+		print(processPointP.y);
 	}
 	
 	func main() {
@@ -77,14 +77,14 @@ func TestStructParameterPassing(t *testing.T) {
 
 // Test struct parameter parsing
 func TestStructParameterParsing(t *testing.T) {
-	source := `func test(_ p: Point): I64 { return 42; }`
+	source := `func test(_ testP: Point): I64 { return 42; }`
 
 	input := []byte(source + "\x00")
 	Init(input)
 	NextToken()
 	ast := ParseStatement()
 
-	expected := `(func "test" ((param "p" "Point*" positional)) "I64" (block (return (integer 42))))`
+	expected := `(func "test" ((param "testP" "Point*" positional)) "I64" (block (return (integer 42))))`
 	result := ToSExpr(ast)
 	be.Equal(t, result, expected)
 }

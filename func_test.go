@@ -24,13 +24,13 @@ func TestFunctionDeclarationParsing(t *testing.T) {
 		},
 		{
 			name:     "function with positional parameters",
-			source:   "func add(_ a: I64, _ b: I64): I64 {}",
-			expected: `(func "add" ((param "a" "I64" positional) (param "b" "I64" positional)) "I64" (block))`,
+			source:   "func add(_ addA: I64, _ addB: I64): I64 {}",
+			expected: `(func "add" ((param "addA" "I64" positional) (param "addB" "I64" positional)) "I64" (block))`,
 		},
 		{
 			name:     "function with named parameters",
-			source:   "func test(x: I64, y: I64) {}",
-			expected: `(func "test" ((param "x" "I64" named) (param "y" "I64" named)) void (block))`,
+			source:   "func test(testX: I64, testY: I64) {}",
+			expected: `(func "test" ((param "testX" "I64" named) (param "testY" "I64" named)) void (block))`,
 		},
 		{
 			name:     "function with body",
@@ -70,8 +70,8 @@ func TestBasicFunctionCompilation(t *testing.T) {
 
 // Test simple function with parameters
 func TestFunctionWithParameters(t *testing.T) {
-	source := `func add(_ a: I64, _ b: I64): I64 {
-		return a + b;
+	source := `func add(_ addA2: I64, _ addB2: I64): I64 {
+		return addA2 + addB2;
 	}`
 
 	input := []byte(source + "\x00")
@@ -102,8 +102,8 @@ func TestSimpleMain(t *testing.T) {
 
 // Test end-to-end function execution with main
 func TestEndToEndFunctionExecution(t *testing.T) {
-	source := `func add(_ a: I64, _ b: I64): I64 {
-		return a + b;
+	source := `func add(_ addA3: I64, _ addB3: I64): I64 {
+		return addA3 + addB3;
 	}
 	
 	func main() {
@@ -126,12 +126,12 @@ func TestEndToEndFunctionExecution(t *testing.T) {
 
 // Test multiple functions with various signatures
 func TestMultipleFunctions(t *testing.T) {
-	source := `func double(_ x: I64): I64 {
-		return x * 2;
+	source := `func double(_ doubleX: I64): I64 {
+		return doubleX * 2;
 	}
 	
-	func triple(_ x: I64): I64 {
-		return x * 3;
+	func triple(_ tripleX: I64): I64 {
+		return tripleX * 3;
 	}
 	
 	func main() {
@@ -150,9 +150,9 @@ func TestMultipleFunctions(t *testing.T) {
 
 // Test void function (no return value)
 func TestVoidFunction(t *testing.T) {
-	source := `func printTwice(_ x: I64) {
-		print(x);
-		print(x);
+	source := `func printTwice(_ printTwiceX: I64) {
+		print(printTwiceX);
+		print(printTwiceX);
 	}
 	
 	func main() {
@@ -170,8 +170,8 @@ func TestVoidFunction(t *testing.T) {
 
 // Test function with complex expressions
 func TestFunctionWithComplexExpressions(t *testing.T) {
-	source := `func compute(_ a: I64, _ b: I64, _ c: I64): I64 {
-		return (a + b) * c - 10;
+	source := `func compute(_ computeA: I64, _ computeB: I64, _ computeC: I64): I64 {
+		return (computeA + computeB) * computeC - 10;
 	}
 	
 	func main() {
@@ -189,12 +189,12 @@ func TestFunctionWithComplexExpressions(t *testing.T) {
 
 // Test nested function calls
 func TestNestedFunctionCalls(t *testing.T) {
-	source := `func add(_ a: I64, _ b: I64): I64 {
-		return a + b;
+	source := `func add(_ addA4: I64, _ addB4: I64): I64 {
+		return addA4 + addB4;
 	}
 	
-	func multiply(_ a: I64, _ b: I64): I64 {
-		return a * b;
+	func multiply(_ multiplyA: I64, _ multiplyB: I64): I64 {
+		return multiplyA * multiplyB;
 	}
 	
 	func main() {
@@ -221,13 +221,13 @@ func TestNamedParameterParsing(t *testing.T) {
 	}{
 		{
 			name:     "function with named parameters",
-			source:   "func test(x: I64, y: I64): I64 {}",
-			expected: `(func "test" ((param "x" "I64" named) (param "y" "I64" named)) "I64" (block))`,
+			source:   "func test(testX2: I64, testY2: I64): I64 {}",
+			expected: `(func "test" ((param "testX2" "I64" named) (param "testY2" "I64" named)) "I64" (block))`,
 		},
 		{
 			name:     "mixed positional and named parameters",
-			source:   "func test(_ a: I64, x: I64, y: I64): I64 {}",
-			expected: `(func "test" ((param "a" "I64" positional) (param "x" "I64" named) (param "y" "I64" named)) "I64" (block))`,
+			source:   "func test(_ testA: I64, testX3: I64, testY3: I64): I64 {}",
+			expected: `(func "test" ((param "testA" "I64" positional) (param "testX3" "I64" named) (param "testY3" "I64" named)) "I64" (block))`,
 		},
 	}
 
@@ -246,14 +246,14 @@ func TestNamedParameterParsing(t *testing.T) {
 
 // Test named parameter function calls
 func TestNamedParameterCalls(t *testing.T) {
-	source := `func greet(name: I64, age: I64) {
-		print(name);
-		print(age);
+	source := `func greet(greetName: I64, greetAge: I64) {
+		print(greetName);
+		print(greetAge);
 	}
 	
 	func main() {
-		greet(name: 42, age: 25);
-		greet(age: 30, name: 50); 
+		greet(greetName: 42, greetAge: 25);
+		greet(greetAge: 30, greetName: 50); 
 	}`
 
 	input := []byte(source + "\x00")
@@ -267,12 +267,12 @@ func TestNamedParameterCalls(t *testing.T) {
 
 // Test mixed positional and named parameters
 func TestMixedParameters(t *testing.T) {
-	source := `func compute(_ base: I64, multiplier: I64, offset: I64): I64 {
-		return base * multiplier + offset;
+	source := `func compute(_ computeBase: I64, computeMultiplier: I64, computeOffset: I64): I64 {
+		return computeBase * computeMultiplier + computeOffset;
 	}
 	
 	func main() {
-		print(compute(5, multiplier: 3, offset: 10));
+		print(compute(5, computeMultiplier: 3, computeOffset: 10));
 	}`
 
 	input := []byte(source + "\x00")
@@ -288,10 +288,10 @@ func TestMixedParameters(t *testing.T) {
 func TestFunctionReturningStruct(t *testing.T) {
 	source := `struct Point { var x I64; var y I64; }
 	
-	func createPoint(_ xVal: I64, _ yVal: I64): Point {
+	func createPoint(_ createPointXVal: I64, _ createPointYVal: I64): Point {
 		var p Point;
-		p.x = xVal;
-		p.y = yVal;
+		p.x = createPointXVal;
+		p.y = createPointYVal;
 		return p;
 	}
 	
@@ -315,9 +315,9 @@ func TestFunctionStructParamCopies(t *testing.T) {
 	source := `
 		struct S { var i I64; }
 
-		func f(_ s: S) {
-			s.i = 3;
-			print(s.i);
+		func f(_ fS: S) {
+			fS.i = 3;
+			print(fS.i);
 		}
 
 		func main() {

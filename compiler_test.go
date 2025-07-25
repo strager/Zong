@@ -558,11 +558,15 @@ func TestEmitAddressOfNonAddressedVariable(t *testing.T) {
 	}()
 
 	var buf bytes.Buffer
+	symbol := &SymbolInfo{
+		Name:     "localVar",
+		Type:     &TypeNode{Kind: TypeBuiltin, String: "I64"},
+		Assigned: false,
+	}
 	localCtx := &LocalContext{
 		Variables: []LocalVarInfo{
 			{
-				Name:    "localVar",
-				Type:    &TypeNode{Kind: TypeBuiltin, String: "I64"},
+				Symbol:  symbol,
 				Storage: VarStorageLocal, // Not VarStorageTStack
 				Address: 0,
 			},
@@ -572,6 +576,7 @@ func TestEmitAddressOfNonAddressedVariable(t *testing.T) {
 	operand := &ASTNode{
 		Kind:   NodeIdent,
 		String: "localVar",
+		Symbol: symbol,
 	}
 
 	EmitAddressOf(&buf, operand, localCtx)
@@ -895,33 +900,33 @@ func TestPhase1Functions(t *testing.T) {
 	}{
 		{
 			name: "simple function call",
-			source: `func add(_ a: I64, _ b: I64): I64 { return a + b; }
+			source: `func add(_ addA5: I64, _ addB5: I64): I64 { return addA5 + addB5; }
 					 func main() { print(add(5, 3)); }`,
 			expected: "8\n",
 		},
 		{
 			name: "void function",
-			source: `func printTwice(_ x: I64) { print(x); print(x); }
+			source: `func printTwice(_ printTwiceX2: I64) { print(printTwiceX2); print(printTwiceX2); }
 					 func main() { printTwice(42); }`,
 			expected: "42\n42\n",
 		},
 		{
 			name: "multiple function calls",
-			source: `func double(_ x: I64): I64 { return x * 2; }
-					 func triple(_ x: I64): I64 { return x * 3; }
+			source: `func double(_ doubleX2: I64): I64 { return doubleX2 * 2; }
+					 func triple(_ tripleX2: I64): I64 { return tripleX2 * 3; }
 					 func main() { print(double(5)); print(triple(4)); }`,
 			expected: "10\n12\n",
 		},
 		{
 			name: "nested function calls",
-			source: `func add(_ a: I64, _ b: I64): I64 { return a + b; }
-					 func multiply(_ a: I64, _ b: I64): I64 { return a * b; }
+			source: `func add(_ addA6: I64, _ addB6: I64): I64 { return addA6 + addB6; }
+					 func multiply(_ multiplyA2: I64, _ multiplyB2: I64): I64 { return multiplyA2 * multiplyB2; }
 					 func main() { print(add(multiply(2, 3), multiply(4, 5))); }`,
 			expected: "26\n",
 		},
 		{
 			name: "function with complex expression",
-			source: `func compute(_ a: I64, _ b: I64, _ c: I64): I64 { return (a + b) * c - 10; }
+			source: `func compute(_ computeA2: I64, _ computeB2: I64, _ computeC2: I64): I64 { return (computeA2 + computeB2) * computeC2 - 10; }
 					 func main() { print(compute(3, 4, 5)); }`,
 			expected: "25\n",
 		},
