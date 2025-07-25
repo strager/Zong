@@ -13,15 +13,43 @@ func TestParseIfStatement(t *testing.T) {
 	}{
 		{
 			input:    "if x { y; }\x00",
-			expected: "(if (ident \"x\") (ident \"y\"))",
+			expected: "(if (ident \"x\") (block (ident \"y\")))",
 		},
 		{
 			input:    "if 1 + 2 { 3; }\x00",
-			expected: "(if (binary \"+\" (integer 1) (integer 2)) (integer 3))",
+			expected: "(if (binary \"+\" (integer 1) (integer 2)) (block (integer 3)))",
 		},
 		{
 			input:    "if foo == bar { return 42; }\x00",
-			expected: "(if (binary \"==\" (ident \"foo\") (ident \"bar\")) (return (integer 42)))",
+			expected: "(if (binary \"==\" (ident \"foo\") (ident \"bar\")) (block (return (integer 42))))",
+		},
+	}
+
+	for _, test := range tests {
+		Init([]byte(test.input))
+		NextToken()
+		result := ParseStatement()
+		actual := ToSExpr(result)
+		be.Equal(t, actual, test.expected)
+	}
+}
+
+func TestParseIfElseStatement(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{
+			input:    "if x { y; } else { z; }\x00",
+			expected: "(if (ident \"x\") (block (ident \"y\")) _ (block (ident \"z\")))",
+		},
+		{
+			input:    "if x == 1 { print(1); } else { print(0); }\x00",
+			expected: "(if (binary \"==\" (ident \"x\") (integer 1)) (block (call (ident \"print\") (integer 1))) _ (block (call (ident \"print\") (integer 0))))",
+		},
+		{
+			input:    "if x > 0 { print(1); } else if x < 0 { print(2); } else { print(0); }\x00",
+			expected: "(if (binary \">\" (ident \"x\") (integer 0)) (block (call (ident \"print\") (integer 1))) (binary \"<\" (ident \"x\") (integer 0)) (block (call (ident \"print\") (integer 2))) _ (block (call (ident \"print\") (integer 0))))",
 		},
 	}
 
@@ -181,7 +209,7 @@ func TestParseLoopStatement(t *testing.T) {
 		},
 		{
 			input:    "loop { var i int; if i == 10 { break; } }\x00",
-			expected: "(loop (var (ident \"i\") (ident \"int\")) (if (binary \"==\" (ident \"i\") (integer 10)) (break)))",
+			expected: "(loop (var (ident \"i\") (ident \"int\")) (if (binary \"==\" (ident \"i\") (integer 10)) (block (break))))",
 		},
 	}
 
@@ -273,15 +301,15 @@ func TestComplexStatements(t *testing.T) {
 	}{
 		{
 			input:    "if x > 0 { var y int; return y + 1; }\x00",
-			expected: "(if (binary \">\" (ident \"x\") (integer 0)) (var (ident \"y\") (ident \"int\")) (return (binary \"+\" (ident \"y\") (integer 1))))",
+			expected: "(if (binary \">\" (ident \"x\") (integer 0)) (block (var (ident \"y\") (ident \"int\")) (return (binary \"+\" (ident \"y\") (integer 1)))))",
 		},
 		{
 			input:    "loop { if done { break; } continue; }\x00",
-			expected: "(loop (if (ident \"done\") (break)) (continue))",
+			expected: "(loop (if (ident \"done\") (block (break))) (continue))",
 		},
 		{
 			input:    "{ if a { { b; } } }\x00",
-			expected: "(block (if (ident \"a\") (block (ident \"b\"))))",
+			expected: "(block (if (ident \"a\") (block (block (ident \"b\")))))",
 		},
 	}
 

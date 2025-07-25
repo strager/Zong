@@ -119,7 +119,7 @@ func TestCheckExpressionBinaryComparison(t *testing.T) {
 	// Check expression
 	exprType, err := CheckExpression(binaryNode, tc)
 	be.Err(t, err, nil)
-	be.Equal(t, TypeI64, exprType) // Comparison returns I64 (0 or 1)
+	be.Equal(t, TypeBool, exprType) // Comparison returns Bool
 }
 
 func TestCheckExpressionAddressOf(t *testing.T) {

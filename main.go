@@ -452,6 +452,53 @@ func EmitStatement(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 		// WASM return instruction (implicitly returns the value on stack)
 		writeByte(buf, 0x0F) // RETURN opcode
 
+	case NodeIf:
+		// If statement compilation
+		// Structure: [condition, then_block, condition2?, else_block2?, ...]
+
+		// Emit condition for initial if
+		EmitExpression(buf, node.Children[0], localCtx)
+
+		// Start if block
+		writeByte(buf, 0x04) // if opcode
+		writeByte(buf, 0x40) // block type: void
+
+		// Emit then block
+		EmitStatement(buf, node.Children[1], localCtx)
+
+		// Handle else/else-if clauses
+		i := 2
+		for i < len(node.Children) {
+			writeByte(buf, 0x05) // else opcode
+
+			// Check if this is an else-if (condition is not nil) or final else (condition is nil)
+			if node.Children[i] != nil {
+				// else-if: emit condition and start new if block
+				EmitExpression(buf, node.Children[i], localCtx)
+				writeByte(buf, 0x04) // nested if opcode
+				writeByte(buf, 0x40) // block type: void
+
+				// Emit the else-if block
+				EmitStatement(buf, node.Children[i+1], localCtx)
+				i += 2
+			} else {
+				// final else: emit else block directly
+				EmitStatement(buf, node.Children[i+1], localCtx)
+				break
+			}
+		}
+
+		// End all if blocks (one end for each if we opened)
+		ifCount := 1 // Initial if
+		for j := 2; j < i; j += 2 {
+			if node.Children[j] != nil {
+				ifCount++ // else-if adds another if
+			}
+		}
+		for k := 0; k < ifCount; k++ {
+			writeByte(buf, 0x0B) // end opcode
+		}
+
 	default:
 		// For now, treat unknown statements as expressions
 		EmitExpression(buf, node, localCtx)
@@ -683,10 +730,8 @@ func EmitExpression(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 			EmitExpression(buf, node.Children[1], localCtx) // right operand
 			writeByte(buf, getBinaryOpcode(node.Op))
 
-			// Comparison operations return i32, but we need i64 for consistency
-			if isComparisonOp(node.Op) {
-				writeByte(buf, I64_EXTEND_I32_S) // Convert i32 to i64
-			}
+			// Comparison operations return i32 (Boolean)
+			// Don't extend to i64 since Boolean type should be i32
 		}
 
 	case NodeCall:
@@ -1084,7 +1129,9 @@ func (ctx *LocalContext) collectBodyVariables(node *ASTNode) {
 
 		// Recursively traverse children
 		for _, child := range node.Children {
-			traverse(child)
+			if child != nil {
+				traverse(child)
+			}
 		}
 	}
 
@@ -1274,7 +1321,9 @@ func collectLocalVariables(node *ASTNode) ([]LocalVarInfo, uint32) {
 			// Continue scanning the operand
 		}
 		for _, child := range node.Children {
-			traverse(child)
+			if child != nil {
+				traverse(child)
+			}
 		}
 	}
 
@@ -1695,7 +1744,7 @@ func isWASMI32Type(t *TypeNode) bool {
 	}
 	switch t.Kind {
 	case TypeBuiltin:
-		return false // builtin types are not I32
+		return t.String == "Bool" // Boolean type maps to I32 in WASM
 	case TypePointer:
 		return true // all pointers are I32 in WASM
 	case TypeStruct:
@@ -1721,6 +1770,13 @@ func needsI32ToI64Widening(expr *ASTNode, locals []LocalVarInfo) bool {
 	case NodeUnary:
 		if expr.Op == "&" {
 			// Address-of operator produces a pointer (i32)
+			return true
+		}
+		return false
+
+	case NodeBinary:
+		// Comparison operators return Boolean (i32) which needs widening for print
+		if isComparisonOp(expr.Op) {
 			return true
 		}
 		return false
@@ -1992,7 +2048,9 @@ func BuildSymbolTable(ast *ASTNode) *SymbolTable {
 
 		// Traverse children
 		for _, child := range node.Children {
-			collectDeclarations(child)
+			if child != nil {
+				collectDeclarations(child)
+			}
 		}
 	}
 
@@ -2034,7 +2092,9 @@ func BuildSymbolTable(ast *ASTNode) *SymbolTable {
 		} else {
 			// Traverse children
 			for _, child := range node.Children {
-				populateReferences(child)
+				if child != nil {
+					populateReferences(child)
+				}
 			}
 		}
 	}
@@ -2131,6 +2191,49 @@ func CheckStatement(stmt *ASTNode, tc *TypeChecker) error {
 			}
 		}
 
+	case NodeIf:
+		// If statement type checking
+		// Structure: [condition, then_block, condition2?, else_block2?, ...]
+
+		// Check condition (must be Boolean)
+		condType, err := CheckExpression(stmt.Children[0], tc)
+		if err != nil {
+			return err
+		}
+		if !TypesEqual(condType, TypeBool) {
+			return fmt.Errorf("error: if condition must be Boolean, got %s", TypeToString(condType))
+		}
+
+		// Check then block
+		err = CheckStatement(stmt.Children[1], tc)
+		if err != nil {
+			return err
+		}
+
+		// Check else/else-if clauses
+		i := 2
+		for i < len(stmt.Children) {
+			// Check condition (if not nil)
+			if stmt.Children[i] != nil {
+				// else-if condition
+				condType, err := CheckExpression(stmt.Children[i], tc)
+				if err != nil {
+					return err
+				}
+				if !TypesEqual(condType, TypeBool) {
+					return fmt.Errorf("error: else-if condition must be Boolean, got %s", TypeToString(condType))
+				}
+			}
+
+			// Check block
+			err = CheckStatement(stmt.Children[i+1], tc)
+			if err != nil {
+				return err
+			}
+
+			i += 2
+		}
+
 	default:
 		// Other statement types are valid for now
 	}
@@ -2178,7 +2281,7 @@ func CheckExpression(expr *ASTNode, tc *TypeChecker) (*TypeNode, error) {
 			// Return result type based on operator
 			switch expr.Op {
 			case "==", "!=", "<", ">", "<=", ">=":
-				return TypeI64, nil // Comparison operators return integers (0 or 1)
+				return TypeBool, nil // Comparison operators return Boolean
 			case "+", "-", "*", "/", "%":
 				return leftType, nil // Arithmetic operators return operand type
 			default:
@@ -2906,6 +3009,9 @@ func readCharLiteral() string {
 
 // ToSExpr converts an AST node to s-expression string representation
 func ToSExpr(node *ASTNode) string {
+	if node == nil {
+		return "_"
+	}
 	switch node.Kind {
 	case NodeIdent:
 		return "(ident \"" + node.String + "\")"
@@ -3320,6 +3426,29 @@ func parseTypeExpression() *TypeNode {
 	return resultType
 }
 
+// parseBlockStatements parses a block of statements between braces and returns a Block AST node
+func parseBlockStatements() *ASTNode {
+	if CurrTokenType != LBRACE {
+		return &ASTNode{} // error
+	}
+	SkipToken(LBRACE)
+
+	var statements []*ASTNode
+	for CurrTokenType != RBRACE && CurrTokenType != EOF {
+		stmt := ParseStatement()
+		statements = append(statements, stmt)
+	}
+
+	if CurrTokenType == RBRACE {
+		SkipToken(RBRACE)
+	}
+
+	return &ASTNode{
+		Kind:     NodeBlock,
+		Children: statements,
+	}
+}
+
 // ParseStatement parses a statement and returns an AST node
 func ParseStatement() *ASTNode {
 	switch CurrTokenType {
@@ -3357,19 +3486,31 @@ func ParseStatement() *ASTNode {
 
 	case IF:
 		SkipToken(IF)
-		cond := ParseExpression()
+		children := []*ASTNode{}
+		children = append(children, ParseExpression()) // if condition
 		if CurrTokenType != LBRACE {
 			return &ASTNode{} // error
 		}
-		SkipToken(LBRACE)
-		var children []*ASTNode = []*ASTNode{cond}
-		for CurrTokenType != RBRACE && CurrTokenType != EOF {
-			stmt := ParseStatement()
-			children = append(children, stmt)
+
+		children = append(children, parseBlockStatements()) // then block
+
+		for CurrTokenType == ELSE {
+			SkipToken(ELSE)
+			if CurrTokenType == IF {
+				SkipToken(IF)
+				// else-if block
+				children = append(children, ParseExpression())      // else condition
+				children = append(children, parseBlockStatements()) // else block
+			} else if CurrTokenType == LBRACE {
+				// else block
+				children = append(children, nil)                    // else condition (nil for final else)
+				children = append(children, parseBlockStatements()) // else block
+				break                                               // final else, no more chaining
+			} else {
+				return &ASTNode{} // error: expected { after else
+			}
 		}
-		if CurrTokenType == RBRACE {
-			SkipToken(RBRACE)
-		}
+
 		return &ASTNode{
 			Kind:     NodeIf,
 			Children: children,
