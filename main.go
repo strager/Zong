@@ -504,6 +504,104 @@ func EmitStatement(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 	}
 }
 
+// emitFieldAddressRecursive generates code to put the address of any field expression on the stack
+// getFinalFieldType returns the type of the final field in a dot expression chain
+func getFinalFieldType(node *ASTNode) *TypeNode {
+	if node.Kind != NodeDot {
+		return node.TypeAST
+	}
+
+	baseExpr := node.Children[0]
+	fieldName := node.FieldName
+
+	// Get the struct type
+	var structType *TypeNode
+	baseType := baseExpr.TypeAST
+	if baseType == nil {
+		panic("Base expression has no type information")
+	}
+
+	if baseType.Kind == TypeStruct {
+		structType = baseType
+	} else if baseType.Kind == TypePointer && baseType.Child.Kind == TypeStruct {
+		structType = baseType.Child
+	} else {
+		panic("Field access on non-struct type: " + TypeToString(baseType))
+	}
+
+	// Find the field type
+	for _, field := range structType.Fields {
+		if field.Name == fieldName {
+			return field.Type
+		}
+	}
+
+	panic("Field not found in struct: " + fieldName)
+}
+
+func emitFieldAddressRecursive(buf *bytes.Buffer, fieldExpr *ASTNode, localCtx *LocalContext) {
+	if fieldExpr.Kind != NodeDot {
+		panic("Expected NodeDot for field address emission")
+	}
+
+	baseExpr := fieldExpr.Children[0]
+	fieldName := fieldExpr.FieldName
+
+	// Determine struct type and get field info
+	var structType *TypeNode
+	if baseExpr.TypeAST.Kind == TypeStruct {
+		structType = baseExpr.TypeAST
+	} else if baseExpr.TypeAST.Kind == TypePointer && baseExpr.TypeAST.Child.Kind == TypeStruct {
+		structType = baseExpr.TypeAST.Child
+	} else {
+		panic("Field access on non-struct type")
+	}
+
+	// Find field offset
+	var fieldOffset uint32
+	found := false
+	for _, field := range structType.Fields {
+		if field.Name == fieldName {
+			fieldOffset = field.Offset
+			found = true
+			break
+		}
+	}
+	if !found {
+		panic("Field not found in struct: " + fieldName)
+	}
+
+	// Generate base address
+	if baseExpr.Kind == NodeIdent && baseExpr.Symbol != nil {
+		// Variable field access
+		targetLocal := localCtx.FindVariable(baseExpr.Symbol)
+		if targetLocal == nil {
+			panic("Variable not found in local context: " + baseExpr.String)
+		}
+		emitStructFieldAddress(buf, targetLocal, fieldOffset, localCtx)
+	} else if baseExpr.Kind == NodeDot {
+		// Chained field access - recurse
+		emitFieldAddressRecursive(buf, baseExpr, localCtx)
+
+		// Add field offset if needed
+		if fieldOffset > 0 {
+			writeByte(buf, I32_CONST)
+			writeLEB128Signed(buf, int64(fieldOffset))
+			writeByte(buf, I32_ADD)
+		}
+	} else {
+		// Other expressions (function calls, etc.)
+		EmitExpression(buf, baseExpr, localCtx)
+
+		// Add field offset if needed
+		if fieldOffset > 0 {
+			writeByte(buf, I32_CONST)
+			writeLEB128Signed(buf, int64(fieldOffset))
+			writeByte(buf, I32_ADD)
+		}
+	}
+}
+
 // Emit WASM code to calculate struct field address and leave it on stack
 func emitStructFieldAddress(buf *bytes.Buffer, targetLocal *LocalVarInfo, fieldOffset uint32, localCtx *LocalContext) {
 	if targetLocal.Storage == VarStorageParameterLocal {
@@ -671,29 +769,22 @@ func EmitExpression(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 				baseExpr := lhs.Children[0]
 				fieldName := lhs.FieldName
 
-				// Get the base struct variable
-				if baseExpr.Kind != NodeIdent {
-					panic("Only direct variable field assignment supported currently")
-				}
-
-				if baseExpr.Symbol == nil {
-					panic("Undefined struct variable: " + baseExpr.String)
-				}
-				targetLocal := localCtx.FindVariable(baseExpr.Symbol)
-				if targetLocal == nil {
-					panic("Variable not found in local context: " + baseExpr.String)
-				}
-
-				// Determine struct type
+				// Determine struct type from the base expression's type
+				// (type checking should have already validated this is a struct)
 				var structType *TypeNode
-				if targetLocal.Symbol.Type.Kind == TypeStruct {
-					// Direct struct variable
-					structType = targetLocal.Symbol.Type
-				} else if targetLocal.Symbol.Type.Kind == TypePointer && targetLocal.Symbol.Type.Child.Kind == TypeStruct {
-					// Struct parameter (pointer to struct)
-					structType = targetLocal.Symbol.Type.Child
+				baseType := baseExpr.TypeAST
+				if baseType == nil {
+					panic("Base expression has no type information")
+				}
+
+				if baseType.Kind == TypeStruct {
+					// Direct struct access
+					structType = baseType
+				} else if baseType.Kind == TypePointer && baseType.Child.Kind == TypeStruct {
+					// Pointer-to-struct access (struct parameters)
+					structType = baseType.Child
 				} else {
-					panic("Field assignment on non-struct variable")
+					panic("Field assignment on non-struct type: " + TypeToString(baseType))
 				}
 
 				// Find field in struct definition
@@ -712,8 +803,39 @@ func EmitExpression(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 					panic("Field not found in struct: " + fieldName)
 				}
 
-				// Generate address calculation (before evaluating RHS)
-				emitStructFieldAddress(buf, targetLocal, fieldOffset, localCtx)
+				// Generate field address calculation (before evaluating RHS)
+				if baseExpr.Kind == NodeIdent && baseExpr.Symbol != nil {
+					// Variable field assignment - use the existing address calculation logic
+					targetLocal := localCtx.FindVariable(baseExpr.Symbol)
+					if targetLocal == nil {
+						panic("Variable not found in local context: " + baseExpr.String)
+					}
+					emitStructFieldAddress(buf, targetLocal, fieldOffset, localCtx)
+				} else if baseExpr.Kind == NodeDot {
+					// Nested field assignment (e.g., person.address.state = value)
+					// Use recursive address generation
+					emitFieldAddressRecursive(buf, baseExpr, localCtx)
+
+					// Add field offset if needed
+					if fieldOffset > 0 {
+						writeByte(buf, I32_CONST)
+						writeLEB128Signed(buf, int64(fieldOffset))
+						writeByte(buf, I32_ADD)
+					}
+					// Note: Stack now has the address of the field
+				} else {
+					// Other expression field assignment (e.g., function call result)
+					// Emit the base expression to get the struct pointer/address on stack
+					EmitExpression(buf, baseExpr, localCtx)
+
+					// Add field offset if needed
+					if fieldOffset > 0 {
+						writeByte(buf, I32_CONST)
+						writeLEB128Signed(buf, int64(fieldOffset))
+						writeByte(buf, I32_ADD)
+					}
+					// Note: Stack now has the address of the field
+				}
 
 				// Now evaluate the RHS value
 				EmitExpression(buf, rhs, localCtx) // RHS value
@@ -834,73 +956,23 @@ func EmitExpression(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 		}
 
 	case NodeDot:
-		// Field access: struct.field
-		baseExpr := node.Children[0]
-		fieldName := node.FieldName
+		// Generate field address using the recursive function
+		emitFieldAddressRecursive(buf, node, localCtx)
 
-		// Determine struct type from the base expression's type
-		// (type checking should have already validated this is a struct)
-		var structType *TypeNode
-		baseType := baseExpr.TypeAST
-		if baseType == nil {
-			panic("Base expression has no type information")
-		}
+		// Get the final field type to determine how to load it
+		finalFieldType := getFinalFieldType(node)
 
-		if baseType.Kind == TypeStruct {
-			// Direct struct access
-			structType = baseType
-		} else if baseType.Kind == TypePointer && baseType.Child.Kind == TypeStruct {
-			// Pointer-to-struct access (struct parameters)
-			structType = baseType.Child
-		} else {
-			panic("Field access on non-struct type: " + TypeToString(baseType))
-		}
-
-		// Find field in struct definition
-		var fieldOffset uint32
-		var fieldType *TypeNode
-		found := false
-		for _, field := range structType.Fields {
-			if field.Name == fieldName {
-				fieldOffset = field.Offset
-				fieldType = field.Type
-				found = true
-				break
-			}
-		}
-		if !found {
-			panic("Field not found in struct: " + fieldName)
-		}
-
-		// Generate field access
-		if baseExpr.Kind == NodeIdent && baseExpr.Symbol != nil {
-			// Variable field access - use the existing address calculation logic
-			targetLocal := localCtx.FindVariable(baseExpr.Symbol)
-			if targetLocal == nil {
-				panic("Variable not found in local context: " + baseExpr.String)
-			}
-			emitStructFieldAddress(buf, targetLocal, fieldOffset, localCtx)
-		} else {
-			// Expression field access (e.g., function call)
-			// Emit the base expression to get the struct pointer/address on stack
-			EmitExpression(buf, baseExpr, localCtx)
-
-			// Add field offset if needed
-			if fieldOffset > 0 {
-				writeByte(buf, I32_CONST)
-				writeLEB128Signed(buf, int64(fieldOffset))
-				writeByte(buf, I32_ADD)
-			}
-			// Note: Stack now has the address of the field
+		if finalFieldType == nil {
+			panic("getFinalFieldType returned nil for: " + ToSExpr(node))
 		}
 
 		// Load the field value
-		if isWASMI64Type(fieldType) {
+		if isWASMI64Type(finalFieldType) {
 			writeByte(buf, I64_LOAD) // Load i64 from memory
 			writeByte(buf, 0x03)     // alignment (8 bytes = 2^3)
 			writeByte(buf, 0x00)     // offset
 		} else {
-			panic("Non-I64 field types not supported in WASM yet")
+			panic("Non-I64 field types not supported in WASM yet: " + TypeToString(finalFieldType))
 		}
 	}
 }
@@ -2114,8 +2186,36 @@ func BuildSymbolTable(ast *ASTNode) *SymbolTable {
 		}
 	}
 
-	// Execute both passes
+	// Execute all passes
 	collectDeclarations(ast)
+
+	// Pass 1.5: resolve struct field types now that all structs are declared
+	for _, structType := range st.structs {
+		for i, field := range structType.Fields {
+			if field.Type.Kind == TypeStruct {
+				// Look up the struct definition for this field
+				fieldStructDef := st.LookupStruct(field.Type.String)
+				if fieldStructDef != nil {
+					// Update the field to use the complete struct definition
+					structType.Fields[i].Type = fieldStructDef
+				}
+			}
+		}
+	}
+
+	// Pass 1.6: recalculate field offsets now that all field types are resolved
+	for _, structType := range st.structs {
+		var currentOffset uint32 = 0
+		for i, field := range structType.Fields {
+			// Update the field offset
+			structType.Fields[i].Offset = currentOffset
+
+			// Calculate field size with resolved types
+			fieldSize := GetTypeSize(field.Type)
+			currentOffset += uint32(fieldSize)
+		}
+	}
+
 	populateReferences(ast)
 
 	return st
@@ -2392,6 +2492,7 @@ func CheckExpression(expr *ASTNode, tc *TypeChecker) error {
 
 		// Find the field in the struct
 		fieldName := expr.FieldName
+
 		for _, field := range structType.Fields {
 			if field.Name == fieldName {
 				expr.TypeAST = field.Type

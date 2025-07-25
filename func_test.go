@@ -396,3 +396,33 @@ func TestMixedFieldAccess(t *testing.T) {
 	wasmBytes := CompileToWASM(ast)
 	executeWasmAndVerify(t, wasmBytes, "100\n200\n300\n600\n")
 }
+
+// Test nested struct definitions and field access
+func TestNestedStructs(t *testing.T) {
+	source := `struct Address { var state I64; var zipCode I64; }
+	struct Person { var name I64; var address Address; var age I64; }
+	
+	func main() {
+		var person Person;
+		person.name = 100;
+		person.age = 25;
+		
+		// Set nested struct fields
+		person.address.state = 42;
+		person.address.zipCode = 12345;
+		
+		// Read nested struct fields
+		print(person.name);
+		print(person.address.state);
+		print(person.address.zipCode);
+		print(person.age);
+	}`
+
+	input := []byte(source + "\x00")
+	Init(input)
+	NextToken()
+	ast := ParseProgram()
+
+	wasmBytes := CompileToWASM(ast)
+	executeWasmAndVerify(t, wasmBytes, "100\n42\n12345\n25\n")
+}
