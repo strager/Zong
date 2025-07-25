@@ -505,6 +505,32 @@ func EmitStatement(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 	}
 }
 
+// Emit WASM code to calculate struct field address and leave it on stack
+func emitStructFieldAddress(buf *bytes.Buffer, targetLocal *LocalVarInfo, fieldOffset uint32, localCtx *LocalContext) {
+	if targetLocal.Storage == VarStorageParameterLocal {
+		// Struct parameter - load pointer from parameter
+		writeByte(buf, LOCAL_GET)
+		writeLEB128(buf, targetLocal.Address)
+
+		if fieldOffset > 0 {
+			writeByte(buf, I32_CONST)
+			writeLEB128Signed(buf, int64(fieldOffset))
+			writeByte(buf, I32_ADD)
+		}
+	} else {
+		// Local struct variable - calculate from frame pointer
+		writeByte(buf, LOCAL_GET)
+		writeLEB128(buf, localCtx.FramePointerIndex)
+
+		totalOffset := targetLocal.Address + fieldOffset
+		if totalOffset > 0 {
+			writeByte(buf, I32_CONST)
+			writeLEB128Signed(buf, int64(totalOffset))
+			writeByte(buf, I32_ADD)
+		}
+	}
+}
+
 func EmitExpression(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 	switch node.Kind {
 	case NodeInteger:
@@ -652,18 +678,14 @@ func EmitExpression(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 					panic("Undefined struct variable: " + varName)
 				}
 
-				// Handle both direct struct variables and pointer-to-struct parameters
+				// Determine struct type
 				var structType *TypeNode
-				var isPointerToStruct bool
-
 				if targetLocal.Type.Kind == TypeStruct {
 					// Direct struct variable
 					structType = targetLocal.Type
-					isPointerToStruct = false
 				} else if targetLocal.Type.Kind == TypePointer && targetLocal.Type.Child.Kind == TypeStruct {
-					// Pointer to struct (struct parameter) - use the child type directly
+					// Struct parameter (pointer to struct)
 					structType = targetLocal.Type.Child
-					isPointerToStruct = true
 				} else {
 					panic("Field assignment on non-struct variable")
 				}
@@ -685,30 +707,7 @@ func EmitExpression(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 				}
 
 				// Generate address calculation (before evaluating RHS)
-				if isPointerToStruct {
-					// For struct parameters: load pointer from parameter, then add field offset
-					writeByte(buf, LOCAL_GET)
-					writeLEB128(buf, targetLocal.Address)
-
-					// Add field offset
-					if fieldOffset > 0 {
-						writeByte(buf, I32_CONST)
-						writeLEB128Signed(buf, int64(fieldOffset))
-						writeByte(buf, I32_ADD)
-					}
-				} else {
-					// For direct struct variables: use frame pointer + struct address + field offset
-					writeByte(buf, LOCAL_GET)
-					writeLEB128(buf, localCtx.FramePointerIndex)
-
-					// Add struct base offset + field offset
-					totalOffset := targetLocal.Address + fieldOffset
-					if totalOffset > 0 {
-						writeByte(buf, I32_CONST)
-						writeLEB128Signed(buf, int64(totalOffset))
-						writeByte(buf, I32_ADD)
-					}
-				}
+				emitStructFieldAddress(buf, targetLocal, fieldOffset, localCtx)
 
 				// Now evaluate the RHS value
 				EmitExpression(buf, rhs, localCtx) // RHS value
@@ -844,18 +843,14 @@ func EmitExpression(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 			panic("Undefined struct variable: " + varName)
 		}
 
-		// Handle both direct struct variables and pointer-to-struct parameters
+		// Determine struct type
 		var structType *TypeNode
-		var isPointerToStruct bool
-
 		if targetLocal.Type.Kind == TypeStruct {
 			// Direct struct variable
 			structType = targetLocal.Type
-			isPointerToStruct = false
 		} else if targetLocal.Type.Kind == TypePointer && targetLocal.Type.Child.Kind == TypeStruct {
-			// Pointer to struct (struct parameter) - use the child type directly
+			// Struct parameter (pointer to struct)
 			structType = targetLocal.Type.Child
-			isPointerToStruct = true
 		} else {
 			panic("Field access on non-struct variable")
 		}
@@ -877,30 +872,7 @@ func EmitExpression(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 		}
 
 		// Generate address calculation
-		if isPointerToStruct {
-			// For struct parameters: load pointer from parameter, then add field offset
-			writeByte(buf, LOCAL_GET)
-			writeLEB128(buf, targetLocal.Address)
-
-			// Add field offset
-			if fieldOffset > 0 {
-				writeByte(buf, I32_CONST)
-				writeLEB128Signed(buf, int64(fieldOffset))
-				writeByte(buf, I32_ADD)
-			}
-		} else {
-			// For direct struct variables: use frame pointer + struct address + field offset
-			writeByte(buf, LOCAL_GET)
-			writeLEB128(buf, localCtx.FramePointerIndex)
-
-			// Add struct base offset + field offset
-			totalOffset := targetLocal.Address + fieldOffset
-			if totalOffset > 0 {
-				writeByte(buf, I32_CONST)
-				writeLEB128Signed(buf, int64(totalOffset))
-				writeByte(buf, I32_ADD)
-			}
-		}
+		emitStructFieldAddress(buf, targetLocal, fieldOffset, localCtx)
 
 		// Load the field value
 		if isWASMI64Type(fieldType) {
