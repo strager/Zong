@@ -337,3 +337,62 @@ func TestFunctionStructParamCopies(t *testing.T) {
 	wasmBytes := CompileToWASM(ast)
 	executeWasmAndVerify(t, wasmBytes, "2\n3\n2\n")
 }
+
+// Test function return field access (e.g., make_point(x: 1, y: 2).x)
+func TestFunctionReturnFieldAccess(t *testing.T) {
+	source := `struct Point { var x I64; var y I64; }
+	
+	func makePoint(pointX: I64, pointY: I64): Point {
+		var p Point;
+		p.x = pointX;
+		p.y = pointY;
+		return p;
+	}
+	
+	func main() {
+		print(makePoint(pointX: 10, pointY: 20).x);
+		print(makePoint(pointX: 30, pointY: 40).y);
+	}`
+
+	input := []byte(source + "\x00")
+	Init(input)
+	NextToken()
+	ast := ParseProgram()
+
+	// This should now work with the fixed implementation
+	wasmBytes := CompileToWASM(ast)
+	executeWasmAndVerify(t, wasmBytes, "10\n40\n")
+}
+
+// Test both variable field access and function return field access in one program
+func TestMixedFieldAccess(t *testing.T) {
+	source := `struct Point { var x I64; var y I64; }
+	
+	func makePoint(pointX: I64, pointY: I64): Point {
+		var newP Point;
+		newP.x = pointX;
+		newP.y = pointY;
+		return newP;
+	}
+	
+	func main() {
+		// Test variable field access
+		var mainP Point;
+		mainP.x = 100;
+		mainP.y = 200;
+		print(mainP.x);
+		print(mainP.y);
+		
+		// Test function return field access
+		print(makePoint(pointX: 300, pointY: 400).x);
+		print(makePoint(pointX: 500, pointY: 600).y);
+	}`
+
+	input := []byte(source + "\x00")
+	Init(input)
+	NextToken()
+	ast := ParseProgram()
+
+	wasmBytes := CompileToWASM(ast)
+	executeWasmAndVerify(t, wasmBytes, "100\n200\n300\n600\n")
+}

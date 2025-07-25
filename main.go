@@ -838,29 +838,22 @@ func EmitExpression(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 		baseExpr := node.Children[0]
 		fieldName := node.FieldName
 
-		// Get the base struct variable
-		if baseExpr.Kind != NodeIdent {
-			panic("Only direct variable field access supported currently")
-		}
-
-		if baseExpr.Symbol == nil {
-			panic("Undefined struct variable: " + baseExpr.String)
-		}
-		targetLocal := localCtx.FindVariable(baseExpr.Symbol)
-		if targetLocal == nil {
-			panic("Variable not found in local context: " + baseExpr.String)
-		}
-
-		// Determine struct type
+		// Determine struct type from the base expression's type
+		// (type checking should have already validated this is a struct)
 		var structType *TypeNode
-		if targetLocal.Symbol.Type.Kind == TypeStruct {
-			// Direct struct variable
-			structType = targetLocal.Symbol.Type
-		} else if targetLocal.Symbol.Type.Kind == TypePointer && targetLocal.Symbol.Type.Child.Kind == TypeStruct {
-			// Struct parameter (pointer to struct)
-			structType = targetLocal.Symbol.Type.Child
+		baseType := baseExpr.TypeAST
+		if baseType == nil {
+			panic("Base expression has no type information")
+		}
+
+		if baseType.Kind == TypeStruct {
+			// Direct struct access
+			structType = baseType
+		} else if baseType.Kind == TypePointer && baseType.Child.Kind == TypeStruct {
+			// Pointer-to-struct access (struct parameters)
+			structType = baseType.Child
 		} else {
-			panic("Field access on non-struct variable")
+			panic("Field access on non-struct type: " + TypeToString(baseType))
 		}
 
 		// Find field in struct definition
@@ -879,8 +872,27 @@ func EmitExpression(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 			panic("Field not found in struct: " + fieldName)
 		}
 
-		// Generate address calculation
-		emitStructFieldAddress(buf, targetLocal, fieldOffset, localCtx)
+		// Generate field access
+		if baseExpr.Kind == NodeIdent && baseExpr.Symbol != nil {
+			// Variable field access - use the existing address calculation logic
+			targetLocal := localCtx.FindVariable(baseExpr.Symbol)
+			if targetLocal == nil {
+				panic("Variable not found in local context: " + baseExpr.String)
+			}
+			emitStructFieldAddress(buf, targetLocal, fieldOffset, localCtx)
+		} else {
+			// Expression field access (e.g., function call)
+			// Emit the base expression to get the struct pointer/address on stack
+			EmitExpression(buf, baseExpr, localCtx)
+
+			// Add field offset if needed
+			if fieldOffset > 0 {
+				writeByte(buf, I32_CONST)
+				writeLEB128Signed(buf, int64(fieldOffset))
+				writeByte(buf, I32_ADD)
+			}
+			// Note: Stack now has the address of the field
+		}
 
 		// Load the field value
 		if isWASMI64Type(fieldType) {
@@ -2014,7 +2026,16 @@ func BuildSymbolTable(ast *ASTNode) *SymbolTable {
 				}
 			}
 
-			// Declare function with resolved parameter types (from updated AST node)
+			// Resolve struct types in function return type
+			if node.ReturnType != nil && node.ReturnType.Kind == TypeStruct {
+				structDef := st.LookupStruct(node.ReturnType.String)
+				if structDef != nil {
+					// Use the complete struct definition as return type
+					node.ReturnType = structDef
+				}
+			}
+
+			// Declare function with resolved parameter types and return type
 			err := st.DeclareFunction(node.FunctionName, node.Parameters, node.ReturnType)
 			if err != nil {
 				panic(err.Error())
