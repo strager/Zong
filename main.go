@@ -746,7 +746,7 @@ func EmitExpression(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 
 					// If the argument is a pointer type, we need to widen it from i32 to i64
 					// because print() expects i64
-					if needsI32ToI64Widening(arg, localCtx.Variables) {
+					if isWASMI32Type(arg.TypeAST) {
 						writeByte(buf, I64_EXTEND_I32_S) // Convert i32 pointer to i64
 					}
 				}
@@ -1754,39 +1754,6 @@ func isWASMI32Type(t *TypeNode) bool {
 	panic("Unknown TypeKind: " + string(t.Kind))
 }
 
-// needsI32ToI64Widening checks if an expression produces i32 and needs widening to i64
-func needsI32ToI64Widening(expr *ASTNode, locals []LocalVarInfo) bool {
-	switch expr.Kind {
-	case NodeIdent:
-		// Look up variable in locals
-		varName := expr.String
-		for _, local := range locals {
-			if local.Name == varName && isWASMI32Type(local.Type) {
-				return true
-			}
-		}
-		return false
-
-	case NodeUnary:
-		if expr.Op == "&" {
-			// Address-of operator produces a pointer (i32)
-			return true
-		}
-		return false
-
-	case NodeBinary:
-		// Comparison operators return Boolean (i32) which needs widening for print
-		if isComparisonOp(expr.Op) {
-			return true
-		}
-		return false
-
-	default:
-		// Other expressions don't produce i32 values that need widening
-		return false
-	}
-}
-
 // SymbolInfo represents information about a declared variable
 type SymbolInfo struct {
 	Name     string
@@ -2242,11 +2209,17 @@ func CheckStatement(stmt *ASTNode, tc *TypeChecker) error {
 }
 
 // CheckExpression validates an expression and returns its type
+// Helper function to set type on AST node and return it
+func setExpressionType(expr *ASTNode, typ *TypeNode) *TypeNode {
+	expr.TypeAST = typ
+	return typ
+}
+
 func CheckExpression(expr *ASTNode, tc *TypeChecker) (*TypeNode, error) {
 
 	switch expr.Kind {
 	case NodeInteger:
-		return TypeI64, nil
+		return setExpressionType(expr, TypeI64), nil
 
 	case NodeIdent:
 		// Variable reference - use cached symbol reference
@@ -2256,7 +2229,7 @@ func CheckExpression(expr *ASTNode, tc *TypeChecker) (*TypeNode, error) {
 		if !expr.Symbol.Assigned {
 			return nil, fmt.Errorf("error: variable '%s' used before assignment", expr.String)
 		}
-		return expr.Symbol.Type, nil
+		return setExpressionType(expr, expr.Symbol.Type), nil
 
 	case NodeBinary:
 		if expr.Op == "=" {
@@ -2281,9 +2254,9 @@ func CheckExpression(expr *ASTNode, tc *TypeChecker) (*TypeNode, error) {
 			// Return result type based on operator
 			switch expr.Op {
 			case "==", "!=", "<", ">", "<=", ">=":
-				return TypeBool, nil // Comparison operators return Boolean
+				return setExpressionType(expr, TypeBool), nil // Comparison operators return Boolean
 			case "+", "-", "*", "/", "%":
-				return leftType, nil // Arithmetic operators return operand type
+				return setExpressionType(expr, leftType), nil // Arithmetic operators return operand type
 			default:
 				return nil, fmt.Errorf("error: unsupported binary operator '%s'", expr.Op)
 			}
@@ -2305,7 +2278,7 @@ func CheckExpression(expr *ASTNode, tc *TypeChecker) (*TypeNode, error) {
 			if err != nil {
 				return nil, err
 			}
-			return TypeI64, nil // print returns nothing, but use I64 for now
+			return setExpressionType(expr, TypeI64), nil // print returns nothing, but use I64 for now
 		} else {
 			// User-defined function
 			if tc.symbolTable == nil {
@@ -2326,9 +2299,9 @@ func CheckExpression(expr *ASTNode, tc *TypeChecker) (*TypeNode, error) {
 
 			// Return function's return type (or void)
 			if function.ReturnType != nil {
-				return function.ReturnType, nil
+				return setExpressionType(expr, function.ReturnType), nil
 			} else {
-				return TypeI64, nil // Void functions return I64 for now
+				return setExpressionType(expr, TypeI64), nil // Void functions return I64 for now
 			}
 		}
 
@@ -2359,7 +2332,7 @@ func CheckExpression(expr *ASTNode, tc *TypeChecker) (*TypeNode, error) {
 		fieldName := expr.FieldName
 		for _, field := range structType.Fields {
 			if field.Name == fieldName {
-				return field.Type, nil
+				return setExpressionType(expr, field.Type), nil
 			}
 		}
 
@@ -2379,7 +2352,7 @@ func CheckExpression(expr *ASTNode, tc *TypeChecker) (*TypeNode, error) {
 			}
 
 			// Return pointer type
-			return &TypeNode{Kind: TypePointer, Child: operandType}, nil
+			return setExpressionType(expr, &TypeNode{Kind: TypePointer, Child: operandType}), nil
 		} else if expr.Op == "*" {
 			// Dereference operator
 			if len(expr.Children) != 1 {
@@ -2397,7 +2370,7 @@ func CheckExpression(expr *ASTNode, tc *TypeChecker) (*TypeNode, error) {
 			}
 
 			// Return the pointed-to type
-			return operandType.Child, nil
+			return setExpressionType(expr, operandType.Child), nil
 		} else {
 			return nil, fmt.Errorf("error: unsupported unary operator '%s'", expr.Op)
 		}
