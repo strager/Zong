@@ -2127,7 +2127,7 @@ func CheckStatement(stmt *ASTNode, tc *TypeChecker) error {
 			return CheckAssignment(stmt.Children[0], stmt.Children[1], tc)
 		} else {
 			// Regular expression statement
-			_, err := CheckExpression(stmt, tc)
+			err := CheckExpression(stmt, tc)
 			if err != nil {
 				return err
 			}
@@ -2135,7 +2135,7 @@ func CheckStatement(stmt *ASTNode, tc *TypeChecker) error {
 
 	case NodeCall, NodeIdent, NodeInteger, NodeDot:
 		// Expression statement
-		_, err := CheckExpression(stmt, tc)
+		err := CheckExpression(stmt, tc)
 		if err != nil {
 			return err
 		}
@@ -2143,7 +2143,7 @@ func CheckStatement(stmt *ASTNode, tc *TypeChecker) error {
 	case NodeReturn:
 		// TODO: Implement return type checking in the future
 		if len(stmt.Children) > 0 {
-			_, err := CheckExpression(stmt.Children[0], tc)
+			err := CheckExpression(stmt.Children[0], tc)
 			if err != nil {
 				return err
 			}
@@ -2163,10 +2163,11 @@ func CheckStatement(stmt *ASTNode, tc *TypeChecker) error {
 		// Structure: [condition, then_block, condition2?, else_block2?, ...]
 
 		// Check condition (must be Boolean)
-		condType, err := CheckExpression(stmt.Children[0], tc)
+		err := CheckExpression(stmt.Children[0], tc)
 		if err != nil {
 			return err
 		}
+		condType := stmt.Children[0].TypeAST
 		if !TypesEqual(condType, TypeBool) {
 			return fmt.Errorf("error: if condition must be Boolean, got %s", TypeToString(condType))
 		}
@@ -2183,10 +2184,11 @@ func CheckStatement(stmt *ASTNode, tc *TypeChecker) error {
 			// Check condition (if not nil)
 			if stmt.Children[i] != nil {
 				// else-if condition
-				condType, err := CheckExpression(stmt.Children[i], tc)
+				err := CheckExpression(stmt.Children[i], tc)
 				if err != nil {
 					return err
 				}
+				condType := stmt.Children[i].TypeAST
 				if !TypesEqual(condType, TypeBool) {
 					return fmt.Errorf("error: else-if condition must be Boolean, got %s", TypeToString(condType))
 				}
@@ -2208,113 +2210,125 @@ func CheckStatement(stmt *ASTNode, tc *TypeChecker) error {
 	return nil
 }
 
-// CheckExpression validates an expression and returns its type
-// Helper function to set type on AST node and return it
-func setExpressionType(expr *ASTNode, typ *TypeNode) *TypeNode {
-	expr.TypeAST = typ
-	return typ
-}
+// CheckExpression validates an expression and stores type in expr.TypeAST
 
-func CheckExpression(expr *ASTNode, tc *TypeChecker) (*TypeNode, error) {
+func CheckExpression(expr *ASTNode, tc *TypeChecker) error {
 
 	switch expr.Kind {
 	case NodeInteger:
-		return setExpressionType(expr, TypeI64), nil
+		expr.TypeAST = TypeI64
+		return nil
 
 	case NodeIdent:
 		// Variable reference - use cached symbol reference
 		if expr.Symbol == nil {
-			return nil, fmt.Errorf("error: variable '%s' used before declaration", expr.String)
+			return fmt.Errorf("error: variable '%s' used before declaration", expr.String)
 		}
 		if !expr.Symbol.Assigned {
-			return nil, fmt.Errorf("error: variable '%s' used before assignment", expr.String)
+			return fmt.Errorf("error: variable '%s' used before assignment", expr.String)
 		}
-		return setExpressionType(expr, expr.Symbol.Type), nil
+		expr.TypeAST = expr.Symbol.Type
+		return nil
 
 	case NodeBinary:
 		if expr.Op == "=" {
 			// Assignment expression
-			return CheckAssignmentExpression(expr.Children[0], expr.Children[1], tc)
+			err := CheckAssignmentExpression(expr.Children[0], expr.Children[1], tc)
+			if err != nil {
+				return err
+			}
+			// Assignment expression type is stored in the assignment expression itself
+			return nil
 		} else {
 			// Binary operation
-			leftType, err := CheckExpression(expr.Children[0], tc)
+			err := CheckExpression(expr.Children[0], tc)
 			if err != nil {
-				return nil, err
+				return err
 			}
-			rightType, err := CheckExpression(expr.Children[1], tc)
+			err = CheckExpression(expr.Children[1], tc)
 			if err != nil {
-				return nil, err
+				return err
 			}
+
+			// Get types from the type-checked children
+			leftType := expr.Children[0].TypeAST
+			rightType := expr.Children[1].TypeAST
 
 			// Ensure operand types match
 			if !TypesEqual(leftType, rightType) {
-				return nil, fmt.Errorf("error: type mismatch in binary operation")
+				return fmt.Errorf("error: type mismatch in binary operation")
 			}
 
-			// Return result type based on operator
+			// Set result type based on operator
 			switch expr.Op {
 			case "==", "!=", "<", ">", "<=", ">=":
-				return setExpressionType(expr, TypeBool), nil // Comparison operators return Boolean
+				expr.TypeAST = TypeBool // Comparison operators return Boolean
 			case "+", "-", "*", "/", "%":
-				return setExpressionType(expr, leftType), nil // Arithmetic operators return operand type
+				expr.TypeAST = leftType // Arithmetic operators return operand type
 			default:
-				return nil, fmt.Errorf("error: unsupported binary operator '%s'", expr.Op)
+				return fmt.Errorf("error: unsupported binary operator '%s'", expr.Op)
 			}
+			return nil
 		}
 
 	case NodeCall:
 		// Function call validation
 		if len(expr.Children) == 0 || expr.Children[0].Kind != NodeIdent {
-			return nil, fmt.Errorf("error: invalid function call")
+			return fmt.Errorf("error: invalid function call")
 		}
 		funcName := expr.Children[0].String
 
 		if funcName == "print" {
 			// Built-in print function
 			if len(expr.Children) != 2 {
-				return nil, fmt.Errorf("error: print() function expects 1 argument")
+				return fmt.Errorf("error: print() function expects 1 argument")
 			}
-			_, err := CheckExpression(expr.Children[1], tc)
+			err := CheckExpression(expr.Children[1], tc)
 			if err != nil {
-				return nil, err
+				return err
 			}
-			return setExpressionType(expr, TypeI64), nil // print returns nothing, but use I64 for now
+			expr.TypeAST = TypeI64 // print returns nothing, but use I64 for now
+			return nil
 		} else {
 			// User-defined function
 			if tc.symbolTable == nil {
-				return nil, fmt.Errorf("error: no symbol table for function validation")
+				return fmt.Errorf("error: no symbol table for function validation")
 			}
 
 			// Look up function in symbol table
 			function := tc.symbolTable.LookupFunction(funcName)
 			if function == nil {
-				return nil, fmt.Errorf("error: unknown function '%s'", funcName)
+				return fmt.Errorf("error: unknown function '%s'", funcName)
 			}
 
 			// Validate and match parameters
 			err := validateFunctionCall(expr, function, tc)
 			if err != nil {
-				return nil, err
+				return err
 			}
 
 			// Return function's return type (or void)
 			if function.ReturnType != nil {
-				return setExpressionType(expr, function.ReturnType), nil
+				expr.TypeAST = function.ReturnType
 			} else {
-				return setExpressionType(expr, TypeI64), nil // Void functions return I64 for now
+				expr.TypeAST = TypeI64 // Void functions return I64 for now
 			}
+			return nil
 		}
 
 	case NodeDot:
 		// Field access: struct.field
 		if len(expr.Children) != 1 {
-			return nil, fmt.Errorf("error: field access expects 1 base expression")
+			return fmt.Errorf("error: field access expects 1 base expression")
 		}
 
-		baseType, err := CheckExpression(expr.Children[0], tc)
+		err := CheckExpression(expr.Children[0], tc)
 		if err != nil {
-			return nil, err
+			return err
 		}
+
+		// Get base type from the type-checked child
+		baseType := expr.Children[0].TypeAST
 
 		// Handle both direct struct and pointer-to-struct access
 		var structType *TypeNode
@@ -2325,58 +2339,67 @@ func CheckExpression(expr *ASTNode, tc *TypeChecker) (*TypeNode, error) {
 			// Pointer-to-struct access (struct parameters)
 			structType = baseType.Child
 		} else {
-			return nil, fmt.Errorf("error: cannot access field of non-struct type %s", TypeToString(baseType))
+			return fmt.Errorf("error: cannot access field of non-struct type %s", TypeToString(baseType))
 		}
 
 		// Find the field in the struct
 		fieldName := expr.FieldName
 		for _, field := range structType.Fields {
 			if field.Name == fieldName {
-				return setExpressionType(expr, field.Type), nil
+				expr.TypeAST = field.Type
+				return nil
 			}
 		}
 
-		return nil, fmt.Errorf("error: struct %s has no field named '%s'", structType.String, fieldName)
+		return fmt.Errorf("error: struct %s has no field named '%s'", structType.String, fieldName)
 
 	case NodeUnary:
 		// Unary operations
 		if expr.Op == "&" {
 			// Address-of operator
 			if len(expr.Children) != 1 {
-				return nil, fmt.Errorf("error: address-of operator expects 1 operand")
+				return fmt.Errorf("error: address-of operator expects 1 operand")
 			}
 
-			operandType, err := CheckExpression(expr.Children[0], tc)
+			err := CheckExpression(expr.Children[0], tc)
 			if err != nil {
-				return nil, err
+				return err
 			}
+
+			// Get operand type from the type-checked child
+			operandType := expr.Children[0].TypeAST
 
 			// Return pointer type
-			return setExpressionType(expr, &TypeNode{Kind: TypePointer, Child: operandType}), nil
+			expr.TypeAST = &TypeNode{Kind: TypePointer, Child: operandType}
+			return nil
 		} else if expr.Op == "*" {
 			// Dereference operator
 			if len(expr.Children) != 1 {
-				return nil, fmt.Errorf("error: dereference operator expects 1 operand")
+				return fmt.Errorf("error: dereference operator expects 1 operand")
 			}
 
-			operandType, err := CheckExpression(expr.Children[0], tc)
+			err := CheckExpression(expr.Children[0], tc)
 			if err != nil {
-				return nil, err
+				return err
 			}
+
+			// Get operand type from the type-checked child
+			operandType := expr.Children[0].TypeAST
 
 			// Operand must be a pointer type
 			if operandType.Kind != TypePointer {
-				return nil, fmt.Errorf("error: cannot dereference non-pointer type %s", TypeToString(operandType))
+				return fmt.Errorf("error: cannot dereference non-pointer type %s", TypeToString(operandType))
 			}
 
 			// Return the pointed-to type
-			return setExpressionType(expr, operandType.Child), nil
+			expr.TypeAST = operandType.Child
+			return nil
 		} else {
-			return nil, fmt.Errorf("error: unsupported unary operator '%s'", expr.Op)
+			return fmt.Errorf("error: unsupported unary operator '%s'", expr.Op)
 		}
 
 	default:
-		return nil, fmt.Errorf("error: unsupported expression type '%s'", expr.Kind)
+		return fmt.Errorf("error: unsupported expression type '%s'", expr.Kind)
 	}
 }
 
@@ -2434,7 +2457,7 @@ func validateFunctionCall(callExpr *ASTNode, function *FunctionInfo, tc *TypeChe
 		}
 
 		// Type check the argument
-		_, err := CheckExpression(arg, tc)
+		err := CheckExpression(arg, tc)
 		if err != nil {
 			return err
 		}
@@ -2468,7 +2491,7 @@ func validateFunctionCall(callExpr *ASTNode, function *FunctionInfo, tc *TypeChe
 		}
 
 		// Type check the argument
-		_, err := CheckExpression(namedArgs[i], tc)
+		err := CheckExpression(namedArgs[i], tc)
 		if err != nil {
 			return err
 		}
@@ -2544,10 +2567,11 @@ func reorderFunctionCallArguments(callExpr *ASTNode, function *FunctionInfo) {
 // CheckAssignment validates an assignment statement
 func CheckAssignment(lhs, rhs *ASTNode, tc *TypeChecker) error {
 	// Validate RHS type first
-	rhsType, err := CheckExpression(rhs, tc)
+	err := CheckExpression(rhs, tc)
 	if err != nil {
 		return err
 	}
+	rhsType := rhs.TypeAST
 
 	// Validate LHS is assignable
 	var lhsType *TypeNode
@@ -2564,10 +2588,11 @@ func CheckAssignment(lhs, rhs *ASTNode, tc *TypeChecker) error {
 
 	} else if lhs.Kind == NodeUnary && lhs.Op == "*" {
 		// Pointer dereference assignment (e.g., ptr* = value)
-		ptrType, err := CheckExpression(lhs.Children[0], tc)
+		err := CheckExpression(lhs.Children[0], tc)
 		if err != nil {
 			return err
 		}
+		ptrType := lhs.Children[0].TypeAST
 
 		if ptrType.Kind != TypePointer {
 			return fmt.Errorf("error: cannot dereference non-pointer type %s", TypeToString(ptrType))
@@ -2577,10 +2602,11 @@ func CheckAssignment(lhs, rhs *ASTNode, tc *TypeChecker) error {
 
 	} else if lhs.Kind == NodeDot {
 		// Field assignment (e.g., s.field = value)
-		lhsType, err = CheckExpression(lhs, tc)
+		err = CheckExpression(lhs, tc)
 		if err != nil {
 			return err
 		}
+		lhsType = lhs.TypeAST
 
 	} else {
 		return fmt.Errorf("error: left side of assignment must be a variable, field access, or dereferenced pointer")
@@ -2595,15 +2621,19 @@ func CheckAssignment(lhs, rhs *ASTNode, tc *TypeChecker) error {
 	return nil
 }
 
-// CheckAssignmentExpression validates an assignment expression and returns its type
-func CheckAssignmentExpression(lhs, rhs *ASTNode, tc *TypeChecker) (*TypeNode, error) {
+// CheckAssignmentExpression validates an assignment expression
+func CheckAssignmentExpression(lhs, rhs *ASTNode, tc *TypeChecker) error {
 	err := CheckAssignment(lhs, rhs, tc)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	// Assignment expression returns the type of the assigned value
-	return CheckExpression(rhs, tc)
+	// The assignment expression type should be set to the RHS type
+	if rhs.TypeAST != nil {
+		lhs.TypeAST = rhs.TypeAST
+	}
+	return nil
 }
 
 // Init initializes the lexer with the given input (must end with a 0 byte).

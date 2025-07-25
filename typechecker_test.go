@@ -18,9 +18,9 @@ func TestCheckExpressionInteger(t *testing.T) {
 	}
 
 	// Check expression
-	exprType, err := CheckExpression(intNode, tc)
+	err := CheckExpression(intNode, tc)
 	be.Err(t, err, nil)
-	be.Equal(t, TypeI64, exprType)
+	be.Equal(t, TypeI64, intNode.TypeAST)
 }
 
 func TestCheckExpressionVariableAssigned(t *testing.T) {
@@ -40,9 +40,9 @@ func TestCheckExpressionVariableAssigned(t *testing.T) {
 	}
 
 	// Check expression
-	exprType, err := CheckExpression(varNode, tc)
+	err = CheckExpression(varNode, tc)
 	be.Err(t, err, nil)
-	be.Equal(t, TypeI64, exprType)
+	be.Equal(t, TypeI64, varNode.TypeAST)
 }
 
 func TestCheckExpressionVariableNotDeclared(t *testing.T) {
@@ -56,7 +56,7 @@ func TestCheckExpressionVariableNotDeclared(t *testing.T) {
 	}
 
 	// Check expression
-	_, err := CheckExpression(varNode, tc)
+	err := CheckExpression(varNode, tc)
 	be.True(t, err != nil)
 	be.Equal(t, "error: variable 'undefined' used before declaration", err.Error())
 }
@@ -77,7 +77,7 @@ func TestCheckExpressionVariableNotAssigned(t *testing.T) {
 	}
 
 	// Check expression
-	_, err = CheckExpression(varNode, tc)
+	err = CheckExpression(varNode, tc)
 	be.True(t, err != nil)
 	be.Equal(t, "error: variable 'x' used before assignment", err.Error())
 }
@@ -97,9 +97,9 @@ func TestCheckExpressionBinaryArithmetic(t *testing.T) {
 	}
 
 	// Check expression
-	exprType, err := CheckExpression(binaryNode, tc)
+	err := CheckExpression(binaryNode, tc)
 	be.Err(t, err, nil)
-	be.Equal(t, TypeI64, exprType)
+	be.Equal(t, TypeI64, binaryNode.TypeAST)
 }
 
 func TestCheckExpressionBinaryComparison(t *testing.T) {
@@ -117,9 +117,9 @@ func TestCheckExpressionBinaryComparison(t *testing.T) {
 	}
 
 	// Check expression
-	exprType, err := CheckExpression(binaryNode, tc)
+	err := CheckExpression(binaryNode, tc)
 	be.Err(t, err, nil)
-	be.Equal(t, TypeBool, exprType) // Comparison returns Bool
+	be.Equal(t, TypeBool, binaryNode.TypeAST) // Comparison returns Bool
 }
 
 func TestCheckExpressionAddressOf(t *testing.T) {
@@ -141,10 +141,10 @@ func TestCheckExpressionAddressOf(t *testing.T) {
 	}
 
 	// Check expression
-	exprType, err := CheckExpression(addrNode, tc)
+	err = CheckExpression(addrNode, tc)
 	be.Err(t, err, nil)
-	be.Equal(t, TypePointer, exprType.Kind)
-	be.Equal(t, TypeI64, exprType.Child)
+	be.Equal(t, TypePointer, addrNode.TypeAST.Kind)
+	be.Equal(t, TypeI64, addrNode.TypeAST.Child)
 }
 
 func TestCheckExpressionDereference(t *testing.T) {
@@ -167,9 +167,9 @@ func TestCheckExpressionDereference(t *testing.T) {
 	}
 
 	// Check expression
-	exprType, err := CheckExpression(derefNode, tc)
+	err = CheckExpression(derefNode, tc)
 	be.Err(t, err, nil)
-	be.Equal(t, TypeI64, exprType)
+	be.Equal(t, TypeI64, derefNode.TypeAST)
 }
 
 func TestCheckExpressionDereferenceNonPointer(t *testing.T) {
@@ -191,7 +191,7 @@ func TestCheckExpressionDereferenceNonPointer(t *testing.T) {
 	}
 
 	// Check expression
-	_, err = CheckExpression(derefNode, tc)
+	err = CheckExpression(derefNode, tc)
 	be.True(t, err != nil)
 	be.Equal(t, "error: cannot dereference non-pointer type I64", err.Error())
 }
@@ -210,9 +210,9 @@ func TestCheckExpressionFunctionCall(t *testing.T) {
 	}
 
 	// Check expression
-	exprType, err := CheckExpression(callNode, tc)
+	err := CheckExpression(callNode, tc)
 	be.Err(t, err, nil)
-	be.Equal(t, TypeI64, exprType)
+	be.Equal(t, TypeI64, callNode.TypeAST)
 }
 
 func TestCheckExpressionUnknownFunction(t *testing.T) {
@@ -229,7 +229,7 @@ func TestCheckExpressionUnknownFunction(t *testing.T) {
 	}
 
 	// Check expression
-	_, err := CheckExpression(callNode, tc)
+	err := CheckExpression(callNode, tc)
 	be.True(t, err != nil)
 	be.Equal(t, "error: unknown function 'unknown'", err.Error())
 }
