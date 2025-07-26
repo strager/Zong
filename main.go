@@ -811,9 +811,9 @@ func EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 
 				// Add variable offset if not zero
 				if targetLocal.Address > 0 {
-					writeByte(buf, I64_CONST)
+					writeByte(buf, I32_CONST)
 					writeLEB128Signed(buf, int64(targetLocal.Address))
-					writeByte(buf, I64_ADD)
+					writeByte(buf, I32_ADD)
 				}
 				// Don't load - leave address on stack for struct operations
 			} else {

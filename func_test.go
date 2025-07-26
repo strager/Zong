@@ -426,3 +426,73 @@ func TestNestedStructs(t *testing.T) {
 	wasmBytes := CompileToWASM(ast)
 	executeWasmAndVerify(t, wasmBytes, "100\n42\n12345\n25\n")
 }
+
+// Test nested struct initialization
+func TestNestedStructInitialization(t *testing.T) {
+	source := `struct Address { var state I64; var zipCode I64; }
+	struct Person { var name I64; var address Address; var age I64; }
+	
+	func main() {
+		var person Person;
+		var addr Address;
+		
+		// Initialize address separately
+		addr.state = 99;
+		addr.zipCode = 54321;
+		
+		// Assign nested struct
+		person.name = 200;
+		person.address = addr;
+		person.age = 30;
+		
+		print(person.name);
+		print(person.address.state);
+		print(person.address.zipCode);
+		print(person.age);
+	}`
+
+	input := []byte(source + "\x00")
+	Init(input)
+	NextToken()
+	ast := ParseProgram()
+
+	wasmBytes := CompileToWASM(ast)
+	executeWasmAndVerify(t, wasmBytes, "200\n99\n54321\n30\n")
+}
+
+// Test function returning nested struct
+func TestNestedStructFunctionReturn(t *testing.T) {
+	source := `struct Address { var state I64; var zipCode I64; }
+	struct Person { var name I64; var address Address; var age I64; }
+	
+	func createAddress(addrState: I64, addrZip: I64): Address {
+		var addr Address;
+		addr.state = addrState;
+		addr.zipCode = addrZip;
+		return addr;
+	}
+	
+	func createPerson(personName: I64, personAge: I64): Person {
+		var p Person;
+		p.name = personName;
+		p.age = personAge;
+		p.address = createAddress(addrState: 77, addrZip: 98765);
+		return p;
+	}
+	
+	func main() {
+		// Test function return field access with nested structs
+		print(createPerson(personName: 300, personAge: 35).name);
+		print(createPerson(personName: 400, personAge: 40).address.state);
+		print(createPerson(personName: 500, personAge: 45).address.zipCode);
+		print(createPerson(personName: 600, personAge: 50).age);
+	}`
+
+	input := []byte(source + "\x00")
+	Init(input)
+	NextToken()
+	ast := ParseProgram()
+
+	wasmBytes := CompileToWASM(ast)
+	executeWasmAndVerify(t, wasmBytes, "300\n77\n98765\n50\n")
+}
