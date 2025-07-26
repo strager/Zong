@@ -73,6 +73,8 @@ func writeLEB128Signed(buf *bytes.Buffer, val int64) {
 const (
 	I32_CONST        = 0x41
 	I32_ADD          = 0x6A
+	I32_SUB          = 0x6B
+	I32_MUL          = 0x6C
 	I32_LOAD         = 0x28
 	I32_STORE        = 0x36
 	I32_WRAP_I64     = 0xA7
@@ -82,6 +84,7 @@ const (
 	I64_MUL          = 0x7E
 	I64_DIV_S        = 0x7F
 	I64_REM_S        = 0x81
+	I32_EQ           = 0x46
 	I64_EQ           = 0x51
 	I64_NE           = 0x52
 	I64_LT_S         = 0x53
@@ -102,6 +105,11 @@ const (
 	WASM_BLOCK       = 0x02
 	WASM_LOOP        = 0x03
 	WASM_BR          = 0x0C
+	WASM_BR_IF       = 0x0D
+	I32_GT_S         = 0x4A
+	WASM_IF          = 0x04
+	WASM_ELSE        = 0x05
+	DROP             = 0x1A
 )
 
 // WASM Section Emitters
@@ -177,9 +185,15 @@ var globalTypeMap map[string]int
 var globalFunctionRegistry []string
 var globalFunctionMap map[string]int
 
+// Global slice type registry for generating append functions
+var globalSliceTypes map[string]*TypeNode
+var generatedAppendFunctions []*ASTNode
+
 func initTypeRegistry() {
 	globalTypeRegistry = []FunctionType{}
 	globalTypeMap = make(map[string]int)
+	globalSliceTypes = make(map[string]*TypeNode)
+	generatedAppendFunctions = []*ASTNode{}
 
 	// Type 0: print function (i64) -> ()
 	printType := FunctionType{
@@ -307,6 +321,9 @@ func wasmTypeByte(typeNode *TypeNode) byte {
 	if typeNode.Kind == TypeStruct {
 		return 0x7F // i32 (struct parameters are passed as pointers)
 	}
+	if typeNode.Kind == TypeSlice {
+		return 0x7F // i32 (slice parameters are passed as pointers to slice struct)
+	}
 	panic("Unsupported type for WASM: " + TypeToString(typeNode))
 }
 
@@ -323,6 +340,10 @@ func wasmTypeString(typeNode *TypeNode) string {
 	}
 	if typeNode.Kind == TypeStruct {
 		// Struct parameters are passed as i32 pointers in WASM
+		return "i32"
+	}
+	if typeNode.Kind == TypeSlice {
+		// Slice parameters are passed as i32 pointers to slice struct in WASM
 		return "i32"
 	}
 	panic("Unsupported type for WASM: " + TypeToString(typeNode))
@@ -417,6 +438,12 @@ func EmitCodeSection(buf *bytes.Buffer, functions []*ASTNode, symbolTable *Symbo
 
 // emitSingleFunction emits the code for a single function
 func emitSingleFunction(buf *bytes.Buffer, fn *ASTNode, symbolTable *SymbolTable) {
+	// Check if this is a generated append function
+	if isGeneratedAppendFunction(fn.FunctionName) {
+		emitAppendFunctionBody(buf, fn)
+		return
+	}
+
 	// Use unified local management
 	localCtx := BuildLocalContext(fn.Body, fn.Parameters, symbolTable)
 
@@ -433,6 +460,232 @@ func emitSingleFunction(buf *bytes.Buffer, fn *ASTNode, symbolTable *SymbolTable
 
 	// Generate function body
 	EmitStatement(&bodyBuf, fn.Body, localCtx)
+	writeByte(&bodyBuf, END) // end instruction
+
+	// Write function body size and content
+	writeLEB128(buf, uint32(bodyBuf.Len())) // function body size
+	writeBytes(buf, bodyBuf.Bytes())
+}
+
+// isGeneratedAppendFunction checks if a function name is a generated append function
+func isGeneratedAppendFunction(functionName string) bool {
+	return len(functionName) > 7 && functionName[:7] == "append_"
+}
+
+// emitAppendFunctionBody generates the WASM code for a generated append function
+func emitAppendFunctionBody(buf *bytes.Buffer, fn *ASTNode) {
+	// Determine element type from the function parameters
+	slicePtrParam := fn.Parameters[0] // slice_ptr: T[]*
+
+	sliceType := slicePtrParam.Type.Child // T[]
+	elementType := sliceType.Child        // T
+	elementSize := uint32(GetTypeSize(elementType))
+
+	var bodyBuf bytes.Buffer
+
+	// Declare locals for this function
+	// Parameters are:
+	// - param 0: slice_ptr (i32)
+	// - param 1: value (i64 or i32)
+	// Locals are:
+	// - local 2: i32 (loop counter)
+	// - local 3: i32 (old items pointer)
+	// - local 4: i32 (new items pointer)
+	// - local 5: i64 (current length)
+	writeLEB128(&bodyBuf, 4) // 4 local entries
+
+	// local 2: i32 (counter)
+	writeLEB128(&bodyBuf, 1)  // count
+	writeByte(&bodyBuf, 0x7F) // i32
+
+	// local 3: i32 (old_items)
+	writeLEB128(&bodyBuf, 1)  // count
+	writeByte(&bodyBuf, 0x7F) // i32
+
+	// local 4: i32 (new_items)
+	writeLEB128(&bodyBuf, 1)  // count
+	writeByte(&bodyBuf, 0x7F) // i32
+
+	// local 5: i64 (current_length)
+	writeLEB128(&bodyBuf, 1)  // count
+	writeByte(&bodyBuf, 0x7E) // i64
+
+	// IMPROVED APPEND IMPLEMENTATION that copies existing elements
+
+	// 1. Get current length and store in local
+	writeByte(&bodyBuf, LOCAL_GET)
+	writeLEB128(&bodyBuf, 0) // slice_ptr parameter
+	writeByte(&bodyBuf, I64_LOAD)
+	writeByte(&bodyBuf, 0x03) // alignment
+	writeLEB128(&bodyBuf, 8)  // offset to length field
+	writeByte(&bodyBuf, LOCAL_SET)
+	writeLEB128(&bodyBuf, 5) // store in current_length local
+
+	// 2. Get old items pointer and store in local
+	writeByte(&bodyBuf, LOCAL_GET)
+	writeLEB128(&bodyBuf, 0) // slice_ptr parameter
+	writeByte(&bodyBuf, I32_LOAD)
+	writeByte(&bodyBuf, 0x02) // alignment
+	writeLEB128(&bodyBuf, 0)  // offset to items field
+	writeByte(&bodyBuf, LOCAL_SET)
+	writeLEB128(&bodyBuf, 3) // store in old_items local
+
+	// 3. Calculate total size needed: (current_length + 1) * element_size
+	writeByte(&bodyBuf, LOCAL_GET)
+	writeLEB128(&bodyBuf, 5) // current_length
+	writeByte(&bodyBuf, I64_CONST)
+	writeLEB128Signed(&bodyBuf, 1)
+	writeByte(&bodyBuf, I64_ADD)
+	writeByte(&bodyBuf, I32_WRAP_I64)
+	writeByte(&bodyBuf, I32_CONST)
+	writeLEB128(&bodyBuf, elementSize)
+	writeByte(&bodyBuf, I32_MUL)
+	// Stack: [total_size_i32]
+
+	// 4. Allocate new space on tstack
+	writeByte(&bodyBuf, GLOBAL_GET)
+	writeLEB128(&bodyBuf, 0) // tstack
+	writeByte(&bodyBuf, LOCAL_SET)
+	writeLEB128(&bodyBuf, 4) // store new_items pointer
+
+	// Update tstack
+	writeByte(&bodyBuf, GLOBAL_GET)
+	writeLEB128(&bodyBuf, 0)     // tstack
+	writeByte(&bodyBuf, I32_ADD) // add total_size (still on stack)
+	writeByte(&bodyBuf, GLOBAL_SET)
+	writeLEB128(&bodyBuf, 0) // update tstack
+
+	// 5. Copy existing elements if any
+	writeByte(&bodyBuf, LOCAL_GET)
+	writeLEB128(&bodyBuf, 5) // current_length
+	writeByte(&bodyBuf, I64_CONST)
+	writeLEB128Signed(&bodyBuf, 0)
+	writeByte(&bodyBuf, I64_GT_S)
+	writeByte(&bodyBuf, WASM_IF)
+	writeByte(&bodyBuf, 0x40) // void
+
+	// Initialize counter to 0
+	writeByte(&bodyBuf, I32_CONST)
+	writeLEB128(&bodyBuf, 0)
+	writeByte(&bodyBuf, LOCAL_SET)
+	writeLEB128(&bodyBuf, 2) // counter = 0
+
+	// Loop to copy elements
+	writeByte(&bodyBuf, WASM_LOOP)
+	writeByte(&bodyBuf, 0x40) // void
+
+	// Copy element at index counter
+	// dest = new_items + counter * element_size
+	writeByte(&bodyBuf, LOCAL_GET)
+	writeLEB128(&bodyBuf, 4) // new_items
+	writeByte(&bodyBuf, LOCAL_GET)
+	writeLEB128(&bodyBuf, 2) // counter
+	writeByte(&bodyBuf, I32_CONST)
+	writeLEB128(&bodyBuf, elementSize)
+	writeByte(&bodyBuf, I32_MUL)
+	writeByte(&bodyBuf, I32_ADD)
+	// Stack: [dest_addr]
+
+	// src = old_items + counter * element_size
+	writeByte(&bodyBuf, LOCAL_GET)
+	writeLEB128(&bodyBuf, 3) // old_items
+	writeByte(&bodyBuf, LOCAL_GET)
+	writeLEB128(&bodyBuf, 2) // counter
+	writeByte(&bodyBuf, I32_CONST)
+	writeLEB128(&bodyBuf, elementSize)
+	writeByte(&bodyBuf, I32_MUL)
+	writeByte(&bodyBuf, I32_ADD)
+	// Stack: [dest_addr, src_addr]
+
+	// Load from src and store to dest
+	if isWASMI64Type(elementType) {
+		writeByte(&bodyBuf, I64_LOAD)
+		writeByte(&bodyBuf, 0x03) // alignment
+		writeLEB128(&bodyBuf, 0)  // offset
+		writeByte(&bodyBuf, I64_STORE)
+		writeByte(&bodyBuf, 0x03) // alignment
+		writeLEB128(&bodyBuf, 0)  // offset
+	} else if isWASMI32Type(elementType) {
+		writeByte(&bodyBuf, I32_LOAD)
+		writeByte(&bodyBuf, 0x02) // alignment
+		writeLEB128(&bodyBuf, 0)  // offset
+		writeByte(&bodyBuf, I32_STORE)
+		writeByte(&bodyBuf, 0x02) // alignment
+		writeLEB128(&bodyBuf, 0)  // offset
+	} else {
+		panic("Unsupported element type for append: " + TypeToString(elementType))
+	}
+
+	// Increment counter
+	writeByte(&bodyBuf, LOCAL_GET)
+	writeLEB128(&bodyBuf, 2) // counter
+	writeByte(&bodyBuf, I32_CONST)
+	writeLEB128(&bodyBuf, 1)
+	writeByte(&bodyBuf, I32_ADD)
+	writeByte(&bodyBuf, LOCAL_SET)
+	writeLEB128(&bodyBuf, 2) // counter++
+
+	// Check if counter < current_length
+	writeByte(&bodyBuf, LOCAL_GET)
+	writeLEB128(&bodyBuf, 2) // counter
+	writeByte(&bodyBuf, I64_EXTEND_I32_S)
+	writeByte(&bodyBuf, LOCAL_GET)
+	writeLEB128(&bodyBuf, 5) // current_length
+	writeByte(&bodyBuf, I64_LT_S)
+	writeByte(&bodyBuf, WASM_BR_IF)
+	writeLEB128(&bodyBuf, 0) // branch to loop start if true
+
+	writeByte(&bodyBuf, END) // end loop
+	writeByte(&bodyBuf, END) // end if
+
+	// 6. Store new element at the end
+	// addr = new_items + current_length * element_size
+	writeByte(&bodyBuf, LOCAL_GET)
+	writeLEB128(&bodyBuf, 4) // new_items
+	writeByte(&bodyBuf, LOCAL_GET)
+	writeLEB128(&bodyBuf, 5) // current_length
+	writeByte(&bodyBuf, I32_WRAP_I64)
+	writeByte(&bodyBuf, I32_CONST)
+	writeLEB128(&bodyBuf, elementSize)
+	writeByte(&bodyBuf, I32_MUL)
+	writeByte(&bodyBuf, I32_ADD)
+	// Stack: [new_element_addr]
+
+	writeByte(&bodyBuf, LOCAL_GET)
+	writeLEB128(&bodyBuf, 1) // value parameter
+	// Stack: [new_element_addr, value]
+
+	if isWASMI64Type(elementType) {
+		writeByte(&bodyBuf, I64_STORE)
+		writeByte(&bodyBuf, 0x03) // alignment
+		writeLEB128(&bodyBuf, 0)  // offset
+	} else if isWASMI32Type(elementType) {
+		writeByte(&bodyBuf, I32_STORE)
+		writeByte(&bodyBuf, 0x02) // alignment
+		writeLEB128(&bodyBuf, 0)  // offset
+	}
+
+	// 7. Update slice.items pointer
+	writeByte(&bodyBuf, LOCAL_GET)
+	writeLEB128(&bodyBuf, 0) // slice_ptr parameter
+	writeByte(&bodyBuf, LOCAL_GET)
+	writeLEB128(&bodyBuf, 4) // new_items
+	writeByte(&bodyBuf, I32_STORE)
+	writeByte(&bodyBuf, 0x02) // alignment
+	writeLEB128(&bodyBuf, 0)  // offset to items field
+
+	// 8. Update slice.length
+	writeByte(&bodyBuf, LOCAL_GET)
+	writeLEB128(&bodyBuf, 0) // slice_ptr parameter
+	writeByte(&bodyBuf, LOCAL_GET)
+	writeLEB128(&bodyBuf, 5) // current_length
+	writeByte(&bodyBuf, I64_CONST)
+	writeLEB128Signed(&bodyBuf, 1)
+	writeByte(&bodyBuf, I64_ADD)
+	writeByte(&bodyBuf, I64_STORE)
+	writeByte(&bodyBuf, 0x03) // alignment
+	writeLEB128(&bodyBuf, 8)  // offset to length field
+
 	writeByte(&bodyBuf, END) // end instruction
 
 	// Write function body size and content
@@ -612,6 +865,8 @@ func getFinalFieldType(node *ASTNode) *TypeNode {
 		structType = baseType
 	} else if baseType.Kind == TypePointer && baseType.Child.Kind == TypeStruct {
 		structType = baseType.Child
+	} else if baseType.Kind == TypeSlice {
+		structType = synthesizeSliceStruct(baseType)
 	} else {
 		panic("Field access on non-struct type: " + TypeToString(baseType))
 	}
@@ -638,6 +893,8 @@ func getFieldOffset(baseType *TypeNode, fieldName string) uint32 {
 		structType = baseType
 	} else if baseType.Kind == TypePointer && baseType.Child.Kind == TypeStruct {
 		structType = baseType.Child
+	} else if baseType.Kind == TypeSlice {
+		structType = synthesizeSliceStruct(baseType)
 	} else {
 		panic("Field access on non-struct type: " + TypeToString(baseType))
 	}
@@ -695,6 +952,16 @@ func EmitExpression(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 			structSize := uint32(GetTypeSize(lhs.TypeAST))
 			writeByte(buf, I32_CONST)
 			writeLEB128(buf, structSize)
+			// Stack: [dst_addr, src_addr, size]
+			writeByte(buf, 0xFC) // Multi-byte instruction prefix
+			writeLEB128(buf, 10) // memory.copy opcode
+			writeByte(buf, 0x00) // dst memory index (0)
+			writeByte(buf, 0x00) // src memory index (0)
+		case TypeSlice:
+			// Slice assignment (copy) using memory.copy
+			sliceSize := uint32(GetTypeSize(lhs.TypeAST)) // 16 bytes
+			writeByte(buf, I32_CONST)
+			writeLEB128(buf, sliceSize)
 			// Stack: [dst_addr, src_addr, size]
 			writeByte(buf, 0xFC) // Multi-byte instruction prefix
 			writeLEB128(buf, 10) // memory.copy opcode
@@ -776,6 +1043,38 @@ func EmitExpressionL(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 			writeLEB128Signed(buf, int64(fieldOffset))
 			writeByte(buf, I32_ADD)
 		}
+
+	case NodeIndex:
+		// Slice subscript operation - compute address of slice element
+		// Formula: slice.items + (index * sizeof(elementType))
+
+		sliceExpr := node.Children[0]
+		indexExpr := node.Children[1]
+
+		// Get slice base address (the slice struct itself)
+		EmitExpressionL(buf, sliceExpr, localCtx)
+
+		// Load the items field (which is a pointer to the elements)
+		// items field is at offset 0 in the slice struct
+		writeByte(buf, I32_LOAD) // Load i32 pointer from memory
+		writeByte(buf, 0x02)     // alignment (4 bytes = 2^2)
+		writeByte(buf, 0x00)     // offset 0 (items field)
+
+		// Get the index value
+		EmitExpressionR(buf, indexExpr, localCtx)
+
+		// Convert index from I64 to I32 for address calculation
+		writeByte(buf, I32_WRAP_I64)
+
+		// Multiply index by element size
+		elementType := node.TypeAST // This should be the element type from type checking
+		elementSize := GetTypeSize(elementType)
+		writeByte(buf, I32_CONST)
+		writeLEB128(buf, uint32(elementSize))
+		writeByte(buf, I32_MUL)
+
+		// Add to base pointer to get final element address
+		writeByte(buf, I32_ADD)
 
 	default:
 		// For any other expression (rvalue), create a temporary on tstack
@@ -934,6 +1233,31 @@ func EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 			// Call print
 			writeByte(buf, CALL)
 			writeLEB128(buf, 0) // function index 0 (print import)
+		} else if functionName == "append" {
+			// Call the generated append function for this slice type
+			if len(node.Children) != 3 {
+				panic("append() function expects 2 arguments")
+			}
+
+			slicePtrArg := node.Children[1]
+			valueArg := node.Children[2]
+
+			// Get slice type to determine which append function to call
+			sliceType := slicePtrArg.TypeAST.Child // Slice type from pointer to slice
+			elementType := sliceType.Child
+			appendFunctionName := "append_" + sanitizeTypeName(TypeToString(elementType))
+
+			// Emit arguments
+			EmitExpressionR(buf, slicePtrArg, localCtx)
+			EmitExpressionR(buf, valueArg, localCtx)
+
+			// Call the generated append function
+			functionIndex, exists := globalFunctionMap[appendFunctionName]
+			if !exists {
+				panic("Generated append function not found: " + appendFunctionName)
+			}
+			writeByte(buf, CALL)
+			writeLEB128(buf, uint32(functionIndex))
 		} else {
 			// User-defined function call
 			args := node.Children[1:]
@@ -1025,6 +1349,24 @@ func EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 			panic("Non-I64 field types not supported in WASM yet: " + TypeToString(finalFieldType))
 		}
 
+	case NodeIndex:
+		// Slice subscript operation - load value from computed address
+		EmitExpressionL(buf, node, localCtx) // Get address of slice element
+
+		// Load the value from the address based on element type
+		elementType := node.TypeAST // TypeAST should be the element type from type checking
+		if isWASMI64Type(elementType) {
+			writeByte(buf, I64_LOAD) // Load i64 from memory
+			writeByte(buf, 0x03)     // alignment (8 bytes = 2^3)
+			writeByte(buf, 0x00)     // offset
+		} else if isWASMI32Type(elementType) {
+			writeByte(buf, I32_LOAD) // Load i32 from memory
+			writeByte(buf, 0x02)     // alignment (4 bytes = 2^2)
+			writeByte(buf, 0x00)     // offset
+		} else {
+			panic("Unsupported slice element type for WASM: " + TypeToString(elementType))
+		}
+
 	case NodeStruct:
 		// Struct declarations should not appear in expression context
 		panic("Struct declaration cannot be used as expression: " + ToSExpr(node))
@@ -1076,14 +1418,25 @@ func CompileToWASM(ast *ASTNode) []byte {
 	// Build symbol table
 	symbolTable := BuildSymbolTable(ast)
 
+	// Extract functions from the program first
+	functions := extractFunctions(ast)
+
 	// Perform type checking
 	err := CheckProgram(ast, symbolTable)
 	if err != nil {
 		panic(err.Error())
 	}
 
-	// Extract functions from the program
-	functions := extractFunctions(ast)
+	// Initialize globals for slice type collection
+	globalSliceTypes = make(map[string]*TypeNode)
+	generatedAppendFunctions = []*ASTNode{}
+
+	// Collect slice types and generate append functions
+	collectSliceTypes(ast)
+	generateAllAppendFunctions()
+
+	// Add generated append functions to the functions list
+	functions = append(functions, generatedAppendFunctions...)
 
 	var buf bytes.Buffer
 
@@ -1246,6 +1599,22 @@ func (ctx *LocalContext) collectBodyVariables(node *ASTNode, symbolTable *Symbol
 					Address: frameOffset,
 				})
 				frameOffset += structSize
+			} else if resolvedType.Kind == TypeSlice {
+				// Slice variables are stored on tstack like structs (they are synthesized structs)
+				sliceSize := uint32(GetTypeSize(resolvedType)) // 16 bytes (8-byte pointer + 8-byte length)
+
+				// Look up the variable in the symbol table
+				symbol := symbolTable.LookupVariable(varName)
+				if symbol == nil {
+					panic("Variable not found in symbol table: " + varName)
+				}
+
+				ctx.Variables = append(ctx.Variables, LocalVarInfo{
+					Symbol:  symbol,
+					Storage: VarStorageTStack,
+					Address: frameOffset,
+				})
+				frameOffset += sliceSize
 			}
 
 		case NodeUnary:
@@ -1440,6 +1809,23 @@ func collectLocalVariables(node *ASTNode) ([]LocalVarInfo, uint32) {
 					Address: frameOffset,
 				})
 				frameOffset += structSize
+			} else if resolvedType.Kind == TypeSlice {
+				// Slice variables are stored on tstack like structs (they are synthesized structs)
+				sliceSize := uint32(GetTypeSize(resolvedType)) // 16 bytes (8-byte pointer + 8-byte length)
+
+				// Create a temporary SymbolInfo for testing purposes
+				symbol := &SymbolInfo{
+					Name:     varName,
+					Type:     resolvedType,
+					Assigned: false,
+				}
+
+				locals = append(locals, LocalVarInfo{
+					Symbol:  symbol,
+					Storage: VarStorageTStack,
+					Address: frameOffset,
+				})
+				frameOffset += sliceSize
 			}
 
 		case NodeUnary:
@@ -1757,6 +2143,7 @@ const (
 	TypeBuiltin TypeKind = "TypeBuiltin" // I64, Bool
 	TypePointer TypeKind = "TypePointer" // *T
 	TypeStruct  TypeKind = "TypeStruct"  // MyStruct
+	TypeSlice   TypeKind = "TypeSlice"   // T[]
 )
 
 // TypeNode represents a type in the type system
@@ -1766,7 +2153,7 @@ type TypeNode struct {
 	// For TypeBuiltin, TypeStruct
 	String string // "I64", "Boolean", name of struct
 
-	// For TypePointer
+	// For TypePointer, TypeSlice (element type)
 	Child *TypeNode
 
 	// For TypeStruct
@@ -1801,6 +2188,8 @@ func TypesEqual(a, b *TypeNode) bool {
 		return TypesEqual(a.Child, b.Child)
 	case TypeStruct:
 		return a.String == b.String
+	case TypeSlice:
+		return TypesEqual(a.Child, b.Child)
 	}
 	// unreachable with current TypeKind values
 	panic("Unknown TypeKind: " + string(a.Kind))
@@ -1827,6 +2216,8 @@ func GetTypeSize(t *TypeNode) int {
 		}
 		lastField := t.Fields[len(t.Fields)-1]
 		return int(lastField.Offset) + GetTypeSize(lastField.Type)
+	case TypeSlice:
+		return 16 // slice is a struct with items pointer (8 bytes) + length (8 bytes)
 	}
 	// unreachable with current TypeKind values
 	panic("Unknown TypeKind: " + string(t.Kind))
@@ -1841,6 +2232,8 @@ func TypeToString(t *TypeNode) string {
 		return TypeToString(t.Child) + "*"
 	case TypeStruct:
 		return t.String
+	case TypeSlice:
+		return TypeToString(t.Child) + "[]"
 	}
 	// unreachable with current TypeKind values
 	panic("Unknown TypeKind: " + string(t.Kind))
@@ -1882,6 +2275,8 @@ func isWASMI64Type(t *TypeNode) bool {
 		return false // pointers are I32 in WASM
 	case TypeStruct:
 		return false // structs are stored in memory, not as I64 locals
+	case TypeSlice:
+		return false // slices are stored in memory, not as I64 locals
 	}
 	// unreachable with current TypeKind values
 	panic("Unknown TypeKind: " + string(t.Kind))
@@ -1899,6 +2294,8 @@ func isWASMI32Type(t *TypeNode) bool {
 		return true // all pointers are I32 in WASM
 	case TypeStruct:
 		return false // structs are stored in memory, not as I32 locals
+	case TypeSlice:
+		return false // slices are stored in memory, not as I32 locals
 	}
 	// unreachable with current TypeKind values
 	panic("Unknown TypeKind: " + string(t.Kind))
@@ -2090,6 +2487,134 @@ func ConvertStructASTToType(structAST *ASTNode) *TypeNode {
 	}
 }
 
+// synthesizeSliceStruct converts a slice type to its internal struct representation
+func synthesizeSliceStruct(sliceType *TypeNode) *TypeNode {
+	if sliceType.Kind != TypeSlice {
+		panic("Expected TypeSlice")
+	}
+
+	elementType := sliceType.Child
+	sliceName := TypeToString(sliceType)
+
+	// Create the internal struct: { var items ElementType*; var length I64; }
+	fields := []StructField{
+		{
+			Name:   "items",
+			Type:   &TypeNode{Kind: TypePointer, Child: elementType},
+			Offset: 0,
+		},
+		{
+			Name:   "length",
+			Type:   TypeI64,
+			Offset: 8, // pointer is 8 bytes
+		},
+	}
+
+	return &TypeNode{
+		Kind:   TypeStruct,
+		String: sliceName,
+		Fields: fields,
+	}
+}
+
+// collectSliceTypes traverses the AST to find all slice types used
+func collectSliceTypes(node *ASTNode) {
+	if node == nil {
+		return
+	}
+
+	// Collect slice types from the node's type
+	if node.TypeAST != nil {
+		collectSliceTypesFromType(node.TypeAST)
+	}
+
+	// For functions, also check the body
+	if node.Kind == NodeFunc && node.Body != nil {
+		collectSliceTypes(node.Body)
+	}
+
+	// Recursively process children
+	for _, child := range node.Children {
+		collectSliceTypes(child)
+	}
+}
+
+// collectSliceTypesFromType recursively collects slice types from a type node
+func collectSliceTypesFromType(typeNode *TypeNode) {
+	if typeNode == nil {
+		return
+	}
+
+	switch typeNode.Kind {
+	case TypeSlice:
+		typeKey := TypeToString(typeNode)
+		if _, exists := globalSliceTypes[typeKey]; !exists {
+			globalSliceTypes[typeKey] = typeNode
+		}
+		// Also collect from the element type
+		collectSliceTypesFromType(typeNode.Child)
+	case TypePointer:
+		collectSliceTypesFromType(typeNode.Child)
+	case TypeStruct:
+		for _, field := range typeNode.Fields {
+			collectSliceTypesFromType(field.Type)
+		}
+	}
+}
+
+// generateAppendFunction creates an append function for a specific slice type
+func generateAppendFunction(sliceType *TypeNode) *ASTNode {
+	elementType := sliceType.Child
+	functionName := "append_" + sanitizeTypeName(TypeToString(elementType))
+
+	// Function signature: func append_T(slice_ptr: T[]*, value: T): void
+	parameters := []FunctionParameter{
+		{
+			Name: "slice_ptr",
+			Type: &TypeNode{Kind: TypePointer, Child: sliceType},
+		},
+		{
+			Name: "value",
+			Type: elementType,
+		},
+	}
+
+	// Create function body - for now, we'll use the existing append logic as a template
+	// The actual implementation will be in the WASM generation
+	functionNode := &ASTNode{
+		Kind:         NodeFunc,
+		FunctionName: functionName,
+		Parameters:   parameters,
+		ReturnType:   nil,          // void function
+		Children:     []*ASTNode{}, // Empty body - implementation is in WASM generation
+	}
+
+	return functionNode
+}
+
+// sanitizeTypeName converts a type name to a valid function name suffix
+func sanitizeTypeName(typeName string) string {
+	// Replace problematic characters
+	result := ""
+	for _, r := range typeName {
+		switch r {
+		case '[', ']', '*', ' ':
+			result += "_"
+		default:
+			result += string(r)
+		}
+	}
+	return result
+}
+
+// generateAllAppendFunctions creates append functions for all collected slice types
+func generateAllAppendFunctions() {
+	for _, sliceType := range globalSliceTypes {
+		appendFunc := generateAppendFunction(sliceType)
+		generatedAppendFunctions = append(generatedAppendFunctions, appendFunc)
+	}
+}
+
 // BuildSymbolTable traverses the AST to build a symbol table with variable declarations
 // and populates Symbol references in NodeIdent nodes
 func BuildSymbolTable(ast *ASTNode) *SymbolTable {
@@ -2119,8 +2644,8 @@ func BuildSymbolTable(ast *ASTNode) *SymbolTable {
 			}
 
 			// Only add supported types to symbol table for type checking
-			// This includes I64, Bool, pointers, and struct types
-			if isWASMI64Type(varType) || isWASMI32Type(varType) || varType.Kind == TypeStruct {
+			// This includes I64, Bool, pointers, struct types, and slice types
+			if isWASMI64Type(varType) || isWASMI32Type(varType) || varType.Kind == TypeStruct || varType.Kind == TypeSlice {
 				// For struct types, resolve the struct name to actual struct type
 				if varType.Kind == TypeStruct {
 					// Look up the struct definition
@@ -2137,8 +2662,8 @@ func BuildSymbolTable(ast *ASTNode) *SymbolTable {
 					panic(err.Error())
 				}
 
-				// Struct variables are "assigned" when declared (they have allocated memory)
-				if varType.Kind == TypeStruct {
+				// Struct and slice variables are "assigned" when declared (they have allocated memory)
+				if varType.Kind == TypeStruct || varType.Kind == TypeSlice {
 					st.AssignVariable(varName)
 				}
 			}
@@ -2531,6 +3056,40 @@ func CheckExpression(expr *ASTNode, tc *TypeChecker) error {
 			}
 			expr.TypeAST = TypeI64 // print returns nothing, but use I64 for now
 			return nil
+		} else if funcName == "append" {
+			// Built-in append function
+			if len(expr.Children) != 3 {
+				return fmt.Errorf("error: append() function expects 2 arguments")
+			}
+
+			// Check first argument (slice pointer)
+			err := CheckExpression(expr.Children[1], tc)
+			if err != nil {
+				return err
+			}
+			// Check second argument (value to append)
+			err = CheckExpression(expr.Children[2], tc)
+			if err != nil {
+				return err
+			}
+
+			slicePtrType := expr.Children[1].TypeAST
+			valueType := expr.Children[2].TypeAST
+
+			// First argument must be a pointer to a slice
+			if slicePtrType.Kind != TypePointer || slicePtrType.Child.Kind != TypeSlice {
+				return fmt.Errorf("error: append() first argument must be pointer to slice, got %s", TypeToString(slicePtrType))
+			}
+
+			// Value type must match slice element type
+			elementType := slicePtrType.Child.Child
+			if !TypesEqual(valueType, elementType) {
+				return fmt.Errorf("error: append() value type %s does not match slice element type %s",
+					TypeToString(valueType), TypeToString(elementType))
+			}
+
+			expr.TypeAST = TypeI64 // append returns nothing, but use I64 for now
+			return nil
 		} else {
 			// User-defined function
 			if tc.symbolTable == nil {
@@ -2572,7 +3131,7 @@ func CheckExpression(expr *ASTNode, tc *TypeChecker) error {
 		// Get base type from the type-checked child
 		baseType := expr.Children[0].TypeAST
 
-		// Handle both direct struct and pointer-to-struct access
+		// Handle direct struct, pointer-to-struct, and slice access
 		var structType *TypeNode
 		if baseType.Kind == TypeStruct {
 			// Direct struct access
@@ -2580,6 +3139,9 @@ func CheckExpression(expr *ASTNode, tc *TypeChecker) error {
 		} else if baseType.Kind == TypePointer && baseType.Child.Kind == TypeStruct {
 			// Pointer-to-struct access (struct parameters)
 			structType = baseType.Child
+		} else if baseType.Kind == TypeSlice {
+			// Slice access - synthesize the internal struct representation
+			structType = synthesizeSliceStruct(baseType)
 		} else {
 			return fmt.Errorf("error: cannot access field of non-struct type %s", TypeToString(baseType))
 		}
@@ -2640,6 +3202,39 @@ func CheckExpression(expr *ASTNode, tc *TypeChecker) error {
 		} else {
 			return fmt.Errorf("error: unsupported unary operator '%s'", expr.Op)
 		}
+
+	case NodeIndex:
+		// Array/slice subscript operation
+		if len(expr.Children) != 2 {
+			return fmt.Errorf("error: subscript operator expects 2 operands")
+		}
+
+		err := CheckExpression(expr.Children[0], tc)
+		if err != nil {
+			return err
+		}
+		err = CheckExpression(expr.Children[1], tc)
+		if err != nil {
+			return err
+		}
+
+		// Get base and index types from the type-checked children
+		baseType := expr.Children[0].TypeAST
+		indexType := expr.Children[1].TypeAST
+
+		// Index must be I64
+		if !TypesEqual(indexType, TypeI64) {
+			return fmt.Errorf("error: slice index must be I64, got %s", TypeToString(indexType))
+		}
+
+		// Base must be a slice type
+		if baseType.Kind != TypeSlice {
+			return fmt.Errorf("error: cannot subscript non-slice type %s", TypeToString(baseType))
+		}
+
+		// Return the element type of the slice
+		expr.TypeAST = baseType.Child
+		return nil
 
 	default:
 		return fmt.Errorf("error: unsupported expression type '%s'", expr.Kind)
@@ -3689,8 +4284,25 @@ func parseTypeExpression() *TypeNode {
 		}
 	}
 
-	// Handle pointer suffixes
+	// Handle slice and pointer suffixes
 	resultType := baseType
+
+	// Handle slice suffix: Type[]
+	if CurrTokenType == LBRACKET {
+		SkipToken(LBRACKET)
+		if CurrTokenType == RBRACKET {
+			SkipToken(RBRACKET)
+			resultType = &TypeNode{
+				Kind:  TypeSlice,
+				Child: resultType,
+			}
+		} else {
+			// Error: expected ']' after '['
+			return nil
+		}
+	}
+
+	// Handle pointer suffixes: Type*
 	for CurrTokenType == ASTERISK {
 		SkipToken(ASTERISK)
 		resultType = &TypeNode{
