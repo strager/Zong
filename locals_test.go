@@ -273,24 +273,6 @@ func TestAddressOfRvalue(t *testing.T) {
 }
 
 func TestCollectLocalVariables(t *testing.T) {
-	t.Run("handles nil TypeAST", func(t *testing.T) {
-		// Create a NodeVar with nil TypeAST to trigger the early return
-		node := &ASTNode{
-			Kind: NodeVar,
-			Children: []*ASTNode{
-				{Kind: NodeIdent, String: "x"},
-			},
-			TypeAST: nil, // This will trigger the early return
-		}
-
-		// This should not panic and should return early
-		locals, _ := collectLocalVariables(node)
-
-		// Verify that no variables were collected due to nil TypeAST
-		if len(locals) != 0 {
-			t.Errorf("Expected no variables collected with nil TypeAST, got %d", len(locals))
-		}
-	})
 
 	t.Run("collects variable with valid TypeAST", func(t *testing.T) {
 		// Create a NodeVar with valid TypeAST

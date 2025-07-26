@@ -705,7 +705,7 @@ func EmitExpressionL(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 	default:
 		// For any other expression (rvalue), create a temporary on tstack
 		// Check if this is a struct-returning function call
-		if node.Kind == NodeCall && node.TypeAST != nil && node.TypeAST.Kind == TypeStruct {
+		if node.Kind == NodeCall && node.TypeAST.Kind == TypeStruct {
 			// Function call returning struct - it already returns the correct address
 			EmitExpressionR(buf, node, localCtx)
 			return
@@ -721,7 +721,7 @@ func EmitExpressionL(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 		// Stack: [tstack_addr, value]
 
 		// Store the value to tstack based on its type
-		if node.TypeAST != nil && node.TypeAST.Kind == TypePointer {
+		if node.TypeAST.Kind == TypePointer {
 			// Store pointer as i32
 			writeByte(buf, I32_STORE)
 			writeByte(buf, 0x02) // alignment (4 bytes = 2^2)
@@ -857,7 +857,7 @@ func EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 
 			// Emit arguments (including struct copies for struct parameters)
 			for _, arg := range args {
-				if arg.TypeAST != nil && arg.TypeAST.Kind == TypeStruct {
+				if arg.TypeAST.Kind == TypeStruct {
 					// Struct argument - need to copy to a temporary location
 					structSize := uint32(GetTypeSize(arg.TypeAST))
 
@@ -1132,11 +1132,6 @@ func (ctx *LocalContext) collectBodyVariables(node *ASTNode, symbolTable *Symbol
 			// Extract variable name
 			varName := node.Children[0].String
 
-			// Skip variables with no type information
-			if node.TypeAST == nil {
-				break
-			}
-
 			resolvedType := node.TypeAST
 
 			// Support I64, I64* (pointers are i32 in WASM), and other types
@@ -1328,11 +1323,6 @@ func collectLocalVariables(node *ASTNode) ([]LocalVarInfo, uint32) {
 		case NodeVar:
 			// Extract variable name
 			varName := node.Children[0].String
-
-			// Skip variables with no type information
-			if node.TypeAST == nil {
-				break
-			}
 
 			resolvedType := node.TypeAST
 
@@ -2759,9 +2749,7 @@ func CheckAssignmentExpression(lhs, rhs *ASTNode, tc *TypeChecker) error {
 
 	// Assignment expression returns the type of the assigned value
 	// The assignment expression type should be set to the RHS type
-	if rhs.TypeAST != nil {
-		lhs.TypeAST = rhs.TypeAST
-	}
+	lhs.TypeAST = rhs.TypeAST
 	return nil
 }
 
