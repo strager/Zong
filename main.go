@@ -804,31 +804,11 @@ func EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 			writeLEB128(buf, targetLocal.Address)
 		} else {
 			// Stack variable
+			EmitExpressionL(buf, node, localCtx)
 			if targetLocal.Symbol.Type.Kind == TypeStruct {
 				// For struct variables, return the address of the struct (not the value)
-				writeByte(buf, LOCAL_GET)
-				writeLEB128(buf, localCtx.FramePointerIndex)
-
-				// Add variable offset if not zero
-				if targetLocal.Address > 0 {
-					writeByte(buf, I32_CONST)
-					writeLEB128Signed(buf, int64(targetLocal.Address))
-					writeByte(buf, I32_ADD)
-				}
-				// Don't load - leave address on stack for struct operations
 			} else {
 				// Non-struct stack variable - load from memory
-				writeByte(buf, LOCAL_GET)
-				writeLEB128(buf, localCtx.FramePointerIndex)
-
-				// Add variable offset if not zero
-				if targetLocal.Address > 0 {
-					writeByte(buf, I32_CONST)
-					writeLEB128Signed(buf, int64(targetLocal.Address))
-					writeByte(buf, I32_ADD)
-				}
-
-				// Load the value from memory
 				if targetLocal.Symbol.Type.Kind == TypePointer {
 					// Load pointer as i32
 					writeByte(buf, I32_LOAD) // Load i32 from memory
