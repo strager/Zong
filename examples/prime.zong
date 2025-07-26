@@ -1,0 +1,48 @@
+// Prime numbers from 2 to 100
+// Uses trial division to check primality
+
+func isPrime(n: I64): I64 {
+    // Handle special cases
+    if n < 2 {
+        return 0; // not prime
+    }
+    if n == 2 {
+        return 1; // prime
+    }
+    
+    // Check for divisibility from 2 to sqrt(n)
+    var i I64;
+    i = 2;
+    loop {
+        // If i * i > n, we've checked all possible divisors
+        if i * i > n {
+            break;
+        }
+        
+        // Check if n is divisible by i
+        if n % i == 0 {
+            return 0; // not prime
+        }
+        
+        i = i + 1;
+    }
+    
+    return 1; // prime
+}
+
+func main() {
+    var num I64;
+    num = 2;
+    
+    loop {
+        if num > 100 {
+            break;
+        }
+        
+        if isPrime(n: num) == 1 {
+            print(num);
+        }
+        
+        num = num + 1;
+    }
+}
