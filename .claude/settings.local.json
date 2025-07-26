@@ -13,7 +13,9 @@
       "WebFetch(domain:pkg.go.dev)",
       "Bash(wasm2wat:*)",
       "Bash(find:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(awk:*)",
+      "Bash(sed:*)"
     ],
     "deny": []
   }

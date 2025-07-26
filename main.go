@@ -69,6 +69,8 @@ func writeLEB128Signed(buf *bytes.Buffer, val int64) {
 const (
 	I32_CONST        = 0x41
 	I32_ADD          = 0x6A
+	I32_LOAD         = 0x28
+	I32_STORE        = 0x36
 	I32_WRAP_I64     = 0xA7
 	I64_CONST        = 0x42
 	I64_ADD          = 0x7C
@@ -83,6 +85,7 @@ const (
 	I64_LE_S         = 0x57
 	I64_GE_S         = 0x59
 	I64_EXTEND_I32_S = 0xAC
+	I64_EXTEND_I32_U = 0xAD
 	I64_LOAD         = 0x29
 	I64_STORE        = 0x37
 	GLOBAL_GET       = 0x23
@@ -432,6 +435,11 @@ func EmitStatement(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 		// (locals are declared in function header)
 		break
 
+	case NodeStruct:
+		// Struct declarations don't generate runtime code
+		// (they only define types)
+		break
+
 	case NodeBlock:
 		// Emit all statements in the block
 		for _, stmt := range node.Children {
@@ -497,6 +505,10 @@ func EmitStatement(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 		for k := 0; k < ifCount; k++ {
 			writeByte(buf, 0x0B) // end opcode
 		}
+
+	case NodeBinary:
+		// Handle binary operations (mainly assignments)
+		EmitExpression(buf, node, localCtx)
 
 	default:
 		// For now, treat unknown statements as expressions
@@ -629,13 +641,155 @@ func emitStructFieldAddress(buf *bytes.Buffer, targetLocal *LocalVarInfo, fieldO
 }
 
 func EmitExpression(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
+	// Handle assignment specially, then delegate to EmitExpressionR for other cases
+	if node.Kind == NodeBinary && node.Op == "=" {
+		// Assignment: LHS = RHS
+		lhs := node.Children[0]
+		rhs := node.Children[1]
+
+		if lhs.Kind == NodeIdent {
+			// Variable assignment: var = value
+			if lhs.Symbol == nil {
+				panic("Undefined variable: " + lhs.String)
+			}
+			targetLocal := localCtx.FindVariable(lhs.Symbol)
+			if targetLocal == nil {
+				panic("Variable not found in local context: " + lhs.String)
+			}
+
+			if targetLocal.Storage == VarStorageLocal || targetLocal.Storage == VarStorageParameterLocal {
+				// Local variable - emit local.set
+				EmitExpressionR(buf, rhs, localCtx) // RHS value
+				writeByte(buf, LOCAL_SET)
+				writeLEB128(buf, targetLocal.Address)
+				return
+			}
+		} else {
+			// Check if LHS is a valid assignment target
+			if lhs.Kind != NodeUnary && lhs.Kind != NodeDot {
+				panic("Invalid assignment target - must be variable, field access, or pointer dereference")
+			}
+		}
+
+		// Non-local storage - get address and store based on type
+		EmitExpressionL(buf, lhs, localCtx) // Get address
+		EmitExpressionR(buf, rhs, localCtx) // Get value
+
+		// Stack is now: [address_i32, value]
+		// Generate appropriate store instruction based on type
+		switch lhs.TypeAST.Kind {
+		case TypeStruct:
+			// Struct assignment (copy) using memory.copy
+			structSize := uint32(GetTypeSize(lhs.TypeAST))
+			writeByte(buf, I32_CONST)
+			writeLEB128(buf, structSize)
+			// Stack: [dst_addr, src_addr, size]
+			writeByte(buf, 0xFC) // Multi-byte instruction prefix
+			writeLEB128(buf, 10) // memory.copy opcode
+			writeByte(buf, 0x00) // dst memory index (0)
+			writeByte(buf, 0x00) // src memory index (0)
+		case TypePointer:
+			// Store pointer as i32
+			writeByte(buf, I32_STORE) // Store i32 to memory
+			writeByte(buf, 0x02)      // alignment (4 bytes = 2^2)
+			writeByte(buf, 0x00)      // offset
+		default:
+			// Store regular value as i64
+			writeByte(buf, I64_STORE) // Store i64 to memory
+			writeByte(buf, 0x03)      // alignment (8 bytes = 2^3)
+			writeByte(buf, 0x00)      // offset
+		}
+		return
+	}
+
+	// For all non-assignment expressions, delegate to EmitExpressionR
+	EmitExpressionR(buf, node, localCtx)
+}
+
+// EmitExpressionL emits code for lvalue expressions (expressions that can be assigned to or addressed)
+// These expressions produce an address on the stack where a value can be stored or loaded from
+func EmitExpressionL(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
+	switch node.Kind {
+	case NodeIdent:
+		// Variable reference - emit address
+		if node.Symbol == nil {
+			panic("Undefined variable: " + node.String)
+		}
+		targetLocal := localCtx.FindVariable(node.Symbol)
+		if targetLocal == nil {
+			panic("Variable not found in local context: " + node.String)
+		}
+
+		if targetLocal.Storage == VarStorageLocal || targetLocal.Storage == VarStorageParameterLocal {
+			// Local variable - can't take address of WASM local
+			panic("Cannot take address of local variable: " + node.String)
+		} else {
+			// Stack variable - emit address
+			writeByte(buf, LOCAL_GET)
+			writeLEB128(buf, localCtx.FramePointerIndex)
+
+			// Add variable offset if not zero
+			if targetLocal.Address > 0 {
+				writeByte(buf, I32_CONST)
+				writeLEB128Signed(buf, int64(targetLocal.Address))
+				writeByte(buf, I32_ADD)
+			}
+		}
+
+	case NodeUnary:
+		if node.Op == "*" {
+			// Pointer dereference - the pointer value is the address
+			EmitExpressionR(buf, node.Children[0], localCtx)
+		} else {
+			panic("Cannot use unary operator " + node.Op + " as lvalue")
+		}
+
+	case NodeDot:
+		// Field access - emit field address
+		emitFieldAddressRecursive(buf, node, localCtx)
+
+	default:
+		// For any other expression (rvalue), create a temporary on tstack
+		// Save current tstack pointer - this will be the address we return
+		writeByte(buf, GLOBAL_GET)
+		writeLEB128(buf, 0) // tstack global index
+
+		// Evaluate the rvalue to get its value on stack
+		EmitExpressionR(buf, node, localCtx)
+		// Stack: [tstack_addr, value]
+
+		// Store the value to tstack
+		writeByte(buf, I64_STORE)
+		writeByte(buf, 0x03) // alignment (8 bytes = 2^3)
+		writeByte(buf, 0x00) // offset
+
+		// Get the address again (where we just stored the value)
+		writeByte(buf, GLOBAL_GET)
+		writeLEB128(buf, 0) // tstack global index (current position)
+
+		// Update tstack pointer (advance by 8 bytes for I64)
+		writeByte(buf, GLOBAL_GET)
+		writeLEB128(buf, 0) // tstack global index
+		writeByte(buf, I32_CONST)
+		writeLEB128(buf, 8) // I64 size
+		writeByte(buf, I32_ADD)
+		writeByte(buf, GLOBAL_SET)
+		writeLEB128(buf, 0) // tstack global index
+
+		// Stack now has the address where we stored the value
+	}
+}
+
+// EmitExpressionR emits code for rvalue expressions (expressions that produce values)
+// These expressions produce a value on the stack that can be consumed
+func EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 	switch node.Kind {
 	case NodeInteger:
 		writeByte(buf, I64_CONST)
 		writeLEB128Signed(buf, node.Integer)
 
 	case NodeIdent:
-		// Variable reference
+		// Variable reference - emit value
 		if node.Symbol == nil {
 			panic("Undefined variable: " + node.String)
 		}
@@ -675,283 +829,133 @@ func EmitExpression(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 				}
 
 				// Load the value from memory
-				writeByte(buf, I64_LOAD) // Load i64 from memory
-				writeByte(buf, 0x03)     // alignment (8 bytes = 2^3)
-				writeByte(buf, 0x00)     // offset
+				if targetLocal.Symbol.Type.Kind == TypePointer {
+					// Load pointer as i32
+					writeByte(buf, I32_LOAD) // Load i32 from memory
+					writeByte(buf, 0x02)     // alignment (4 bytes = 2^2)
+					writeByte(buf, 0x00)     // offset
+				} else {
+					// Load regular value as i64
+					writeByte(buf, I64_LOAD) // Load i64 from memory
+					writeByte(buf, 0x03)     // alignment (8 bytes = 2^3)
+					writeByte(buf, 0x00)     // offset
+				}
 			}
 		}
 
 	case NodeBinary:
+		// Assignment is not allowed in rvalue context
 		if node.Op == "=" {
-			// Assignment: LHS = RHS
-			lhs := node.Children[0]
-			rhs := node.Children[1]
+			panic("Assignment cannot be used as rvalue")
+		}
 
-			if lhs.Kind == NodeIdent {
-				// Variable assignment: var = value
-				if lhs.Symbol == nil {
-					panic("Undefined variable: " + lhs.String)
+		// Binary operators (non-assignment)
+		EmitExpressionR(buf, node.Children[0], localCtx) // LHS
+		EmitExpressionR(buf, node.Children[1], localCtx) // RHS
+
+		// Emit the appropriate operation
+		opcode := getBinaryOpcode(node.Op)
+		writeByte(buf, opcode)
+
+	case NodeCall:
+		// Function call
+		if len(node.Children) == 0 {
+			panic("Invalid function call - missing function name")
+		}
+		functionName := node.Children[0].String
+
+		if functionName == "print" {
+			// Built-in print function
+			if len(node.Children) != 2 {
+				panic("print() function expects 1 argument")
+			}
+			// Emit argument
+			arg := node.Children[1]
+			EmitExpressionR(buf, arg, localCtx)
+
+			// Convert i32 results to i64 for print
+			if arg.Kind == NodeBinary {
+				switch arg.Op {
+				case "==", "!=", "<", ">", "<=", ">=":
+					// Convert i32 comparison result to i64
+					writeByte(buf, I64_EXTEND_I32_U)
 				}
-				targetLocal := localCtx.FindVariable(lhs.Symbol)
-				if targetLocal == nil {
-					panic("Variable not found in local context: " + lhs.String)
-				}
+			} else if arg.Kind == NodeUnary && arg.Op == "&" {
+				// Convert i32 address result to i64
+				writeByte(buf, I64_EXTEND_I32_U)
+			}
 
-				if targetLocal.Symbol.Type.Kind == TypeStruct {
-					// Struct assignment (copy) using memory.copy
-					structSize := uint32(GetTypeSize(targetLocal.Symbol.Type))
+			// Call print
+			writeByte(buf, CALL)
+			writeLEB128(buf, 0) // function index 0 (print import)
+		} else {
+			// User-defined function call
+			args := node.Children[1:]
 
-					// Get destination address
-					writeByte(buf, LOCAL_GET)
-					writeLEB128(buf, localCtx.FramePointerIndex)
+			// Emit arguments (including struct copies for struct parameters)
+			for _, arg := range args {
+				if arg.TypeAST != nil && arg.TypeAST.Kind == TypeStruct {
+					// Struct argument - need to copy to a temporary location
+					structSize := uint32(GetTypeSize(arg.TypeAST))
 
-					// Add variable offset if not zero
-					if targetLocal.Address > 0 {
-						writeByte(buf, I32_CONST)
-						writeLEB128Signed(buf, int64(targetLocal.Address))
-						writeByte(buf, I32_ADD)
-					}
+					// Allocate space on tstack for the struct copy
+					writeByte(buf, GLOBAL_GET)
+					writeLEB128(buf, 0) // tstack global index
 
-					// Get source address (RHS should evaluate to struct address)
-					EmitExpression(buf, rhs, localCtx) // RHS address
+					// Save the current tstack pointer (destination address)
+					writeByte(buf, GLOBAL_GET)
+					writeLEB128(buf, 0) // tstack global index
+
+					// Get source address (the struct we're copying)
+					EmitExpressionR(buf, arg, localCtx) // This should emit struct address for struct types
 
 					// Push size for memory.copy
 					writeByte(buf, I32_CONST)
 					writeLEB128(buf, structSize)
 
-					// Emit memory.copy instruction
-					// Stack: [dst_addr, src_addr, size]
+					// Emit memory.copy instruction to copy struct to tstack
 					writeByte(buf, 0xFC) // Multi-byte instruction prefix
 					writeLEB128(buf, 10) // memory.copy opcode
 					writeByte(buf, 0x00) // dst memory index (0)
 					writeByte(buf, 0x00) // src memory index (0)
 
-				} else if targetLocal.Storage == VarStorageLocal || targetLocal.Storage == VarStorageParameterLocal {
-					// Local variable - emit local.set
-					EmitExpression(buf, rhs, localCtx) // RHS value
-					writeByte(buf, LOCAL_SET)
-					writeLEB128(buf, targetLocal.Address)
+					// Update tstack pointer
+					writeByte(buf, GLOBAL_GET)
+					writeLEB128(buf, 0) // tstack global index
+					writeByte(buf, I32_CONST)
+					writeLEB128(buf, structSize)
+					writeByte(buf, I32_ADD)
+					writeByte(buf, GLOBAL_SET)
+					writeLEB128(buf, 0) // tstack global index
+
+					// Push the copy address as the function argument
+					// (we saved it earlier before the memory.copy)
 				} else {
-					// Stack variable - store to memory
-					// First get the address (before evaluating RHS)
-					writeByte(buf, LOCAL_GET)
-					writeLEB128(buf, localCtx.FramePointerIndex)
-
-					// Add variable offset if not zero
-					if targetLocal.Address > 0 {
-						writeByte(buf, I32_CONST)
-						writeLEB128Signed(buf, int64(targetLocal.Address))
-						writeByte(buf, I32_ADD)
-					}
-
-					// Now evaluate the RHS value
-					EmitExpression(buf, rhs, localCtx) // RHS value
-
-					// Stack is now: [address_i32, value] - perfect for i64.store
-					writeByte(buf, I64_STORE) // Store i64 to memory
-					writeByte(buf, 0x03)      // alignment (8 bytes = 2^3)
-					writeByte(buf, 0x00)      // offset
+					// Non-struct argument
+					EmitExpressionR(buf, arg, localCtx)
 				}
-			} else if lhs.Kind == NodeUnary && lhs.Op == "*" {
-				// Pointer dereference assignment: ptr* = value
-				// First get the address where to store
-				EmitExpression(buf, lhs.Children[0], localCtx) // Get pointer value (i32)
-
-				// Now evaluate the RHS value
-				EmitExpression(buf, rhs, localCtx) // RHS value
-
-				// Stack is now: [address_i32, value] - perfect for i64.store
-				writeByte(buf, I64_STORE) // Store i64 to memory
-				writeByte(buf, 0x03)      // alignment (8 bytes = 2^3)
-				writeByte(buf, 0x00)      // offset
-			} else if lhs.Kind == NodeDot {
-				// Field assignment: struct.field = value
-				baseExpr := lhs.Children[0]
-				fieldName := lhs.FieldName
-
-				// Determine struct type from the base expression's type
-				// (type checking should have already validated this is a struct)
-				var structType *TypeNode
-				baseType := baseExpr.TypeAST
-				if baseType == nil {
-					panic("Base expression has no type information")
-				}
-
-				if baseType.Kind == TypeStruct {
-					// Direct struct access
-					structType = baseType
-				} else if baseType.Kind == TypePointer && baseType.Child.Kind == TypeStruct {
-					// Pointer-to-struct access (struct parameters)
-					structType = baseType.Child
-				} else {
-					panic("Field assignment on non-struct type: " + TypeToString(baseType))
-				}
-
-				// Find field in struct definition
-				var fieldOffset uint32
-				var fieldType *TypeNode
-				found := false
-				for _, field := range structType.Fields {
-					if field.Name == fieldName {
-						fieldOffset = field.Offset
-						fieldType = field.Type
-						found = true
-						break
-					}
-				}
-				if !found {
-					panic("Field not found in struct: " + fieldName)
-				}
-
-				// Generate field address calculation (before evaluating RHS)
-				if baseExpr.Kind == NodeIdent && baseExpr.Symbol != nil {
-					// Variable field assignment - use the existing address calculation logic
-					targetLocal := localCtx.FindVariable(baseExpr.Symbol)
-					if targetLocal == nil {
-						panic("Variable not found in local context: " + baseExpr.String)
-					}
-					emitStructFieldAddress(buf, targetLocal, fieldOffset, localCtx)
-				} else if baseExpr.Kind == NodeDot {
-					// Nested field assignment (e.g., person.address.state = value)
-					// Use recursive address generation
-					emitFieldAddressRecursive(buf, baseExpr, localCtx)
-
-					// Add field offset if needed
-					if fieldOffset > 0 {
-						writeByte(buf, I32_CONST)
-						writeLEB128Signed(buf, int64(fieldOffset))
-						writeByte(buf, I32_ADD)
-					}
-					// Note: Stack now has the address of the field
-				} else {
-					// Other expression field assignment (e.g., function call result)
-					// Emit the base expression to get the struct pointer/address on stack
-					EmitExpression(buf, baseExpr, localCtx)
-
-					// Add field offset if needed
-					if fieldOffset > 0 {
-						writeByte(buf, I32_CONST)
-						writeLEB128Signed(buf, int64(fieldOffset))
-						writeByte(buf, I32_ADD)
-					}
-					// Note: Stack now has the address of the field
-				}
-
-				// Now evaluate the RHS value
-				EmitExpression(buf, rhs, localCtx) // RHS value
-
-				// Store the field value
-				if isWASMI64Type(fieldType) {
-					writeByte(buf, I64_STORE) // Store i64 to memory
-					writeByte(buf, 0x03)      // alignment (8 bytes = 2^3)
-					writeByte(buf, 0x00)      // offset
-				} else {
-					panic("Non-I64 field types not supported in WASM yet")
-				}
-			} else {
-				panic("Invalid assignment target - must be variable, field access, or pointer dereference")
 			}
-		} else {
-			// Regular binary operations
-			EmitExpression(buf, node.Children[0], localCtx) // left operand
-			EmitExpression(buf, node.Children[1], localCtx) // right operand
-			writeByte(buf, getBinaryOpcode(node.Op))
 
-			// Comparison operations return i32 (Boolean)
-			// Don't extend to i64 since Boolean type should be i32
-		}
-
-	case NodeCall:
-		if len(node.Children) > 0 && node.Children[0].Kind == NodeIdent {
-			functionName := node.Children[0].String
-
-			if functionName == "print" {
-				// Built-in print function
-				if len(node.Children) > 1 {
-					arg := node.Children[1]
-					EmitExpression(buf, arg, localCtx) // argument
-
-					// If the argument is a pointer type, we need to widen it from i32 to i64
-					// because print() expects i64
-					if isWASMI32Type(arg.TypeAST) {
-						writeByte(buf, I64_EXTEND_I32_S) // Convert i32 pointer to i64
-					}
-				}
-				writeByte(buf, CALL) // call instruction
-				writeLEB128(buf, 0)  // function index 0 (print import)
-			} else {
-				// User-defined function call
-				// Emit arguments in order
-				for i := 1; i < len(node.Children); i++ {
-					arg := node.Children[i]
-
-					// Check if this argument is a struct that needs to be copied
-					if arg.Kind == NodeIdent && arg.Symbol != nil {
-						argLocal := localCtx.FindVariable(arg.Symbol)
-						if argLocal != nil && argLocal.Symbol.Type.Kind == TypeStruct {
-							// This is a struct argument - we need to copy it
-							// First allocate space on the stack for the copy
-							structSize := uint32(GetTypeSize(argLocal.Symbol.Type))
-
-							// Get current tstack pointer as destination address
-							writeByte(buf, GLOBAL_GET)
-							writeLEB128(buf, 0) // tstack global index
-
-							// Get source address
-							EmitExpression(buf, arg, localCtx)
-
-							// Copy size
-							writeByte(buf, I32_CONST)
-							writeLEB128(buf, structSize)
-
-							// Emit memory.copy to copy struct
-							writeByte(buf, 0xFC) // Multi-byte instruction prefix
-							writeLEB128(buf, 10) // memory.copy opcode
-							writeByte(buf, 0x00) // dst memory index (0)
-							writeByte(buf, 0x00) // src memory index (0)
-
-							// Push the copy address as the function argument
-							writeByte(buf, GLOBAL_GET)
-							writeLEB128(buf, 0) // tstack global index (points to the copy)
-
-							// Advance tstack pointer past the copy
-							writeByte(buf, GLOBAL_GET)
-							writeLEB128(buf, 0) // tstack global index
-							writeByte(buf, I32_CONST)
-							writeLEB128(buf, structSize)
-							writeByte(buf, I32_ADD)
-							writeByte(buf, GLOBAL_SET)
-							writeLEB128(buf, 0) // tstack global index
-
-							continue
-						}
-					}
-
-					// Regular argument (not a struct needing copy)
-					EmitExpression(buf, arg, localCtx)
-				}
-
-				// Find function index
-				functionIndex := findUserFunctionIndex(functionName)
-				writeByte(buf, CALL)
-				writeLEB128(buf, uint32(functionIndex))
-			}
+			// Find function index
+			functionIndex := findUserFunctionIndex(functionName)
+			writeByte(buf, CALL)
+			writeLEB128(buf, uint32(functionIndex))
 		}
 
 	case NodeUnary:
 		if node.Op == "&" {
 			// Address-of operator
-			EmitAddressOf(buf, node.Children[0], localCtx)
+			EmitExpressionL(buf, node.Children[0], localCtx)
+			// Address is returned as i32 (standard for pointers in WASM)
 		} else if node.Op == "*" {
-			// Dereference operator
-			EmitExpression(buf, node.Children[0], localCtx) // Get the pointer value (i32)
-			writeByte(buf, I64_LOAD)                        // Load i64 from memory using i32 address
-			writeByte(buf, 0x03)                            // alignment (8 bytes = 2^3)
-			writeByte(buf, 0x00)                            // offset
+			// Pointer dereference
+			EmitExpressionR(buf, node.Children[0], localCtx) // Get pointer value (address as i32)
+			// Load value from the address (i32 address is already correct for memory operations)
+			writeByte(buf, I64_LOAD)
+			writeByte(buf, 0x03) // alignment
+			writeByte(buf, 0x00) // offset
 		} else if node.Op == "!" {
-			// Handle existing unary not operator
-			EmitExpression(buf, node.Children[0], localCtx)
-			// TODO: Implement logical not operation
+			// Logical not operation
 			panic("Unary not operator (!) not yet implemented")
 		}
 
@@ -974,6 +978,13 @@ func EmitExpression(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 		} else {
 			panic("Non-I64 field types not supported in WASM yet: " + TypeToString(finalFieldType))
 		}
+
+	case NodeStruct:
+		// Struct declarations should not appear in expression context
+		panic("Struct declaration cannot be used as expression: " + ToSExpr(node))
+
+	default:
+		panic("Unknown expression node kind: " + string(node.Kind))
 	}
 }
 
@@ -2281,7 +2292,7 @@ func CheckStatement(stmt *ASTNode, tc *TypeChecker) error {
 			}
 		}
 
-	case NodeCall, NodeIdent, NodeInteger, NodeDot:
+	case NodeCall, NodeIdent, NodeInteger, NodeDot, NodeUnary:
 		// Expression statement
 		err := CheckExpression(stmt, tc)
 		if err != nil {
@@ -2732,6 +2743,9 @@ func CheckAssignment(lhs, rhs *ASTNode, tc *TypeChecker) error {
 		}
 		lhsType = lhs.Symbol.Type
 
+		// Set the TypeAST for code generation
+		lhs.TypeAST = lhsType
+
 		// Mark variable as assigned
 		lhs.Symbol.Assigned = true
 
@@ -2748,6 +2762,9 @@ func CheckAssignment(lhs, rhs *ASTNode, tc *TypeChecker) error {
 		}
 
 		lhsType = ptrType.Child
+
+		// Set the TypeAST for code generation
+		lhs.TypeAST = lhsType
 
 	} else if lhs.Kind == NodeDot {
 		// Field assignment (e.g., s.field = value)
