@@ -1,13 +1,13 @@
 // Prime numbers from 2 to 100
 // Uses trial division to check primality
 
-func isPrime(n: I64): I64 {
+func isPrime(n: I64): Boolean {
     // Handle special cases
     if n < 2 {
-        return 0; // not prime
+        return false; // not prime
     }
     if n == 2 {
-        return 1; // prime
+        return true; // prime
     }
     
     // Check for divisibility from 2 to sqrt(n)
@@ -21,13 +21,13 @@ func isPrime(n: I64): I64 {
         
         // Check if n is divisible by i
         if n % i == 0 {
-            return 0; // not prime
+            return false; // not prime
         }
         
         i = i + 1;
     }
     
-    return 1; // prime
+    return true; // prime
 }
 
 func main() {
@@ -39,7 +39,7 @@ func main() {
             break;
         }
         
-        if isPrime(n: num) == 1 {
+        if isPrime(n: num) {
             print(num);
         }
         

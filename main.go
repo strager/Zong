@@ -298,6 +298,9 @@ func wasmTypeByte(typeNode *TypeNode) byte {
 	if typeNode.Kind == TypeBuiltin && typeNode.String == "I64" {
 		return 0x7E // i64
 	}
+	if typeNode.Kind == TypeBuiltin && typeNode.String == "Boolean" {
+		return 0x7E // i64 (Boolean maps to i64 in WASM)
+	}
 	if typeNode.Kind == TypePointer {
 		return 0x7F // i32 (pointer)
 	}
@@ -311,6 +314,9 @@ func wasmTypeByte(typeNode *TypeNode) byte {
 func wasmTypeString(typeNode *TypeNode) string {
 	if typeNode.Kind == TypeBuiltin && typeNode.String == "I64" {
 		return "i64"
+	}
+	if typeNode.Kind == TypeBuiltin && typeNode.String == "Boolean" {
+		return "i64" // Boolean maps to i64 in WASM
 	}
 	if typeNode.Kind == TypePointer {
 		return "i32"
@@ -472,6 +478,10 @@ func EmitStatement(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 
 		// Emit condition for initial if
 		EmitExpression(buf, node.Children[0], localCtx)
+		// Convert I64 Bool conditions to I32 for WASM if instruction
+		if TypesEqual(node.Children[0].TypeAST, TypeBool) {
+			writeByte(buf, I32_WRAP_I64) // Convert I64 to I32
+		}
 
 		// Start if block
 		writeByte(buf, 0x04) // if opcode
@@ -491,6 +501,10 @@ func EmitStatement(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 			if node.Children[i] != nil {
 				// else-if: emit condition and start new if block
 				EmitExpression(buf, node.Children[i], localCtx)
+				// Convert I64 Bool conditions to I32 for WASM if instruction
+				if TypesEqual(node.Children[i].TypeAST, TypeBool) {
+					writeByte(buf, I32_WRAP_I64) // Convert I64 to I32
+				}
 				writeByte(buf, 0x04) // nested if opcode
 				writeByte(buf, 0x40) // block type: void
 
@@ -832,6 +846,15 @@ func EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 		writeByte(buf, I64_CONST)
 		writeLEB128Signed(buf, node.Integer)
 
+	case NodeBoolean:
+		// Emit boolean as I64 (0 for false, 1 for true)
+		writeByte(buf, I64_CONST)
+		if node.Boolean {
+			writeLEB128Signed(buf, 1)
+		} else {
+			writeLEB128Signed(buf, 0)
+		}
+
 	case NodeIdent:
 		// Variable reference - emit value
 		if node.Symbol == nil {
@@ -881,6 +904,11 @@ func EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 		opcode := getBinaryOpcode(node.Op)
 		writeByte(buf, opcode)
 
+		// Convert I32 comparison results to I64 for Bool compatibility
+		if isComparisonOp(node.Op) {
+			writeByte(buf, I64_EXTEND_I32_U) // Convert I32 to I64
+		}
+
 	case NodeCall:
 		// Function call
 		if len(node.Children) == 0 {
@@ -897,14 +925,8 @@ func EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 			arg := node.Children[1]
 			EmitExpressionR(buf, arg, localCtx)
 
-			// Convert i32 results to i64 for print
-			if arg.Kind == NodeBinary {
-				switch arg.Op {
-				case "==", "!=", "<", ">", "<=", ">=":
-					// Convert i32 comparison result to i64
-					writeByte(buf, I64_EXTEND_I32_U)
-				}
-			} else if arg.Kind == NodeUnary && arg.Op == "&" {
+			// Convert i32 address results to i64 for print
+			if arg.Kind == NodeUnary && arg.Op == "&" {
 				// Convert i32 address result to i64
 				writeByte(buf, I64_EXTEND_I32_U)
 			}
@@ -1663,6 +1685,8 @@ const (
 	SWITCH      = "SWITCH"
 	CASE        = "CASE"
 	DEFAULT     = "DEFAULT"
+	TRUE        = "TRUE"
+	FALSE       = "FALSE"
 	SELECT      = "SELECT"
 	GO          = "GO"
 	DEFER       = "DEFER"
@@ -1682,6 +1706,7 @@ const (
 	NodeIdent    NodeKind = "NodeIdent"
 	NodeString   NodeKind = "NodeString"
 	NodeInteger  NodeKind = "NodeInteger"
+	NodeBoolean  NodeKind = "NodeBoolean"
 	NodeBinary   NodeKind = "NodeBinary"
 	NodeIf       NodeKind = "NodeIf"
 	NodeVar      NodeKind = "NodeVar"
@@ -1705,6 +1730,8 @@ type ASTNode struct {
 	String string
 	// NodeInteger:
 	Integer int64
+	// NodeBoolean:
+	Boolean bool
 	// NodeBinary:
 	Op       string // "+", "-", "==", "!"
 	Children []*ASTNode
@@ -1737,7 +1764,7 @@ type TypeNode struct {
 	Kind TypeKind
 
 	// For TypeBuiltin, TypeStruct
-	String string // "I64", "Bool", name of struct
+	String string // "I64", "Boolean", name of struct
 
 	// For TypePointer
 	Child *TypeNode
@@ -1756,7 +1783,7 @@ type StructField struct {
 // Built-in types
 var (
 	TypeI64  = &TypeNode{Kind: TypeBuiltin, String: "I64"}
-	TypeBool = &TypeNode{Kind: TypeBuiltin, String: "Bool"}
+	TypeBool = &TypeNode{Kind: TypeBuiltin, String: "Boolean"}
 )
 
 // Type utility functions
@@ -1786,8 +1813,8 @@ func GetTypeSize(t *TypeNode) int {
 		switch t.String {
 		case "I64":
 			return 8
-		case "Bool":
-			return 1
+		case "Boolean":
+			return 8
 		default:
 			return 8 // default to 8 bytes
 		}
@@ -1824,7 +1851,7 @@ func getBuiltinType(name string) *TypeNode {
 	switch name {
 	case "I64":
 		return TypeI64
-	case "Bool":
+	case "Boolean":
 		return TypeBool
 	default:
 		return nil
@@ -1848,9 +1875,9 @@ func isWASMI64Type(t *TypeNode) bool {
 	}
 	switch t.Kind {
 	case TypeBuiltin:
-		// Only I64 and Bool are known to map to WASM I64
+		// Only I64 and Boolean are known to map to WASM I64
 		// Other types like "int", "string" are not supported in WASM generation
-		return t.String == "I64" || t.String == "Bool"
+		return t.String == "I64" || t.String == "Boolean"
 	case TypePointer:
 		return false // pointers are I32 in WASM
 	case TypeStruct:
@@ -1867,7 +1894,7 @@ func isWASMI32Type(t *TypeNode) bool {
 	}
 	switch t.Kind {
 	case TypeBuiltin:
-		return t.String == "Bool" // Boolean type maps to I32 in WASM
+		return false // Boolean type maps to I64 in WASM, not I32
 	case TypePointer:
 		return true // all pointers are I32 in WASM
 	case TypeStruct:
@@ -2428,6 +2455,10 @@ func CheckExpression(expr *ASTNode, tc *TypeChecker) error {
 	switch expr.Kind {
 	case NodeInteger:
 		expr.TypeAST = TypeI64
+		return nil
+
+	case NodeBoolean:
+		expr.TypeAST = TypeBool
 		return nil
 
 	case NodeIdent:
@@ -3129,6 +3160,10 @@ func NextToken() {
 				CurrTokenType = VAR
 			} else if lit == "loop" {
 				CurrTokenType = LOOP
+			} else if lit == "true" {
+				CurrTokenType = TRUE
+			} else if lit == "false" {
+				CurrTokenType = FALSE
 			} else {
 				CurrTokenType = IDENT
 			}
@@ -3238,6 +3273,12 @@ func ToSExpr(node *ASTNode) string {
 		return "(string \"" + node.String + "\")"
 	case NodeInteger:
 		return "(integer " + intToString(node.Integer) + ")"
+	case NodeBoolean:
+		if node.Boolean {
+			return "(boolean true)"
+		} else {
+			return "(boolean false)"
+		}
 	case NodeBinary:
 		left := ToSExpr(node.Children[0])
 		right := ToSExpr(node.Children[1])
@@ -3579,6 +3620,22 @@ func parsePrimary() *ASTNode {
 			Integer: CurrIntValue,
 		}
 		SkipToken(INT)
+		return node
+
+	case TRUE:
+		node := &ASTNode{
+			Kind:    NodeBoolean,
+			Boolean: true,
+		}
+		SkipToken(TRUE)
+		return node
+
+	case FALSE:
+		node := &ASTNode{
+			Kind:    NodeBoolean,
+			Boolean: false,
+		}
+		SkipToken(FALSE)
 		return node
 
 	case STRING:

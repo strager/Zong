@@ -21,7 +21,7 @@ func TestTypesEqual(t *testing.T) {
 		{
 			name:     "different builtin types",
 			a:        &TypeNode{Kind: TypeBuiltin, String: "I64"},
-			b:        &TypeNode{Kind: TypeBuiltin, String: "Bool"},
+			b:        &TypeNode{Kind: TypeBuiltin, String: "Boolean"},
 			expected: false,
 		},
 		{
@@ -39,7 +39,7 @@ func TestTypesEqual(t *testing.T) {
 		{
 			name:     "different pointer types",
 			a:        &TypeNode{Kind: TypePointer, Child: &TypeNode{Kind: TypeBuiltin, String: "I64"}},
-			b:        &TypeNode{Kind: TypePointer, Child: &TypeNode{Kind: TypeBuiltin, String: "Bool"}},
+			b:        &TypeNode{Kind: TypePointer, Child: &TypeNode{Kind: TypeBuiltin, String: "Boolean"}},
 			expected: false,
 		},
 		{
@@ -75,8 +75,8 @@ func TestIsWASMI64Type(t *testing.T) {
 			expected: true,
 		},
 		{
-			name:     "Bool builtin",
-			t:        &TypeNode{Kind: TypeBuiltin, String: "Bool"},
+			name:     "Boolean builtin",
+			t:        &TypeNode{Kind: TypeBuiltin, String: "Boolean"},
 			expected: true,
 		},
 		{
@@ -116,9 +116,9 @@ func TestGetTypeSize(t *testing.T) {
 			expected: 8,
 		},
 		{
-			name:     "Bool builtin",
-			t:        &TypeNode{Kind: TypeBuiltin, String: "Bool"},
-			expected: 1,
+			name:     "Boolean builtin",
+			t:        &TypeNode{Kind: TypeBuiltin, String: "Boolean"},
+			expected: 8,
 		},
 		{
 			name:     "unknown builtin defaults to 8",
@@ -152,9 +152,9 @@ func TestTypeToString(t *testing.T) {
 			expected: "I64",
 		},
 		{
-			name:     "Bool builtin",
-			t:        &TypeNode{Kind: TypeBuiltin, String: "Bool"},
-			expected: "Bool",
+			name:     "Boolean builtin",
+			t:        &TypeNode{Kind: TypeBuiltin, String: "Boolean"},
+			expected: "Boolean",
 		},
 		{
 			name:     "pointer to I64",
@@ -162,9 +162,9 @@ func TestTypeToString(t *testing.T) {
 			expected: "I64*",
 		},
 		{
-			name:     "pointer to Bool",
-			t:        &TypeNode{Kind: TypePointer, Child: &TypeNode{Kind: TypeBuiltin, String: "Bool"}},
-			expected: "Bool*",
+			name:     "pointer to Boolean",
+			t:        &TypeNode{Kind: TypePointer, Child: &TypeNode{Kind: TypeBuiltin, String: "Boolean"}},
+			expected: "Boolean*",
 		},
 		{
 			name:     "pointer to pointer",

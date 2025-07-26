@@ -196,7 +196,7 @@ func TestParseUnaryNot(t *testing.T) {
 		expected string
 	}{
 		{"!x\x00", "(unary \"!\" (ident \"x\"))"},
-		{"!true\x00", "(unary \"!\" (ident \"true\"))"},
+		{"!true\x00", "(unary \"!\" (boolean true))"},
 		{"!!x\x00", "(unary \"!\" (unary \"!\" (ident \"x\")))"},
 		{"!(x == y)\x00", "(unary \"!\" (binary \"==\" (ident \"x\") (ident \"y\")))"},
 	}
@@ -221,7 +221,7 @@ func TestParseComplexExpressionsCombined(t *testing.T) {
 		// TODO: Fix parsing complex expressions in named parameters
 		// {"func(a: 1 + 2)\x00", "(call (ident \"func\") \"a\" (binary \"+\" (integer 1) (integer 2)))"},
 		{"x[y] + z\x00", "(binary \"+\" (idx (ident \"x\") (ident \"y\")) (ident \"z\"))"},
-		{"!f() == true\x00", "(binary \"==\" (unary \"!\" (call (ident \"f\"))) (ident \"true\"))"},
+		{"!f() == true\x00", "(binary \"==\" (unary \"!\" (call (ident \"f\"))) (boolean true))"},
 	}
 
 	for _, test := range tests {

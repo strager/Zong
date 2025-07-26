@@ -332,7 +332,7 @@ func TestVarTypeAST(t *testing.T) {
 			expectedType: TypeI64,
 		},
 		{
-			input:        "var flag Bool;\x00",
+			input:        "var flag Boolean;\x00",
 			expectedType: TypeBool,
 		},
 		{
@@ -344,7 +344,7 @@ func TestVarTypeAST(t *testing.T) {
 			expectedType: &TypeNode{Kind: TypePointer, Child: &TypeNode{Kind: TypePointer, Child: TypeI64}},
 		},
 		{
-			input:        "var boolPtr Bool*;\x00",
+			input:        "var boolPtr Boolean*;\x00",
 			expectedType: &TypeNode{Kind: TypePointer, Child: TypeBool},
 		},
 	}
@@ -386,7 +386,7 @@ func TestTypeUtilityFunctions(t *testing.T) {
 
 	boolPtr := &TypeNode{Kind: TypePointer, Child: TypeBool}
 	if TypesEqual(i64Ptr, boolPtr) {
-		t.Error("I64* and Bool* should not be equal")
+		t.Error("I64* and Boolean* should not be equal")
 	}
 
 	// Test TypeToString
@@ -400,7 +400,7 @@ func TestTypeUtilityFunctions(t *testing.T) {
 	// Test GetTypeSize
 	be.Equal(t, 8, GetTypeSize(TypeI64))
 
-	be.Equal(t, 1, GetTypeSize(TypeBool))
+	be.Equal(t, 8, GetTypeSize(TypeBool))
 
 	be.Equal(t, 8, GetTypeSize(i64Ptr))
 
@@ -410,7 +410,7 @@ func TestTypeUtilityFunctions(t *testing.T) {
 	}
 
 	if !isWASMI64Type(TypeBool) {
-		t.Error("Bool should be a WASM I64 type")
+		t.Error("Boolean should be a WASM I64 type")
 	}
 
 	if !isWASMI32Type(i64Ptr) {
