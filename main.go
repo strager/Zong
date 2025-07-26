@@ -32,6 +32,10 @@ type LocalContext struct {
 	I64LocalCount     uint32
 	FramePointerIndex uint32
 	FrameSize         uint32
+
+	// Loop context
+	InLoop       bool // Track if we're inside a loop for break/continue validation
+	ControlDepth int  // Track nesting depth of control structures (if, etc.) for branch calculation
 }
 
 // WASM Binary Encoding Utilities
@@ -95,6 +99,9 @@ const (
 	LOCAL_TEE        = 0x22
 	CALL             = 0x10
 	END              = 0x0B
+	WASM_BLOCK       = 0x02
+	WASM_LOOP        = 0x03
+	WASM_BR          = 0x0C
 )
 
 // WASM Section Emitters
@@ -470,6 +477,8 @@ func EmitStatement(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 		writeByte(buf, 0x04) // if opcode
 		writeByte(buf, 0x40) // block type: void
 
+		// Increment control depth for entire if statement
+		localCtx.ControlDepth++
 		// Emit then block
 		EmitStatement(buf, node.Children[1], localCtx)
 
@@ -506,9 +515,61 @@ func EmitStatement(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 			writeByte(buf, 0x0B) // end opcode
 		}
 
+		// Decrement control depth for entire if statement
+		localCtx.ControlDepth--
+
 	case NodeBinary:
 		// Handle binary operations (mainly assignments)
 		EmitExpression(buf, node, localCtx)
+
+	case NodeLoop:
+		// Save previous loop state and mark that we're in a loop
+		prevInLoop := localCtx.InLoop
+		localCtx.InLoop = true
+
+		// Emit WASM: block (for break - outer block)
+		writeByte(buf, WASM_BLOCK) // block opcode
+		writeByte(buf, 0x40)       // void type
+
+		// Emit WASM: loop (for continue - inner loop)
+		writeByte(buf, WASM_LOOP) // loop opcode
+		writeByte(buf, 0x40)      // void type
+
+		// Emit loop body
+		for _, stmt := range node.Children {
+			EmitStatement(buf, stmt, localCtx)
+		}
+
+		// Emit branch back to loop start (this makes it an infinite loop until break)
+		writeByte(buf, WASM_BR) // br opcode
+		writeLEB128(buf, 0)     // branch depth 0 (back to loop start)
+
+		// Emit WASM: end (loop)
+		writeByte(buf, END) // end opcode
+
+		// Emit WASM: end (block)
+		writeByte(buf, END) // end opcode
+
+		// Restore previous loop state
+		localCtx.InLoop = prevInLoop
+
+	case NodeBreak:
+		if !localCtx.InLoop {
+			panic("break statement outside of loop")
+		}
+
+		// Emit WASM: br N (break to outer block, accounting for nested control structures)
+		writeByte(buf, WASM_BR)                           // br opcode
+		writeLEB128(buf, uint32(1+localCtx.ControlDepth)) // branch depth (outer block + nesting)
+
+	case NodeContinue:
+		if !localCtx.InLoop {
+			panic("continue statement outside of loop")
+		}
+
+		// Emit WASM: br N (continue to inner loop, accounting for nested control structures)
+		writeByte(buf, WASM_BR)                           // br opcode
+		writeLEB128(buf, uint32(0+localCtx.ControlDepth)) // branch depth (inner loop + nesting)
 
 	default:
 		// For now, treat unknown statements as expressions
@@ -1849,6 +1910,19 @@ type SymbolTable struct {
 type TypeChecker struct {
 	errors      []string
 	symbolTable *SymbolTable
+	LoopDepth   int // Track loop nesting for break/continue validation
+}
+
+func (tc *TypeChecker) EnterLoop() {
+	tc.LoopDepth++
+}
+
+func (tc *TypeChecker) ExitLoop() {
+	tc.LoopDepth--
+}
+
+func (tc *TypeChecker) InLoop() bool {
+	return tc.LoopDepth > 0
 }
 
 // NewSymbolTable creates a new empty symbol table
@@ -2314,6 +2388,31 @@ func CheckStatement(stmt *ASTNode, tc *TypeChecker) error {
 
 			i += 2
 		}
+
+	case NodeLoop:
+		// Check all statements in loop body
+		tc.EnterLoop()
+		for _, stmt := range stmt.Children {
+			err := CheckStatement(stmt, tc)
+			if err != nil {
+				tc.ExitLoop()
+				return err
+			}
+		}
+		tc.ExitLoop()
+		return nil
+
+	case NodeBreak:
+		if !tc.InLoop() {
+			return fmt.Errorf("error: break statement outside of loop")
+		}
+		return nil
+
+	case NodeContinue:
+		if !tc.InLoop() {
+			return fmt.Errorf("error: continue statement outside of loop")
+		}
+		return nil
 
 	default:
 		// Other statement types are valid for now

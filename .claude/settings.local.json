@@ -15,7 +15,9 @@
       "Bash(find:*)",
       "Bash(grep:*)",
       "Bash(awk:*)",
-      "Bash(sed:*)"
+      "Bash(sed:*)",
+      "WebFetch(domain:pengowray.github.io)",
+      "Bash(timeout 10s go test -run TestBasicLoop)"
     ],
     "deny": []
   }
