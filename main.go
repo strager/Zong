@@ -551,93 +551,30 @@ func getFinalFieldType(node *ASTNode) *TypeNode {
 	panic("Field not found in struct: " + fieldName)
 }
 
-func emitFieldAddressRecursive(buf *bytes.Buffer, fieldExpr *ASTNode, localCtx *LocalContext) {
-	if fieldExpr.Kind != NodeDot {
-		panic("Expected NodeDot for field address emission")
-	}
-
-	baseExpr := fieldExpr.Children[0]
-	fieldName := fieldExpr.FieldName
-
-	// Determine struct type and get field info
+// getFieldOffset returns the byte offset of a field within a struct
+func getFieldOffset(baseType *TypeNode, fieldName string) uint32 {
+	// Get the struct type
 	var structType *TypeNode
-	if baseExpr.TypeAST.Kind == TypeStruct {
-		structType = baseExpr.TypeAST
-	} else if baseExpr.TypeAST.Kind == TypePointer && baseExpr.TypeAST.Child.Kind == TypeStruct {
-		structType = baseExpr.TypeAST.Child
-	} else {
-		panic("Field access on non-struct type")
+	if baseType == nil {
+		panic("Base expression has no type information")
 	}
 
-	// Find field offset
-	var fieldOffset uint32
-	found := false
+	if baseType.Kind == TypeStruct {
+		structType = baseType
+	} else if baseType.Kind == TypePointer && baseType.Child.Kind == TypeStruct {
+		structType = baseType.Child
+	} else {
+		panic("Field access on non-struct type: " + TypeToString(baseType))
+	}
+
+	// Find the field offset
 	for _, field := range structType.Fields {
 		if field.Name == fieldName {
-			fieldOffset = field.Offset
-			found = true
-			break
+			return field.Offset
 		}
 	}
-	if !found {
-		panic("Field not found in struct: " + fieldName)
-	}
 
-	// Generate base address
-	if baseExpr.Kind == NodeIdent && baseExpr.Symbol != nil {
-		// Variable field access
-		targetLocal := localCtx.FindVariable(baseExpr.Symbol)
-		if targetLocal == nil {
-			panic("Variable not found in local context: " + baseExpr.String)
-		}
-		emitStructFieldAddress(buf, targetLocal, fieldOffset, localCtx)
-	} else if baseExpr.Kind == NodeDot {
-		// Chained field access - recurse
-		emitFieldAddressRecursive(buf, baseExpr, localCtx)
-
-		// Add field offset if needed
-		if fieldOffset > 0 {
-			writeByte(buf, I32_CONST)
-			writeLEB128Signed(buf, int64(fieldOffset))
-			writeByte(buf, I32_ADD)
-		}
-	} else {
-		// Other expressions (function calls, etc.)
-		EmitExpression(buf, baseExpr, localCtx)
-
-		// Add field offset if needed
-		if fieldOffset > 0 {
-			writeByte(buf, I32_CONST)
-			writeLEB128Signed(buf, int64(fieldOffset))
-			writeByte(buf, I32_ADD)
-		}
-	}
-}
-
-// Emit WASM code to calculate struct field address and leave it on stack
-func emitStructFieldAddress(buf *bytes.Buffer, targetLocal *LocalVarInfo, fieldOffset uint32, localCtx *LocalContext) {
-	if targetLocal.Storage == VarStorageParameterLocal {
-		// Struct parameter - load pointer from parameter
-		writeByte(buf, LOCAL_GET)
-		writeLEB128(buf, targetLocal.Address)
-
-		if fieldOffset > 0 {
-			writeByte(buf, I32_CONST)
-			writeLEB128Signed(buf, int64(fieldOffset))
-			writeByte(buf, I32_ADD)
-		}
-	} else {
-		// Local struct variable - calculate from frame pointer
-		writeByte(buf, LOCAL_GET)
-		writeLEB128(buf, localCtx.FramePointerIndex)
-
-		totalOffset := targetLocal.Address + fieldOffset
-		if totalOffset > 0 {
-			writeByte(buf, I32_CONST)
-			writeLEB128Signed(buf, int64(totalOffset))
-			writeByte(buf, I32_ADD)
-		}
-	}
+	panic("Field not found in struct: " + fieldName)
 }
 
 func EmitExpression(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
@@ -720,7 +657,13 @@ func EmitExpressionL(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 			panic("Variable not found in local context: " + node.String)
 		}
 
-		if targetLocal.Storage == VarStorageLocal || targetLocal.Storage == VarStorageParameterLocal {
+		if targetLocal.Storage == VarStorageParameterLocal &&
+			targetLocal.Symbol.Type.Kind == TypePointer &&
+			targetLocal.Symbol.Type.Child.Kind == TypeStruct {
+			// Struct parameter - it's stored as a pointer, so just load the pointer and add offset
+			writeByte(buf, LOCAL_GET)
+			writeLEB128(buf, targetLocal.Address)
+		} else if targetLocal.Storage == VarStorageLocal || targetLocal.Storage == VarStorageParameterLocal {
 			// Local variable - can't take address of WASM local
 			panic("Cannot take address of local variable: " + node.String)
 		} else {
@@ -746,10 +689,29 @@ func EmitExpressionL(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 
 	case NodeDot:
 		// Field access - emit field address
-		emitFieldAddressRecursive(buf, node, localCtx)
+		baseExpr := node.Children[0]
+		fieldName := node.FieldName
+
+		EmitExpressionL(buf, baseExpr, localCtx)
+
+		// Calculate and add field offset
+		fieldOffset := getFieldOffset(baseExpr.TypeAST, fieldName)
+		if fieldOffset > 0 {
+			writeByte(buf, I32_CONST)
+			writeLEB128Signed(buf, int64(fieldOffset))
+			writeByte(buf, I32_ADD)
+		}
 
 	default:
 		// For any other expression (rvalue), create a temporary on tstack
+		// Check if this is a struct-returning function call
+		if node.Kind == NodeCall && node.TypeAST != nil && node.TypeAST.Kind == TypeStruct {
+			// Function call returning struct - it already returns the correct address
+			EmitExpressionR(buf, node, localCtx)
+			return
+		}
+
+		// For other rvalues, create a temporary on tstack
 		// Save current tstack pointer - this will be the address we return
 		writeByte(buf, GLOBAL_GET)
 		writeLEB128(buf, 0) // tstack global index
@@ -758,23 +720,44 @@ func EmitExpressionL(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 		EmitExpressionR(buf, node, localCtx)
 		// Stack: [tstack_addr, value]
 
-		// Store the value to tstack
-		writeByte(buf, I64_STORE)
-		writeByte(buf, 0x03) // alignment (8 bytes = 2^3)
-		writeByte(buf, 0x00) // offset
+		// Store the value to tstack based on its type
+		if node.TypeAST != nil && node.TypeAST.Kind == TypePointer {
+			// Store pointer as i32
+			writeByte(buf, I32_STORE)
+			writeByte(buf, 0x02) // alignment (4 bytes = 2^2)
+			writeByte(buf, 0x00) // offset
 
-		// Get the address again (where we just stored the value)
-		writeByte(buf, GLOBAL_GET)
-		writeLEB128(buf, 0) // tstack global index (current position)
+			// Get the address again (where we just stored the value)
+			writeByte(buf, GLOBAL_GET)
+			writeLEB128(buf, 0) // tstack global index (current position)
 
-		// Update tstack pointer (advance by 8 bytes for I64)
-		writeByte(buf, GLOBAL_GET)
-		writeLEB128(buf, 0) // tstack global index
-		writeByte(buf, I32_CONST)
-		writeLEB128(buf, 8) // I64 size
-		writeByte(buf, I32_ADD)
-		writeByte(buf, GLOBAL_SET)
-		writeLEB128(buf, 0) // tstack global index
+			// Update tstack pointer (advance by 4 bytes for I32)
+			writeByte(buf, GLOBAL_GET)
+			writeLEB128(buf, 0) // tstack global index
+			writeByte(buf, I32_CONST)
+			writeLEB128(buf, 4) // I32 size
+			writeByte(buf, I32_ADD)
+			writeByte(buf, GLOBAL_SET)
+			writeLEB128(buf, 0) // tstack global index
+		} else {
+			// Store regular value as i64
+			writeByte(buf, I64_STORE)
+			writeByte(buf, 0x03) // alignment (8 bytes = 2^3)
+			writeByte(buf, 0x00) // offset
+
+			// Get the address again (where we just stored the value)
+			writeByte(buf, GLOBAL_GET)
+			writeLEB128(buf, 0) // tstack global index (current position)
+
+			// Update tstack pointer (advance by 8 bytes for I64)
+			writeByte(buf, GLOBAL_GET)
+			writeLEB128(buf, 0) // tstack global index
+			writeByte(buf, I32_CONST)
+			writeLEB128(buf, 8) // I64 size
+			writeByte(buf, I32_ADD)
+			writeByte(buf, GLOBAL_SET)
+			writeLEB128(buf, 0) // tstack global index
+		}
 
 		// Stack now has the address where we stored the value
 	}
@@ -940,8 +923,8 @@ func EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 		}
 
 	case NodeDot:
-		// Generate field address using the recursive function
-		emitFieldAddressRecursive(buf, node, localCtx)
+		// Generate field address using EmitExpressionL
+		EmitExpressionL(buf, node, localCtx)
 
 		// Get the final field type to determine how to load it
 		finalFieldType := getFinalFieldType(node)
