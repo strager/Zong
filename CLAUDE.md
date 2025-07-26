@@ -13,11 +13,6 @@ Zong is an experimental programming language implemented in Go that compiles to 
 go test
 ```
 
-### Building
-```bash
-go build
-```
-
 ### Running Single Tests
 ```bash
 go test -run TestFunctionName
@@ -27,6 +22,12 @@ go test -run TestFunctionName
 ```bash
 cd wasmruntime
 cargo build --release
+```
+
+### Compiling a program and running it
+```bash
+go run . 'print(42);'
+./wasmruntime/target/release/wasmruntime test.wasm
 ```
 
 ## Code Style
@@ -46,29 +47,15 @@ func be.True(tb testing.TB, got bool)
 - **Lexer**: Global state lexer in main.go with `Init()` and `NextToken()`
 - **Parser**: Precedence climbing parser with `ParseExpression()` and `ParseStatement()`
 - **Type System**: `TypeNode` structures with support for I64, structs, and pointers
-- **Compiler**: Dual compilation paths (legacy and function-based) that both use unified `LocalContext`
+- **Compiler**: Compiles typed, symbolified AST to WebAssembly
 - **Runtime**: Rust-based WASM executor in `wasmruntime/` directory
 
 ### Key Types
 
-```go
-type LocalContext struct {
-    Variables         []LocalVarInfo
-    ParameterCount    uint32
-    I32LocalCount     uint32
-    I64LocalCount     uint32
-    FramePointerIndex uint32
-    FrameSize         uint32
-    IsLegacyMode      bool
-}
-
-type LocalVarInfo struct {
-    Name    string
-    Type    *TypeNode
-    Storage VarStorage  // VarStorageLocal, VarStorageParameterLocal, VarStorageTStack
-    Address uint32
-}
-```
+- `ASTNode`
+- `TypeNode`
+- `LocalContext`
+- `LocalVarInfo`
 
 ### Memory Management
 
@@ -100,6 +87,7 @@ func main() {
 
 ### Supported Types
 - **I64**: 64-bit signed integers
+- **Boolean**: `true` or `false`
 - **Structs**: User-defined composite types
 - **Pointers**: Address-of (`&`) and dereference (`*`) operations
 
