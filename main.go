@@ -365,9 +365,6 @@ func wasmTypeByte(typeNode *TypeNode) byte {
 	if typeNode.Kind == TypeStruct {
 		return 0x7F // i32 (struct parameters are passed as pointers)
 	}
-	if typeNode.Kind == TypeSlice {
-		return 0x7F // i32 (slice parameters are passed as pointers to slice struct)
-	}
 	panic("Unsupported type for WASM: " + TypeToString(typeNode))
 }
 
@@ -387,10 +384,6 @@ func wasmTypeString(typeNode *TypeNode) string {
 	}
 	if typeNode.Kind == TypeStruct {
 		// Struct parameters are passed as i32 pointers in WASM
-		return "i32"
-	}
-	if typeNode.Kind == TypeSlice {
-		// Slice parameters are passed as i32 pointers to slice struct in WASM
 		return "i32"
 	}
 	panic("Unsupported type for WASM: " + TypeToString(typeNode))
@@ -534,8 +527,24 @@ func emitAppendFunctionBody(buf *bytes.Buffer, fn *ASTNode) {
 	// Determine element type from the function parameters
 	slicePtrParam := fn.Parameters[0] // slice_ptr: T[]*
 
-	sliceType := slicePtrParam.Type.Child // T[]
-	elementType := sliceType.Child        // T
+	sliceType := slicePtrParam.Type.Child // T[] (or struct after transformation)
+
+	// Get element type - handle both original slice and transformed struct
+	var elementType *TypeNode
+	if sliceType.Kind == TypeSlice {
+		// Before transformation
+		elementType = sliceType.Child
+	} else if sliceType.Kind == TypeStruct {
+		// After transformation - get element type from items field
+		for _, field := range sliceType.Fields {
+			if field.Name == "items" {
+				// items field is TypePointer with Child as element type
+				elementType = field.Type.Child
+				break
+			}
+		}
+	}
+
 	elementSize := uint32(GetTypeSize(elementType))
 
 	var bodyBuf bytes.Buffer
@@ -885,8 +894,6 @@ func getFinalFieldType(node *ASTNode) *TypeNode {
 		structType = baseType
 	} else if baseType.Kind == TypePointer && baseType.Child.Kind == TypeStruct {
 		structType = baseType.Child
-	} else if baseType.Kind == TypeSlice {
-		structType = synthesizeSliceStruct(baseType)
 	} else {
 		panic("Field access on non-struct type: " + TypeToString(baseType))
 	}
@@ -913,8 +920,6 @@ func getFieldOffset(baseType *TypeNode, fieldName string) uint32 {
 		structType = baseType
 	} else if baseType.Kind == TypePointer && baseType.Child.Kind == TypeStruct {
 		structType = baseType.Child
-	} else if baseType.Kind == TypeSlice {
-		structType = synthesizeSliceStruct(baseType)
 	} else {
 		panic("Field access on non-struct type: " + TypeToString(baseType))
 	}
@@ -984,16 +989,6 @@ func emitValueStoreToMemory(buf *bytes.Buffer, ty *TypeNode) {
 		structSize := uint32(GetTypeSize(ty))
 		writeByte(buf, I32_CONST)
 		writeLEB128(buf, structSize)
-		// Stack: [dst_addr, src_addr, size]
-		writeByte(buf, 0xFC) // Multi-byte instruction prefix
-		writeLEB128(buf, 10) // memory.copy opcode
-		writeByte(buf, 0x00) // dst memory index (0)
-		writeByte(buf, 0x00) // src memory index (0)
-	case TypeSlice:
-		// Slice assignment (copy) using memory.copy
-		sliceSize := uint32(GetTypeSize(ty)) // 16 bytes
-		writeByte(buf, I32_CONST)
-		writeLEB128(buf, sliceSize)
 		// Stack: [dst_addr, src_addr, size]
 		writeByte(buf, 0xFC) // Multi-byte instruction prefix
 		writeLEB128(buf, 10) // memory.copy opcode
@@ -1329,7 +1324,23 @@ func EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 
 			// Get slice type to determine which append function to call
 			sliceType := slicePtrArg.TypeAST.Child // Slice type from pointer to slice
-			elementType := sliceType.Child
+
+			// After transformation, sliceType is a struct with an "items" field
+			var elementType *TypeNode
+			if sliceType.Kind == TypeSlice {
+				// Before transformation
+				elementType = sliceType.Child
+			} else if sliceType.Kind == TypeStruct {
+				// After transformation - get element type from items field
+				for _, field := range sliceType.Fields {
+					if field.Name == "items" {
+						// items field is TypePointer with Child as element type
+						elementType = field.Type.Child
+						break
+					}
+				}
+			}
+
 			appendFunctionName := "append_" + sanitizeTypeName(TypeToString(elementType))
 
 			// Emit arguments
@@ -1586,19 +1597,22 @@ func CompileToWASM(ast *ASTNode) []byte {
 	// Extract functions from the program first
 	functions := extractFunctions(ast)
 
-	// Perform type checking
+	// Perform type checking with original slice types
 	err := CheckProgram(ast, symbolTable)
 	if err != nil {
 		panic(err.Error())
 	}
 
-	// Initialize globals for slice type collection
+	// Initialize globals for slice type collection before transformation
 	globalSliceTypes = make(map[string]*TypeNode)
 	generatedAppendFunctions = []*ASTNode{}
 
-	// Collect slice types and generate append functions
+	// Collect slice types before transformation (when they're still slice types)
 	collectSliceTypes(ast)
 	generateAllAppendFunctions()
+
+	// Apply slice-to-struct transformation pass after type checking and slice collection
+	transformSlicesToStructs(ast, symbolTable)
 
 	// Add generated append functions to the functions list
 	functions = append(functions, generatedAppendFunctions...)
@@ -1804,22 +1818,6 @@ func (ctx *LocalContext) collectBodyVariables(node *ASTNode, symbolTable *Symbol
 					Address: frameOffset,
 				})
 				frameOffset += structSize
-			} else if resolvedType.Kind == TypeSlice {
-				// Slice variables are stored on tstack like structs (they are synthesized structs)
-				sliceSize := uint32(GetTypeSize(resolvedType)) // 16 bytes (8-byte pointer + 8-byte length)
-
-				// Look up the variable in the symbol table
-				symbol := symbolTable.LookupVariable(varName)
-				if symbol == nil {
-					panic("Variable not found in symbol table: " + varName)
-				}
-
-				ctx.Variables = append(ctx.Variables, LocalVarInfo{
-					Symbol:  symbol,
-					Storage: VarStorageTStack,
-					Address: frameOffset,
-				})
-				frameOffset += sliceSize
 			}
 
 		case NodeUnary:
@@ -2014,23 +2012,6 @@ func collectLocalVariables(node *ASTNode) ([]LocalVarInfo, uint32) {
 					Address: frameOffset,
 				})
 				frameOffset += structSize
-			} else if resolvedType.Kind == TypeSlice {
-				// Slice variables are stored on tstack like structs (they are synthesized structs)
-				sliceSize := uint32(GetTypeSize(resolvedType)) // 16 bytes (8-byte pointer + 8-byte length)
-
-				// Create a temporary SymbolInfo for testing purposes
-				symbol := &SymbolInfo{
-					Name:     varName,
-					Type:     resolvedType,
-					Assigned: false,
-				}
-
-				locals = append(locals, LocalVarInfo{
-					Symbol:  symbol,
-					Storage: VarStorageTStack,
-					Address: frameOffset,
-				})
-				frameOffset += sliceSize
 			}
 
 		case NodeUnary:
@@ -2452,6 +2433,9 @@ func GetTypeSize(t *TypeNode) int {
 
 // TypeToString converts TypeNode to string for display/debugging
 func TypeToString(t *TypeNode) string {
+	if t == nil {
+		return "<nil type>"
+	}
 	switch t.Kind {
 	case TypeBuiltin:
 		return t.String
@@ -2777,6 +2761,88 @@ func synthesizeSliceStruct(sliceType *TypeNode) *TypeNode {
 		Kind:   TypeStruct,
 		String: sliceName,
 		Fields: fields,
+	}
+}
+
+// transformSlicesToStructs converts all slice types to struct types throughout the AST and symbol table
+func transformSlicesToStructs(ast *ASTNode, symbolTable *SymbolTable) {
+	// Transform types in symbol table
+	for _, symbol := range symbolTable.variables {
+		transformTypeNodeSlices(symbol.Type)
+	}
+	for _, structDef := range symbolTable.structs {
+		for i := range structDef.Fields {
+			transformTypeNodeSlices(structDef.Fields[i].Type)
+		}
+	}
+	for _, funcDef := range symbolTable.functions {
+		transformTypeNodeSlices(funcDef.ReturnType)
+		for i := range funcDef.Parameters {
+			transformTypeNodeSlices(funcDef.Parameters[i].Type)
+		}
+	}
+
+	// Transform TypeAST nodes in the AST
+	transformASTSlices(ast)
+}
+
+// transformTypeNodeSlices recursively converts slice types to struct types in a TypeNode tree
+func transformTypeNodeSlices(typeNode *TypeNode) {
+	if typeNode == nil {
+		return
+	}
+
+	switch typeNode.Kind {
+	case TypeSlice:
+		// First, recursively transform the child type
+		transformTypeNodeSlices(typeNode.Child)
+
+		// Convert slice to its synthesized struct representation
+		elementType := typeNode.Child
+		sliceName := TypeToString(typeNode)
+
+		// Create the internal struct: { var items ElementType*; var length I64; }
+		fields := []StructField{
+			{
+				Name:   "items",
+				Type:   &TypeNode{Kind: TypePointer, Child: elementType},
+				Offset: 0,
+			},
+			{
+				Name:   "length",
+				Type:   TypeI64,
+				Offset: 8, // pointer is 8 bytes
+			},
+		}
+
+		// Update the typeNode in-place to become a struct
+		typeNode.Kind = TypeStruct
+		typeNode.String = sliceName
+		typeNode.Fields = fields
+		typeNode.Child = nil // Clear the Child since it's now a struct
+	case TypePointer:
+		transformTypeNodeSlices(typeNode.Child)
+	case TypeStruct:
+		for i := range typeNode.Fields {
+			transformTypeNodeSlices(typeNode.Fields[i].Type)
+		}
+	}
+}
+
+// transformASTSlices recursively converts slice types to struct types in TypeAST fields
+func transformASTSlices(node *ASTNode) {
+	if node == nil {
+		return
+	}
+
+	// Transform TypeAST if present
+	if node.TypeAST != nil {
+		transformTypeNodeSlices(node.TypeAST)
+	}
+
+	// Recursively transform children
+	for _, child := range node.Children {
+		transformASTSlices(child)
 	}
 }
 
@@ -3591,7 +3657,7 @@ func CheckExpression(expr *ASTNode, tc *TypeChecker) error {
 		// Get base type from the type-checked child
 		baseType := expr.Children[0].TypeAST
 
-		// Handle direct struct, pointer-to-struct, and slice access
+		// Handle direct struct, pointer-to-struct, slice, and pointer-to-slice access
 		var structType *TypeNode
 		if baseType.Kind == TypeStruct {
 			// Direct struct access
@@ -3602,6 +3668,9 @@ func CheckExpression(expr *ASTNode, tc *TypeChecker) error {
 		} else if baseType.Kind == TypeSlice {
 			// Slice access - synthesize the internal struct representation
 			structType = synthesizeSliceStruct(baseType)
+		} else if baseType.Kind == TypePointer && baseType.Child.Kind == TypeSlice {
+			// Pointer-to-slice access (slice parameters)
+			structType = synthesizeSliceStruct(baseType.Child)
 		} else {
 			return fmt.Errorf("error: cannot access field of non-struct type %s", TypeToString(baseType))
 		}
@@ -3694,13 +3763,20 @@ func CheckExpression(expr *ASTNode, tc *TypeChecker) error {
 			}
 		}
 
-		// Base must be a slice type
-		if baseType.Kind != TypeSlice {
+		// Base must be a slice type or pointer-to-slice (for function parameters)
+		var elementType *TypeNode
+		if baseType.Kind == TypeSlice {
+			// Direct slice access
+			elementType = baseType.Child
+		} else if baseType.Kind == TypePointer && baseType.Child.Kind == TypeSlice {
+			// Pointer-to-slice access (slice parameters)
+			elementType = baseType.Child.Child
+		} else {
 			return fmt.Errorf("error: cannot subscript non-slice type %s", TypeToString(baseType))
 		}
 
 		// Return the element type of the slice
-		expr.TypeAST = baseType.Child
+		expr.TypeAST = elementType
 		return nil
 
 	default:
@@ -3844,6 +3920,10 @@ func validateFunctionCall(callExpr *ASTNode, function *FunctionInfo, tc *TypeChe
 				actualType.Kind == TypeStruct &&
 				TypesEqual(actualType, expectedType.Child) {
 				// This is allowed: passing struct S to parameter S* (copy semantics)
+			} else if expectedType.Kind == TypePointer && expectedType.Child.Kind == TypeSlice &&
+				actualType.Kind == TypeSlice &&
+				TypesEqual(actualType, expectedType.Child) {
+				// This is allowed: passing slice T[] to parameter T[]* (copy semantics)
 			} else {
 				return fmt.Errorf("error: argument %d type mismatch: expected %s, got %s",
 					i+1, TypeToString(expectedType), TypeToString(actualType))
@@ -5105,9 +5185,9 @@ func parseFunctionDeclaration() *ASTNode {
 			panic("Expected parameter type")
 		}
 
-		// Convert struct parameters to pointer types (per Phase 3 spec)
+		// Convert struct and slice parameters to pointer types (per Phase 3 spec)
 		finalParamType := paramType
-		if paramType.Kind == TypeStruct {
+		if paramType.Kind == TypeStruct || paramType.Kind == TypeSlice {
 			finalParamType = &TypeNode{
 				Kind:  TypePointer,
 				Child: paramType,

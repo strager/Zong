@@ -492,7 +492,7 @@ func TestLengthIncrementBug(t *testing.T) {
 		append(nums&, 10);
 		print(nums.length); // Should be 1
 		append(nums&, 20);
-		print(nums.length); // Should be 2, but currently prints 1 (BUG!)
+		print(nums.length); // Should be 2
 	}`
 
 	input := []byte(source + "\x00")
@@ -506,4 +506,38 @@ func TestLengthIncrementBug(t *testing.T) {
 
 	// Fixed! Length now increments correctly
 	be.Equal(t, output, "1\n2\n") // Length properly increments
+}
+
+func TestSliceFunctionParameter(t *testing.T) {
+	source := `
+	func len(_ xs: I64[]): I64 {
+		return xs.length
+	}
+	func first(_ ys: I64[]): I64 {
+		return ys[0];
+	}
+	func edit_first(_ zs: I64[]): I64 {
+		zs[0] = 30;
+		return 0;
+	}
+	func main() {
+		var nums I64[];
+		append(nums&, 10);
+		append(nums&, 20);
+		print(len(nums));        // 2
+		print(first(nums));      // 10
+		print(edit_first(nums)); // 0
+		print(nums[0]);          // 30
+	}`
+
+	input := []byte(source + "\x00")
+	Init(input)
+	NextToken()
+	ast := ParseProgram()
+
+	wasmBytes := CompileToWASM(ast)
+	output, err := executeWasm(t, wasmBytes)
+	be.Err(t, err, nil)
+
+	be.Equal(t, output, "2\n10\n0\n30\n")
 }
