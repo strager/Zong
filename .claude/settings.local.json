@@ -17,7 +17,8 @@
       "Bash(awk:*)",
       "Bash(sed:*)",
       "WebFetch(domain:pengowray.github.io)",
-      "Bash(timeout 10s go test -run TestBasicLoop)"
+      "Bash(timeout 10s go test -run TestBasicLoop)",
+      "Bash(./wasmruntime/target/release/wasmruntime:*)"
     ],
     "deny": []
   }

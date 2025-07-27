@@ -843,8 +843,8 @@ func EmitExpression(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 			}
 		} else {
 			// Check if LHS is a valid assignment target
-			if lhs.Kind != NodeUnary && lhs.Kind != NodeDot {
-				panic("Invalid assignment target - must be variable, field access, or pointer dereference")
+			if lhs.Kind != NodeUnary && lhs.Kind != NodeDot && lhs.Kind != NodeIndex {
+				panic("Invalid assignment target - must be variable, field access, pointer dereference, or slice index")
 			}
 		}
 
@@ -1286,6 +1286,9 @@ func EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 			writeByte(buf, I32_LOAD) // Load i32 from memory
 			writeByte(buf, 0x02)     // alignment (4 bytes = 2^2)
 			writeByte(buf, 0x00)     // offset
+		} else if elementType.Kind == TypeStruct {
+			// For struct types, return the address (already computed by EmitExpressionL)
+			// The address is already on the stack, no additional load needed
 		} else {
 			panic("Unsupported slice element type for WASM: " + TypeToString(elementType))
 		}
@@ -2579,6 +2582,19 @@ func BuildSymbolTable(ast *ASTNode) *SymbolTable {
 						node.TypeAST = varType
 					}
 				}
+				// For slice types, resolve the element type if it's a struct
+				if varType.Kind == TypeSlice && varType.Child.Kind == TypeStruct {
+					// Look up the struct definition for the element type
+					elementStructDef := st.LookupStruct(varType.Child.String)
+					if elementStructDef != nil {
+						// Create new slice type with resolved element type
+						varType = &TypeNode{
+							Kind:  TypeSlice,
+							Child: elementStructDef,
+						}
+						node.TypeAST = varType
+					}
+				}
 
 				err := st.DeclareVariable(varName, varType)
 				if err != nil {
@@ -3369,6 +3385,14 @@ func CheckAssignment(lhs, rhs *ASTNode, tc *TypeChecker) error {
 
 	} else if lhs.Kind == NodeDot {
 		// Field assignment (e.g., s.field = value)
+		err = CheckExpression(lhs, tc)
+		if err != nil {
+			return err
+		}
+		lhsType = lhs.TypeAST
+
+	} else if lhs.Kind == NodeIndex {
+		// Slice index assignment (e.g., slice[0] = value)
 		err = CheckExpression(lhs, tc)
 		if err != nil {
 			return err
