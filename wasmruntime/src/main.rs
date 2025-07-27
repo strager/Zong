@@ -1,5 +1,6 @@
 use std::env;
 use std::fs;
+use std::io::{self, Write};
 use wasmtime::*;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -22,15 +23,49 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("{}", n);
     });
 
-    // Create tstack global (mutable i32 initialized to 0)
-    let tstack_global = Global::new(
+    // Create the print_bytes function that will be imported by the WASM module
+    let print_bytes_func = Func::new(
         &mut store,
-        GlobalType::new(ValType::I32, Mutability::Var),
-        Val::I32(0),
-    )?;
+        FuncType::new(&engine, [ValType::I32], []),
+        |mut caller, params, _results| {
+            let slice_ptr = params[0].unwrap_i32();
+            
+            // Read slice structure from WASM memory
+            let memory = caller.get_export("memory").unwrap().into_memory().unwrap();
+            let data = memory.data(&caller);
+            
+            // Slice structure: [items_ptr: i32, length: i64]
+            let items_ptr = u32::from_le_bytes([
+                data[slice_ptr as usize],
+                data[slice_ptr as usize + 1],
+                data[slice_ptr as usize + 2],
+                data[slice_ptr as usize + 3],
+            ]);
+            
+            let length = u64::from_le_bytes([
+                data[slice_ptr as usize + 8],
+                data[slice_ptr as usize + 9],
+                data[slice_ptr as usize + 10],
+                data[slice_ptr as usize + 11],
+                data[slice_ptr as usize + 12],
+                data[slice_ptr as usize + 13],
+                data[slice_ptr as usize + 14],
+                data[slice_ptr as usize + 15],
+            ]);
+            
+            // Read string bytes from memory
+            let string_bytes = &data[items_ptr as usize..(items_ptr as usize + length as usize)];
+            
+            // Write raw bytes to stdout (no trailing newline)
+            io::stdout().write_all(string_bytes).unwrap();
+            
+            Ok(())
+        },
+    );
 
-    // Create imports array - order must match WASM import order: print function, tstack global
-    let imports = [print_func.into(), tstack_global.into()];
+    // Create imports array - order must match WASM import order: print, print_bytes functions
+    // tstack global is now defined in the WASM module itself, not imported
+    let imports = [print_func.into(), print_bytes_func.into()];
 
     // Instantiate the module
     let instance = Instance::new(&mut store, &module, &imports)?;

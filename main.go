@@ -133,7 +133,7 @@ func EmitImportSection(buf *bytes.Buffer) {
 
 	// Build section content in temporary buffer to calculate size
 	var sectionBuf bytes.Buffer
-	writeLEB128(&sectionBuf, 2) // 2 imports: print function + tstack global
+	writeLEB128(&sectionBuf, 2) // 2 imports: print and print_bytes functions
 
 	// Import 1: print function
 	// Module name "env"
@@ -150,21 +150,20 @@ func EmitImportSection(buf *bytes.Buffer) {
 	// Type index (0)
 	writeLEB128(&sectionBuf, 0)
 
-	// Import 2: tstack global
+	// Import 2: print_bytes function
 	// Module name "env"
 	writeLEB128(&sectionBuf, 3) // length of "env"
 	writeBytes(&sectionBuf, []byte("env"))
 
-	// Import name "tstack"
-	writeLEB128(&sectionBuf, 6) // length of "tstack"
-	writeBytes(&sectionBuf, []byte("tstack"))
+	// Import name "print_bytes"
+	writeLEB128(&sectionBuf, 11) // length of "print_bytes"
+	writeBytes(&sectionBuf, []byte("print_bytes"))
 
-	// Import kind: global (0x03)
-	writeByte(&sectionBuf, 0x03)
+	// Import kind: function (0x00)
+	writeByte(&sectionBuf, 0x00)
 
-	// Global type: i32 mutable (0x7F 0x01)
-	writeByte(&sectionBuf, 0x7F) // i32
-	writeByte(&sectionBuf, 0x01) // mutable
+	// Type index (1)
+	writeLEB128(&sectionBuf, 1)
 
 	// Write section size and content
 	writeLEB128(buf, uint32(sectionBuf.Len()))
@@ -180,6 +179,25 @@ func EmitMemorySection(buf *bytes.Buffer) {
 	// Memory limits: initial=1 page (64KB), no maximum
 	writeByte(&sectionBuf, 0x00) // limits flags (no maximum)
 	writeLEB128(&sectionBuf, 1)  // initial pages (1 page = 64KB)
+
+	writeLEB128(buf, uint32(sectionBuf.Len()))
+	writeBytes(buf, sectionBuf.Bytes())
+}
+
+func EmitGlobalSection(buf *bytes.Buffer, dataSize uint32) {
+	writeByte(buf, 0x06) // global section id
+
+	var sectionBuf bytes.Buffer
+	writeLEB128(&sectionBuf, 1) // 1 global: tstack
+
+	// Global type: i32 mutable (0x7F 0x01)
+	writeByte(&sectionBuf, 0x7F) // i32
+	writeByte(&sectionBuf, 0x01) // mutable
+
+	// Initializer expression: i32.const dataSize + end
+	writeByte(&sectionBuf, I32_CONST)
+	writeLEB128Signed(&sectionBuf, int64(dataSize))
+	writeByte(&sectionBuf, END)
 
 	writeLEB128(buf, uint32(sectionBuf.Len()))
 	writeBytes(buf, sectionBuf.Bytes())
@@ -210,6 +228,14 @@ func initTypeRegistry() {
 	}
 	globalTypeRegistry = append(globalTypeRegistry, printType)
 	globalTypeMap["(i64)->()"] = 0
+
+	// Type 1: print_bytes function (i32) -> ()
+	printBytesType := FunctionType{
+		Parameters: []byte{0x7F}, // i32 (slice pointer)
+		Results:    []byte{},     // void
+	}
+	globalTypeRegistry = append(globalTypeRegistry, printBytesType)
+	globalTypeMap["(i32)->()"] = 1
 }
 
 func initFunctionRegistry(functions []*ASTNode) {
@@ -220,7 +246,11 @@ func initFunctionRegistry(functions []*ASTNode) {
 	globalFunctionRegistry = append(globalFunctionRegistry, "print")
 	globalFunctionMap["print"] = 0
 
-	// Add user functions starting from index 1
+	// Function 1 is print_bytes (imported)
+	globalFunctionRegistry = append(globalFunctionRegistry, "print_bytes")
+	globalFunctionMap["print_bytes"] = 1
+
+	// Add user functions starting from index 2
 	for _, fn := range functions {
 		index := len(globalFunctionRegistry)
 		globalFunctionRegistry = append(globalFunctionRegistry, fn.FunctionName)
@@ -374,7 +404,7 @@ func EmitFunctionSection(buf *bytes.Buffer, functions []*ASTNode) {
 	if len(functions) == 0 {
 		// Legacy path - emit single main function
 		writeLEB128(&sectionBuf, 1) // 1 function
-		writeLEB128(&sectionBuf, 1) // type index 1 (void -> void)
+		writeLEB128(&sectionBuf, 2) // type index 2 (void -> void) - after print (0) and print_bytes (1)
 	} else {
 		writeLEB128(&sectionBuf, uint32(len(functions))) // number of functions
 
@@ -410,9 +440,9 @@ func EmitExportSection(buf *bytes.Buffer) {
 	writeByte(buf, 0x07) // export section id
 
 	var sectionBuf bytes.Buffer
-	writeLEB128(&sectionBuf, 1) // 1 export
+	writeLEB128(&sectionBuf, 2) // 2 exports: main function and memory
 
-	// Export name "main"
+	// Export 1: main function
 	writeLEB128(&sectionBuf, 4) // length of "main"
 	writeBytes(&sectionBuf, []byte("main"))
 
@@ -426,13 +456,23 @@ func EmitExportSection(buf *bytes.Buffer) {
 			mainIndex = index
 		} else {
 			// Legacy fallback for single-expression tests
-			mainIndex = 1
+			mainIndex = 2 // print=0, print_bytes=1, main=2
 		}
 	} else {
 		// Legacy fallback when no function registry
-		mainIndex = 1
+		mainIndex = 2 // print=0, print_bytes=1, main=2
 	}
 	writeLEB128(&sectionBuf, uint32(mainIndex))
+
+	// Export 2: memory
+	writeLEB128(&sectionBuf, 6) // length of "memory"
+	writeBytes(&sectionBuf, []byte("memory"))
+
+	// Export kind: memory (0x02)
+	writeByte(&sectionBuf, 0x02)
+
+	// Memory index 0 (first memory)
+	writeLEB128(&sectionBuf, 0)
 
 	writeLEB128(buf, uint32(sectionBuf.Len()))
 	writeBytes(buf, sectionBuf.Bytes())
@@ -616,6 +656,36 @@ func emitAppendFunctionBody(buf *bytes.Buffer, fn *ASTNode) {
 	// Write function body size and content
 	writeLEB128(buf, uint32(bodyBuf.Len())) // function body size
 	writeBytes(buf, bodyBuf.Bytes())
+}
+
+// EmitDataSection emits the WASM data section with string literals
+func EmitDataSection(buf *bytes.Buffer, dataSection *DataSection) {
+	if len(dataSection.Strings) == 0 {
+		return // No data section needed if no strings
+	}
+
+	writeByte(buf, 0x0B) // data section id
+
+	var sectionBuf bytes.Buffer
+	writeLEB128(&sectionBuf, uint32(len(dataSection.Strings))) // number of data segments
+
+	// Emit each string as a data segment
+	for _, str := range dataSection.Strings {
+		// Segment type: 0x00 = active with memory index
+		writeLEB128(&sectionBuf, 0x00)
+
+		// Offset expression (i32.const address + end)
+		writeByte(&sectionBuf, I32_CONST)
+		writeLEB128Signed(&sectionBuf, int64(str.Address))
+		writeByte(&sectionBuf, END)
+
+		// Data size and content
+		writeLEB128(&sectionBuf, str.Length)
+		writeBytes(&sectionBuf, []byte(str.Content))
+	}
+
+	writeLEB128(buf, uint32(sectionBuf.Len()))
+	writeBytes(buf, sectionBuf.Bytes())
 }
 
 // EmitStatement generates WASM bytecode for statements
@@ -1233,6 +1303,18 @@ func EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 			// Call print
 			writeByte(buf, CALL)
 			writeLEB128(buf, 0) // function index 0 (print import)
+		} else if functionName == "print_bytes" {
+			// Built-in print_bytes function
+			if len(node.Children) != 2 {
+				panic("print_bytes() function expects 1 argument")
+			}
+			// Emit argument (slice address)
+			arg := node.Children[1]
+			EmitExpressionL(buf, arg, localCtx) // Get slice address (pointer to slice struct)
+
+			// Call print_bytes
+			writeByte(buf, CALL)
+			writeLEB128(buf, 1) // function index 1 (print_bytes import)
 		} else if functionName == "append" {
 			// Call the generated append function for this slice type
 			if len(node.Children) != 3 {
@@ -1381,6 +1463,47 @@ func EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 		// Struct declarations should not appear in expression context
 		panic("Struct declaration cannot be used as expression: " + ToSExpr(node))
 
+	case NodeString:
+		// String literal creates a slice structure on tstack
+		stringContent := node.String
+		stringAddress := findStringAddress(stringContent)
+		stringLength := uint32(len(stringContent))
+
+		// Get current tstack pointer (this will be our slice address)
+		writeByte(buf, GLOBAL_GET)
+		writeLEB128(buf, 0) // tstack global index
+
+		// Duplicate tstack pointer for use in store operations
+		writeByte(buf, GLOBAL_GET)
+		writeLEB128(buf, 0) // tstack global index
+
+		// Store items pointer (string address) at offset 0
+		writeByte(buf, I32_CONST)
+		writeLEB128(buf, stringAddress)
+		writeByte(buf, I32_STORE)
+		writeByte(buf, 0x02) // alignment (4 bytes = 2^2)
+		writeByte(buf, 0x00) // offset 0 (items field)
+
+		// Get tstack pointer again for length field
+		writeByte(buf, GLOBAL_GET)
+		writeLEB128(buf, 0) // tstack global index
+
+		// Store length at offset 8
+		writeByte(buf, I64_CONST)
+		writeLEB128Signed(buf, int64(stringLength))
+		writeByte(buf, I64_STORE)
+		writeByte(buf, 0x03) // alignment (8 bytes = 2^3)
+		writeByte(buf, 0x08) // offset 8 (length field)
+
+		// Advance tstack pointer by 16 bytes (slice size)
+		writeByte(buf, GLOBAL_GET)
+		writeLEB128(buf, 0) // tstack global index
+		writeByte(buf, I32_CONST)
+		writeLEB128(buf, 16) // slice struct size
+		writeByte(buf, I32_ADD)
+		writeByte(buf, GLOBAL_SET)
+		writeLEB128(buf, 0) // tstack global index
+
 	default:
 		panic("Unknown expression node kind: " + string(node.Kind))
 	}
@@ -1477,6 +1600,19 @@ func CompileToWASM(ast *ASTNode) []byte {
 	// Add generated append functions to the functions list
 	functions = append(functions, generatedAppendFunctions...)
 
+	// Collect string literals and create data section
+	strings := collectStringLiterals(ast)
+	dataSection := &DataSection{
+		Strings:   strings,
+		TotalSize: calculateDataSectionSize(strings),
+	}
+
+	// Initialize global string addresses map
+	globalStringAddresses = make(map[string]uint32)
+	for _, str := range strings {
+		globalStringAddresses[str.Content] = str.Address
+	}
+
 	var buf bytes.Buffer
 
 	// Check if this is legacy expression compilation (no functions)
@@ -1487,12 +1623,14 @@ func CompileToWASM(ast *ASTNode) []byte {
 
 	// Emit WASM module header and sections in streaming fashion
 	EmitWASMHeader(&buf)
-	EmitTypeSection(&buf, functions)              // function type definitions
-	EmitImportSection(&buf)                       // print function + tstack global import
-	EmitFunctionSection(&buf, functions)          // declare all functions
-	EmitMemorySection(&buf)                       // memory for tstack operations
-	EmitExportSection(&buf)                       // export main function
-	EmitCodeSection(&buf, functions, symbolTable) // all function bodies
+	EmitTypeSection(&buf, functions)               // function type definitions
+	EmitImportSection(&buf)                        // print function import
+	EmitFunctionSection(&buf, functions)           // declare all functions
+	EmitMemorySection(&buf)                        // memory for tstack operations
+	EmitGlobalSection(&buf, dataSection.TotalSize) // tstack global with initial value
+	EmitExportSection(&buf)                        // export main function
+	EmitCodeSection(&buf, functions, symbolTable)  // all function bodies
+	EmitDataSection(&buf, dataSection)             // string literal data
 
 	return buf.Bytes()
 }
@@ -1565,6 +1703,7 @@ func compileLegacyExpression(ast *ASTNode, symbolTable *SymbolTable) []byte {
 	EmitImportSection(&buf)
 	EmitFunctionSection(&buf, []*ASTNode{}) // empty functions for legacy
 	EmitMemorySection(&buf)
+	EmitGlobalSection(&buf, 0) // tstack global with initial value 0 for legacy
 	EmitExportSection(&buf)
 
 	// Emit code section with single function
@@ -2239,6 +2378,21 @@ var (
 	TypeBool        = &TypeNode{Kind: TypeBuiltin, String: "Boolean"}
 )
 
+// Global map to store string addresses during compilation
+var globalStringAddresses map[string]uint32
+
+// String literal data structures for WASM data section
+type StringLiteral struct {
+	Content string
+	Address uint32
+	Length  uint32
+}
+
+type DataSection struct {
+	Strings   []StringLiteral
+	TotalSize uint32
+}
+
 // Type utility functions
 
 // TypesEqual checks if two TypeNodes are equal
@@ -2536,7 +2690,7 @@ func (st *SymbolTable) DeclareFunction(name string, parameters []FunctionParamet
 	}
 
 	// Assign WASM index (builtin functions like print start at 0, user functions follow)
-	wasmIndex := uint32(1 + len(st.functions)) // print is at index 0
+	wasmIndex := uint32(2 + len(st.functions)) // print is at index 0, print_bytes is at index 1
 
 	st.functions = append(st.functions, FunctionInfo{
 		Name:       name,
@@ -2666,6 +2820,79 @@ func collectSliceTypesFromType(typeNode *TypeNode) {
 			collectSliceTypesFromType(field.Type)
 		}
 	}
+}
+
+// collectStringLiterals walks the AST and collects all string literals
+func collectStringLiterals(node *ASTNode) []StringLiteral {
+	if node == nil {
+		return nil
+	}
+
+	var strings []StringLiteral
+	var address uint32 = 0
+
+	// Use map for deduplication as per plan
+	stringMap := make(map[string]uint32)
+
+	// Walk the AST and collect strings
+	collectStringsFromNode(node, stringMap, &address)
+
+	// Convert map to slice
+	for content, addr := range stringMap {
+		strings = append(strings, StringLiteral{
+			Content: content,
+			Address: addr,
+			Length:  uint32(len(content)),
+		})
+	}
+
+	return strings
+}
+
+// collectStringsFromNode recursively searches for NodeString nodes
+func collectStringsFromNode(node *ASTNode, stringMap map[string]uint32, address *uint32) {
+	if node == nil {
+		return
+	}
+
+	if node.Kind == NodeString {
+		content := node.String
+		if _, exists := stringMap[content]; !exists {
+			stringMap[content] = *address
+			*address += uint32(len(content))
+		}
+	}
+
+	// Recursively process children
+	for _, child := range node.Children {
+		collectStringsFromNode(child, stringMap, address)
+	}
+
+	// Process function bodies
+	if node.Kind == NodeFunc && node.Body != nil {
+		collectStringsFromNode(node.Body, stringMap, address)
+	}
+}
+
+// calculateDataSectionSize computes the total size of the data section
+func calculateDataSectionSize(strings []StringLiteral) uint32 {
+	var total uint32 = 0
+	for _, str := range strings {
+		total += str.Length
+	}
+	return total
+}
+
+// findStringAddress looks up a string's address in the global string map
+func findStringAddress(content string) uint32 {
+	if globalStringAddresses == nil {
+		panic("String addresses not initialized during compilation")
+	}
+	address, exists := globalStringAddresses[content]
+	if !exists {
+		panic("String address not found: " + content)
+	}
+	return address
 }
 
 // generateAppendFunction creates an append function for a specific slice type
@@ -3142,6 +3369,14 @@ func CheckExpression(expr *ASTNode, tc *TypeChecker) error {
 		expr.TypeAST = TypeBool
 		return nil
 
+	case NodeString:
+		// String literal has type U8[] (slice of U8)
+		expr.TypeAST = &TypeNode{
+			Kind:  TypeSlice,
+			Child: TypeU8,
+		}
+		return nil
+
 	case NodeIdent:
 		// Variable reference - use cached symbol reference
 		if expr.Symbol == nil {
@@ -3252,6 +3487,24 @@ func CheckExpression(expr *ASTNode, tc *TypeChecker) error {
 			}
 
 			expr.TypeAST = TypeI64 // print returns nothing, but use I64 for now
+			return nil
+		} else if funcName == "print_bytes" {
+			// Built-in print_bytes function
+			if len(expr.Children) != 2 {
+				return fmt.Errorf("error: print_bytes() function expects 1 argument")
+			}
+			err := CheckExpression(expr.Children[1], tc)
+			if err != nil {
+				return err
+			}
+
+			// Check that argument is a slice (U8[])
+			argType := expr.Children[1].TypeAST
+			if argType.Kind != TypeSlice {
+				return fmt.Errorf("error: print_bytes() expects a slice argument, got %s", TypeToString(argType))
+			}
+
+			expr.TypeAST = TypeI64 // print_bytes returns nothing, but use I64 for now
 			return nil
 		} else if funcName == "append" {
 			// Built-in append function
@@ -4089,6 +4342,10 @@ func readString() string {
 	pos++ // skip opening "
 	start := pos
 	for input[pos] != '"' {
+		// Validate ASCII characters only
+		if input[pos] > 127 {
+			panic("error: non-ASCII characters are not supported in string literals")
+		}
 		pos++
 	}
 	lit := string(input[start:pos])
