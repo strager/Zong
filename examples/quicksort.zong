@@ -1,0 +1,91 @@
+// Quicksort implementation for an array of 10 hard-coded numbers
+// Iterative implementation to avoid function parameter issues
+
+func main() {
+    // Create array with 10 hard-coded numbers
+    var numbers I64[];
+    append(numbers&, 64);
+    append(numbers&, 34);
+    append(numbers&, 25);
+    append(numbers&, 12);
+    append(numbers&, 22);
+    append(numbers&, 11);
+    append(numbers&, 90);
+    append(numbers&, 5);
+    append(numbers&, 77);
+    append(numbers&, 30);
+    
+    // Iterative quicksort using a stack simulation
+    var stackLow I64[];
+    var stackHigh I64[];
+    
+    // Push initial range
+    append(stackLow&, 0);
+    append(stackHigh&, numbers.length - 1);
+    
+    loop {
+        if stackLow.length <= 0 {
+            break;
+        }
+        
+        // Pop from stack
+        var low I64;
+        var high I64;
+        low = stackLow[stackLow.length - 1];
+        high = stackHigh[stackHigh.length - 1];
+        stackLow.length = stackLow.length - 1;
+        stackHigh.length = stackHigh.length - 1;
+        
+        if low < high {
+            // Partition the array around pivot using last element as pivot
+            var pivot I64;
+            pivot = numbers[high];
+            
+            var i I64 = low;
+            var j I64 = low;
+            
+            loop {
+                if j >= high {
+                    break;
+                }
+                
+                if numbers[j] < pivot {
+                    // Swap numbers[i] and numbers[j]
+                    var temp I64 = numbers[i];
+                    numbers[i] = numbers[j];
+                    numbers[j] = temp;
+                    i = i + 1;
+                }
+                
+                j = j + 1;
+            }
+            
+            // Place pivot in correct position
+            var temp2 I64 = numbers[i];
+            numbers[i] = numbers[high];
+            numbers[high] = temp2;
+            
+            // Push larger subarray first
+            if i + 1 < high {
+                append(stackLow&, i + 1);
+                append(stackHigh&, high);
+            }
+            
+            // Push smaller subarray last (to be processed first)
+            if low < i {
+                append(stackLow&, low);
+                append(stackHigh&, i - 1);
+            }
+        }
+    }
+    
+    // Print sorted array
+    var printK I64 = 0;
+    loop {
+        if printK >= numbers.length {
+            break;
+        }
+        print(numbers[printK]);
+        printK = printK + 1;
+    }
+}
