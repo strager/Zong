@@ -20,7 +20,7 @@ func TestCheckExpressionInteger(t *testing.T) {
 	// Check expression
 	err := CheckExpression(intNode, tc)
 	be.Err(t, err, nil)
-	be.Equal(t, TypeI64, intNode.TypeAST)
+	be.Equal(t, TypeIntegerNode, intNode.TypeAST)
 }
 
 func TestCheckExpressionVariableAssigned(t *testing.T) {

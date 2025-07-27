@@ -317,6 +317,9 @@ func createFunctionType(fn *ASTNode) FunctionType {
 
 // wasmTypeByte returns the WASM type byte for a TypeNode
 func wasmTypeByte(typeNode *TypeNode) byte {
+	if typeNode.Kind == TypeInteger {
+		panic("TypeInteger should be resolved before WASM generation")
+	}
 	if typeNode.Kind == TypeBuiltin && typeNode.String == "I64" {
 		return 0x7E // i64
 	}
@@ -1131,6 +1134,9 @@ func EmitExpressionL(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 // EmitExpressionR emits code for rvalue expressions (expressions that produce values)
 // These expressions produce a value on the stack that can be consumed
 func EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
+	if node.TypeAST != nil && node.TypeAST.Kind == TypeInteger {
+		panic("Unresolved Integer type in WASM generation: " + ToSExpr(node))
+	}
 	switch node.Kind {
 	case NodeInteger:
 		// Check if this integer should be emitted as I32 or I64 based on context
@@ -1512,8 +1518,32 @@ func extractFunctions(ast *ASTNode) []*ASTNode {
 	return functions
 }
 
+// isExpressionNode checks if a node is an expression (vs statement)
+func isExpressionNode(node *ASTNode) bool {
+	switch node.Kind {
+	case NodeInteger, NodeBoolean, NodeIdent, NodeBinary, NodeCall, NodeDot, NodeUnary, NodeIndex:
+		return true
+	case NodeVar, NodeBlock, NodeReturn, NodeIf, NodeLoop, NodeBreak, NodeContinue, NodeFunc:
+		return false
+	default:
+		return false
+	}
+}
+
 // compileLegacyExpression compiles single expressions (backward compatibility)
 func compileLegacyExpression(ast *ASTNode, symbolTable *SymbolTable) []byte {
+	// Run type checking first
+	tc := NewTypeChecker(symbolTable)
+	var err error
+	if isExpressionNode(ast) {
+		err = CheckExpression(ast, tc)
+	} else {
+		err = CheckStatement(ast, tc)
+	}
+	if err != nil {
+		panic(err) // For backward compatibility, panic on type errors
+	}
+
 	// Use same unified system
 	localCtx := BuildLocalContext(ast, []FunctionParameter{}, symbolTable)
 
@@ -2173,7 +2203,8 @@ type ASTNode struct {
 type TypeKind string
 
 const (
-	TypeBuiltin TypeKind = "TypeBuiltin" // I64, Bool
+	TypeBuiltin TypeKind = "TypeBuiltin" // I64, U8, Bool
+	TypeInteger TypeKind = "TypeInteger" // Compile-time integer constants
 	TypePointer TypeKind = "TypePointer" // *T
 	TypeStruct  TypeKind = "TypeStruct"  // MyStruct
 	TypeSlice   TypeKind = "TypeSlice"   // T[]
@@ -2202,9 +2233,10 @@ type StructField struct {
 
 // Built-in types
 var (
-	TypeI64  = &TypeNode{Kind: TypeBuiltin, String: "I64"}
-	TypeU8   = &TypeNode{Kind: TypeBuiltin, String: "U8"}
-	TypeBool = &TypeNode{Kind: TypeBuiltin, String: "Boolean"}
+	TypeI64         = &TypeNode{Kind: TypeBuiltin, String: "I64"}
+	TypeU8          = &TypeNode{Kind: TypeBuiltin, String: "U8"}
+	TypeIntegerNode = &TypeNode{Kind: TypeInteger, String: "Integer"}
+	TypeBool        = &TypeNode{Kind: TypeBuiltin, String: "Boolean"}
 )
 
 // Type utility functions
@@ -2218,6 +2250,8 @@ func TypesEqual(a, b *TypeNode) bool {
 	switch a.Kind {
 	case TypeBuiltin:
 		return a.String == b.String
+	case TypeInteger:
+		return true // All Integer types are equal
 	case TypePointer:
 		return TypesEqual(a.Child, b.Child)
 	case TypeStruct:
@@ -2264,6 +2298,8 @@ func TypeToString(t *TypeNode) string {
 	switch t.Kind {
 	case TypeBuiltin:
 		return t.String
+	case TypeInteger:
+		return t.String
 	case TypePointer:
 		return TypeToString(t.Child) + "*"
 	case TypeStruct:
@@ -2287,6 +2323,38 @@ func getBuiltinType(name string) *TypeNode {
 	default:
 		return nil
 	}
+}
+
+// IsIntegerCompatible checks if an Integer type can be converted to targetType
+func IsIntegerCompatible(integerValue int64, targetType *TypeNode) bool {
+	switch targetType.Kind {
+	case TypeBuiltin:
+		switch targetType.String {
+		case "I64":
+			return true // I64 can hold any value we support
+		case "U8":
+			return integerValue >= 0 && integerValue <= 255
+		case "Boolean":
+			return false // No integer→Boolean conversion
+		}
+	}
+	return false
+}
+
+// ResolveIntegerType resolves an Integer type to a concrete type based on context
+// Returns error if the integer value doesn't fit in the target type
+//
+// Precondition: node.Kind == NodeInteger
+func ResolveIntegerType(node *ASTNode, targetType *TypeNode) error {
+	if node.Kind != NodeInteger || node.TypeAST.Kind != TypeInteger {
+		panic("ResolveIntegerType called with non-constant")
+	}
+
+	if !IsIntegerCompatible(node.Integer, targetType) {
+		return fmt.Errorf("cannot convert integer %d to %s", node.Integer, TypeToString(targetType))
+	}
+	node.TypeAST = targetType
+	return nil
 }
 
 // isKnownUnsupportedType checks if a type name is a known unsupported built-in type
@@ -2911,17 +2979,13 @@ func CheckStatement(stmt *ASTNode, tc *TypeChecker) error {
 			// Ensure initialization expression type matches variable type or allow implicit conversion
 			initType := initExpr.TypeAST
 			if !TypesEqual(varType, initType) {
-				// Allow implicit conversion from I64 constants to U8 if value fits
-				if varType.Kind == TypeBuiltin && varType.String == "U8" &&
-					initType.Kind == TypeBuiltin && initType.String == "I64" &&
-					initExpr.Kind == NodeInteger {
-					// Check if the I64 value fits in U8 range (0-255)
-					if initExpr.Integer >= 0 && initExpr.Integer <= 255 {
-						// Allow the conversion by changing the init expression type to U8
-						initExpr.TypeAST = TypeU8
-					} else {
-						return fmt.Errorf("error: value %d out of range for U8 (0-255)", initExpr.Integer)
+				// Try to resolve Integer type to match variable type
+				if initType.Kind == TypeInteger {
+					err := ResolveIntegerType(initExpr, varType)
+					if err != nil {
+						return err
 					}
+					// Type resolution succeeded, continue
 				} else {
 					return fmt.Errorf("error: cannot initialize variable of type %s with value of type %s",
 						TypeToString(varType), TypeToString(initType))
@@ -2966,6 +3030,16 @@ func CheckStatement(stmt *ASTNode, tc *TypeChecker) error {
 			err := CheckExpression(stmt.Children[0], tc)
 			if err != nil {
 				return err
+			}
+
+			// For now, resolve Integer types to I64 in return statements
+			// TODO: Use actual function return type when proper return type checking is implemented
+			returnValueType := stmt.Children[0].TypeAST
+			if returnValueType.Kind == TypeInteger {
+				err := ResolveIntegerType(stmt.Children[0], TypeI64)
+				if err != nil {
+					return fmt.Errorf("error: return statement %v", err)
+				}
 			}
 		}
 
@@ -3061,7 +3135,7 @@ func CheckExpression(expr *ASTNode, tc *TypeChecker) error {
 
 	switch expr.Kind {
 	case NodeInteger:
-		expr.TypeAST = TypeI64
+		expr.TypeAST = TypeIntegerNode
 		return nil
 
 	case NodeBoolean:
@@ -3103,9 +3177,40 @@ func CheckExpression(expr *ASTNode, tc *TypeChecker) error {
 			leftType := expr.Children[0].TypeAST
 			rightType := expr.Children[1].TypeAST
 
-			// Ensure operand types match
-			if !TypesEqual(leftType, rightType) {
-				return fmt.Errorf("error: type mismatch in binary operation")
+			// Resolve Integer types based on the other operand
+			var resultType *TypeNode
+			if leftType.Kind == TypeInteger && rightType.Kind != TypeInteger {
+				err := ResolveIntegerType(expr.Children[0], rightType)
+				if err != nil {
+					return err
+				}
+				leftType = expr.Children[0].TypeAST
+				resultType = rightType
+			} else if rightType.Kind == TypeInteger && leftType.Kind != TypeInteger {
+				err := ResolveIntegerType(expr.Children[1], leftType)
+				if err != nil {
+					return err
+				}
+				rightType = expr.Children[1].TypeAST
+				resultType = leftType
+			} else if leftType.Kind == TypeInteger && rightType.Kind == TypeInteger {
+				// Both are Integer - resolve both to I64 and use I64 as result
+				err := ResolveIntegerType(expr.Children[0], TypeI64)
+				if err != nil {
+					return err
+				}
+				err = ResolveIntegerType(expr.Children[1], TypeI64)
+				if err != nil {
+					return err
+				}
+				leftType = TypeI64
+				rightType = TypeI64
+				resultType = TypeI64
+			} else if !TypesEqual(leftType, rightType) {
+				return fmt.Errorf("error: type mismatch in binary operation: %s vs %s",
+					TypeToString(leftType), TypeToString(rightType))
+			} else {
+				resultType = leftType
 			}
 
 			// Set result type based on operator
@@ -3113,7 +3218,7 @@ func CheckExpression(expr *ASTNode, tc *TypeChecker) error {
 			case "==", "!=", "<", ">", "<=", ">=":
 				expr.TypeAST = TypeBool // Comparison operators return Boolean
 			case "+", "-", "*", "/", "%":
-				expr.TypeAST = leftType // Arithmetic operators return operand type
+				expr.TypeAST = resultType // Arithmetic operators return operand type
 			default:
 				return fmt.Errorf("error: unsupported binary operator '%s'", expr.Op)
 			}
@@ -3136,6 +3241,16 @@ func CheckExpression(expr *ASTNode, tc *TypeChecker) error {
 			if err != nil {
 				return err
 			}
+
+			// Resolve Integer type to I64 for print function
+			argType := expr.Children[1].TypeAST
+			if argType.Kind == TypeInteger {
+				err := ResolveIntegerType(expr.Children[1], TypeI64)
+				if err != nil {
+					return fmt.Errorf("error: print() %v", err)
+				}
+			}
+
 			expr.TypeAST = TypeI64 // print returns nothing, but use I64 for now
 			return nil
 		} else if funcName == "append" {
@@ -3166,16 +3281,10 @@ func CheckExpression(expr *ASTNode, tc *TypeChecker) error {
 			// Value type must match slice element type or allow implicit conversion
 			elementType := slicePtrType.Child.Child
 			if !TypesEqual(valueType, elementType) {
-				// Allow implicit conversion from I64 constants to U8 if value fits
-				if elementType.Kind == TypeBuiltin && elementType.String == "U8" &&
-					valueType.Kind == TypeBuiltin && valueType.String == "I64" &&
-					expr.Children[2].Kind == NodeInteger {
-					// Check if the I64 value fits in U8 range (0-255)
-					if expr.Children[2].Integer >= 0 && expr.Children[2].Integer <= 255 {
-						// Allow the conversion by changing the value type to U8
-						expr.Children[2].TypeAST = TypeU8
-					} else {
-						return fmt.Errorf("error: append() value %d out of range for U8 (0-255)", expr.Children[2].Integer)
+				if valueType.Kind == TypeInteger {
+					err := ResolveIntegerType(expr.Children[2], elementType)
+					if err != nil {
+						return fmt.Errorf("error: append() %v", err)
 					}
 				} else {
 					return fmt.Errorf("error: append() value type %s does not match slice element type %s",
@@ -3317,9 +3426,16 @@ func CheckExpression(expr *ASTNode, tc *TypeChecker) error {
 		baseType := expr.Children[0].TypeAST
 		indexType := expr.Children[1].TypeAST
 
-		// Index must be I64
+		// Index must be I64 or resolve Integer to I64
 		if !TypesEqual(indexType, TypeI64) {
-			return fmt.Errorf("error: slice index must be I64, got %s", TypeToString(indexType))
+			if indexType.Kind == TypeInteger {
+				err := ResolveIntegerType(expr.Children[1], TypeI64)
+				if err != nil {
+					return fmt.Errorf("error: slice index %v", err)
+				}
+			} else {
+				return fmt.Errorf("error: slice index must be I64, got %s", TypeToString(indexType))
+			}
 		}
 
 		// Base must be a slice type
@@ -3455,6 +3571,30 @@ func validateFunctionCall(callExpr *ASTNode, function *FunctionInfo, tc *TypeChe
 	// Reorder arguments to match function signature
 	reorderFunctionCallArguments(callExpr, function)
 
+	// Type check arguments after reordering
+	args = callExpr.Children[1:] // Get the reordered arguments
+	for i, arg := range args {
+		expectedType := function.Parameters[i].Type
+		actualType := arg.TypeAST
+
+		if actualType.Kind == TypeInteger {
+			err := ResolveIntegerType(arg, expectedType)
+			if err != nil {
+				return fmt.Errorf("error: argument %d: %v", i+1, err)
+			}
+		} else if !TypesEqual(actualType, expectedType) {
+			// Special case: allow struct argument for struct pointer parameter (copy semantics)
+			if expectedType.Kind == TypePointer && expectedType.Child.Kind == TypeStruct &&
+				actualType.Kind == TypeStruct &&
+				TypesEqual(actualType, expectedType.Child) {
+				// This is allowed: passing struct S to parameter S* (copy semantics)
+			} else {
+				return fmt.Errorf("error: argument %d type mismatch: expected %s, got %s",
+					i+1, TypeToString(expectedType), TypeToString(actualType))
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -3561,17 +3701,13 @@ func CheckAssignment(lhs, rhs *ASTNode, tc *TypeChecker) error {
 
 	// Ensure types match or allow implicit conversion
 	if !TypesEqual(lhsType, rhsType) {
-		// Allow implicit conversion from I64 constants to U8 if value fits
-		if lhsType.Kind == TypeBuiltin && lhsType.String == "U8" &&
-			rhsType.Kind == TypeBuiltin && rhsType.String == "I64" &&
-			rhs.Kind == NodeInteger {
-			// Check if the I64 value fits in U8 range (0-255)
-			if rhs.Integer >= 0 && rhs.Integer <= 255 {
-				// Allow the conversion by changing the RHS type to U8
-				rhs.TypeAST = TypeU8
-			} else {
-				return fmt.Errorf("error: value %d out of range for U8 (0-255)", rhs.Integer)
+		// Try to resolve Integer type to match LHS
+		if rhsType.Kind == TypeInteger {
+			err := ResolveIntegerType(rhs, lhsType)
+			if err != nil {
+				return err
 			}
+			// Type resolution succeeded, continue
 		} else {
 			return fmt.Errorf("error: cannot assign %s to %s",
 				TypeToString(rhsType), TypeToString(lhsType))

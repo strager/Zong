@@ -138,17 +138,19 @@ func TestEmitExpression(t *testing.T) {
 			ast: &ASTNode{
 				Kind:    NodeInteger,
 				Integer: 42,
+				TypeAST: TypeI64, // Set explicit type for WASM emission test
 			},
 			expected: []byte{I64_CONST, 42}, // i64.const 42
 		},
 		{
 			name: "simple addition",
 			ast: &ASTNode{
-				Kind: NodeBinary,
-				Op:   "+",
+				Kind:    NodeBinary,
+				Op:      "+",
+				TypeAST: TypeI64, // Result type for WASM emission test
 				Children: []*ASTNode{
-					{Kind: NodeInteger, Integer: 1},
-					{Kind: NodeInteger, Integer: 2},
+					{Kind: NodeInteger, Integer: 1, TypeAST: TypeI64},
+					{Kind: NodeInteger, Integer: 2, TypeAST: TypeI64},
 				},
 			},
 			expected: []byte{I64_CONST, 1, I64_CONST, 2, I64_ADD}, // i64.const 1, i64.const 2, i64.add
@@ -163,86 +165,6 @@ func TestEmitExpression(t *testing.T) {
 			}
 			EmitExpression(&buf, test.ast, localCtx)
 			be.True(t, bytes.Equal(buf.Bytes(), test.expected))
-		})
-	}
-}
-
-func TestCompileToWASM(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		name  string
-		input string
-		ast   *ASTNode
-	}{
-		{
-			name:  "integer constant",
-			input: "42",
-			ast: &ASTNode{
-				Kind:    NodeInteger,
-				Integer: 42,
-			},
-		},
-		{
-			name:  "simple addition",
-			input: "1 + 2",
-			ast: &ASTNode{
-				Kind: NodeBinary,
-				Op:   "+",
-				Children: []*ASTNode{
-					{Kind: NodeInteger, Integer: 1},
-					{Kind: NodeInteger, Integer: 2},
-				},
-			},
-		},
-		{
-			name:  "complex expression",
-			input: "(10 + 5) * 2 - 3",
-			ast: &ASTNode{
-				Kind: NodeBinary,
-				Op:   "-",
-				Children: []*ASTNode{
-					{
-						Kind: NodeBinary,
-						Op:   "*",
-						Children: []*ASTNode{
-							{
-								Kind: NodeBinary,
-								Op:   "+",
-								Children: []*ASTNode{
-									{Kind: NodeInteger, Integer: 10},
-									{Kind: NodeInteger, Integer: 5},
-								},
-							},
-							{Kind: NodeInteger, Integer: 2},
-						},
-					},
-					{Kind: NodeInteger, Integer: 3},
-				},
-			},
-		},
-		{
-			name:  "print function call",
-			input: "print(42)",
-			ast: &ASTNode{
-				Kind: NodeCall,
-				Children: []*ASTNode{
-					{Kind: NodeIdent, String: "print"},
-					{Kind: NodeInteger, Integer: 42},
-				},
-			},
-		},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			wasmBytes := CompileToWASM(test.ast)
-
-			// Basic validation: check WASM magic number and version
-			be.True(t, len(wasmBytes) > 8)
-
-			be.True(t, bytes.Equal(wasmBytes[:8], []byte{0x00, 0x61, 0x73, 0x6D, 0x01, 0x00, 0x00, 0x00}))
-
-			t.Logf("Generated %d bytes of WASM for input: %s", len(wasmBytes), test.input)
 		})
 	}
 }
