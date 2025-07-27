@@ -75,8 +75,12 @@ const (
 	I32_ADD          = 0x6A
 	I32_SUB          = 0x6B
 	I32_MUL          = 0x6C
+	I32_DIV_S        = 0x6D
+	I32_REM_S        = 0x6F
 	I32_LOAD         = 0x28
+	I32_LOAD8_U      = 0x2D
 	I32_STORE        = 0x36
+	I32_STORE8       = 0x3A
 	I32_WRAP_I64     = 0xA7
 	I64_CONST        = 0x42
 	I64_ADD          = 0x7C
@@ -85,6 +89,10 @@ const (
 	I64_DIV_S        = 0x7F
 	I64_REM_S        = 0x81
 	I32_EQ           = 0x46
+	I32_NE           = 0x47
+	I32_LT_S         = 0x48
+	I32_LE_S         = 0x4C
+	I32_GE_S         = 0x4E
 	I64_EQ           = 0x51
 	I64_NE           = 0x52
 	I64_LT_S         = 0x53
@@ -312,6 +320,9 @@ func wasmTypeByte(typeNode *TypeNode) byte {
 	if typeNode.Kind == TypeBuiltin && typeNode.String == "I64" {
 		return 0x7E // i64
 	}
+	if typeNode.Kind == TypeBuiltin && typeNode.String == "U8" {
+		return 0x7F // i32 (U8 maps to i32 in WASM)
+	}
 	if typeNode.Kind == TypeBuiltin && typeNode.String == "Boolean" {
 		return 0x7E // i64 (Boolean maps to i64 in WASM)
 	}
@@ -331,6 +342,9 @@ func wasmTypeByte(typeNode *TypeNode) byte {
 func wasmTypeString(typeNode *TypeNode) string {
 	if typeNode.Kind == TypeBuiltin && typeNode.String == "I64" {
 		return "i64"
+	}
+	if typeNode.Kind == TypeBuiltin && typeNode.String == "U8" {
+		return "i32" // U8 maps to i32 in WASM
 	}
 	if typeNode.Kind == TypeBuiltin && typeNode.String == "Boolean" {
 		return "i64" // Boolean maps to i64 in WASM
@@ -914,6 +928,18 @@ func emitValueStoreToMemory(buf *bytes.Buffer, ty *TypeNode) {
 		writeByte(buf, I32_STORE) // Store i32 to memory
 		writeByte(buf, 0x02)      // alignment (4 bytes = 2^2)
 		writeByte(buf, 0x00)      // offset
+	case TypeBuiltin:
+		if ty.String == "U8" {
+			// Store U8 as single byte
+			writeByte(buf, I32_STORE8) // Store i32 as 8-bit to memory
+			writeByte(buf, 0x00)       // alignment (1 byte = 2^0)
+			writeByte(buf, 0x00)       // offset
+		} else {
+			// Store other built-in types as i64
+			writeByte(buf, I64_STORE) // Store i64 to memory
+			writeByte(buf, 0x03)      // alignment (8 bytes = 2^3)
+			writeByte(buf, 0x00)      // offset
+		}
 	default:
 		// Store regular value as i64
 		writeByte(buf, I64_STORE) // Store i64 to memory
@@ -936,6 +962,11 @@ func emitValueLoadFromMemory(buf *bytes.Buffer, ty *TypeNode) {
 			writeByte(buf, I32_LOAD) // Load i32 from memory
 			writeByte(buf, 0x02)     // alignment (4 bytes = 2^2)
 			writeByte(buf, 0x00)     // offset
+		} else if ty.Kind == TypeBuiltin && ty.String == "U8" {
+			// Load U8 as single byte and extend to i32
+			writeByte(buf, I32_LOAD8_U) // Load 8-bit unsigned to i32
+			writeByte(buf, 0x00)        // alignment (1 byte = 2^0)
+			writeByte(buf, 0x00)        // offset
 		} else {
 			// Load regular value as i64
 			writeByte(buf, I64_LOAD) // Load i64 from memory
@@ -1102,8 +1133,14 @@ func EmitExpressionL(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 func EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 	switch node.Kind {
 	case NodeInteger:
-		writeByte(buf, I64_CONST)
-		writeLEB128Signed(buf, node.Integer)
+		// Check if this integer should be emitted as I32 or I64 based on context
+		if node.TypeAST != nil && isWASMI32Type(node.TypeAST) {
+			writeByte(buf, I32_CONST)
+			writeLEB128Signed(buf, node.Integer)
+		} else {
+			writeByte(buf, I64_CONST)
+			writeLEB128Signed(buf, node.Integer)
+		}
 
 	case NodeBoolean:
 		// Emit boolean as I64 (0 for false, 1 for true)
@@ -1144,8 +1181,17 @@ func EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 		EmitExpressionR(buf, node.Children[0], localCtx) // LHS
 		EmitExpressionR(buf, node.Children[1], localCtx) // RHS
 
-		// Emit the appropriate operation
-		opcode := getBinaryOpcode(node.Op)
+		// Emit the appropriate operation based on operand types
+		leftType := node.Children[0].TypeAST
+
+		// For now, use left operand type to determine operation type
+		// Both operands should have the same type after type checking
+		var opcode byte
+		if leftType != nil && isWASMI32Type(leftType) {
+			opcode = getBinaryOpcodeI32(node.Op)
+		} else {
+			opcode = getBinaryOpcode(node.Op)
+		}
 		writeByte(buf, opcode)
 
 		// Convert I32 comparison results to I64 for Bool compatibility
@@ -1169,9 +1215,12 @@ func EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 			arg := node.Children[1]
 			EmitExpressionR(buf, arg, localCtx)
 
-			// Convert i32 address results to i64 for print
+			// Convert i32 results to i64 for print
 			if arg.Kind == NodeUnary && arg.Op == "&" {
 				// Convert i32 address result to i64
+				writeByte(buf, I64_EXTEND_I32_U)
+			} else if arg.TypeAST != nil && isWASMI32Type(arg.TypeAST) {
+				// Convert U8 (i32) values to i64 for print
 				writeByte(buf, I64_EXTEND_I32_U)
 			}
 
@@ -1305,9 +1354,16 @@ func EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 			writeByte(buf, 0x03)     // alignment (8 bytes = 2^3)
 			writeByte(buf, 0x00)     // offset
 		} else if isWASMI32Type(elementType) {
-			writeByte(buf, I32_LOAD) // Load i32 from memory
-			writeByte(buf, 0x02)     // alignment (4 bytes = 2^2)
-			writeByte(buf, 0x00)     // offset
+			if elementType.Kind == TypeBuiltin && elementType.String == "U8" {
+				// Load U8 as single byte and extend to i32
+				writeByte(buf, I32_LOAD8_U) // Load 8-bit unsigned to i32
+				writeByte(buf, 0x00)        // alignment (1 byte = 2^0)
+				writeByte(buf, 0x00)        // offset
+			} else {
+				writeByte(buf, I32_LOAD) // Load i32 from memory
+				writeByte(buf, 0x02)     // alignment (4 bytes = 2^2)
+				writeByte(buf, 0x00)     // offset
+			}
 		} else if elementType.Kind == TypeStruct {
 			// For struct types, return the address (already computed by EmitExpressionL)
 			// The address is already on the stack, no additional load needed
@@ -1348,6 +1404,35 @@ func getBinaryOpcode(op string) byte {
 		return I64_LE_S
 	case ">=":
 		return I64_GE_S
+	default:
+		panic("Unsupported binary operator: " + op)
+	}
+}
+
+func getBinaryOpcodeI32(op string) byte {
+	switch op {
+	case "+":
+		return I32_ADD
+	case "-":
+		return I32_SUB
+	case "*":
+		return I32_MUL
+	case "/":
+		return I32_DIV_S
+	case "%":
+		return I32_REM_S
+	case "==":
+		return I32_EQ
+	case "!=":
+		return I32_NE
+	case "<":
+		return I32_LT_S
+	case ">":
+		return I32_GT_S
+	case "<=":
+		return I32_LE_S
+	case ">=":
+		return I32_GE_S
 	default:
 		panic("Unsupported binary operator: " + op)
 	}
@@ -2118,6 +2203,7 @@ type StructField struct {
 // Built-in types
 var (
 	TypeI64  = &TypeNode{Kind: TypeBuiltin, String: "I64"}
+	TypeU8   = &TypeNode{Kind: TypeBuiltin, String: "U8"}
 	TypeBool = &TypeNode{Kind: TypeBuiltin, String: "Boolean"}
 )
 
@@ -2150,6 +2236,8 @@ func GetTypeSize(t *TypeNode) int {
 		switch t.String {
 		case "I64":
 			return 8
+		case "U8":
+			return 1
 		case "Boolean":
 			return 8
 		default:
@@ -2192,6 +2280,8 @@ func getBuiltinType(name string) *TypeNode {
 	switch name {
 	case "I64":
 		return TypeI64
+	case "U8":
+		return TypeU8
 	case "Boolean":
 		return TypeBool
 	default:
@@ -2237,7 +2327,7 @@ func isWASMI32Type(t *TypeNode) bool {
 	}
 	switch t.Kind {
 	case TypeBuiltin:
-		return false // Boolean type maps to I64 in WASM, not I32
+		return t.String == "U8" // U8 maps to I32 in WASM
 	case TypePointer:
 		return true // all pointers are I32 in WASM
 	case TypeStruct:
@@ -2818,11 +2908,24 @@ func CheckStatement(stmt *ASTNode, tc *TypeChecker) error {
 				return err
 			}
 
-			// Ensure initialization expression type matches variable type
+			// Ensure initialization expression type matches variable type or allow implicit conversion
 			initType := initExpr.TypeAST
 			if !TypesEqual(varType, initType) {
-				return fmt.Errorf("error: cannot initialize variable of type %s with value of type %s",
-					TypeToString(varType), TypeToString(initType))
+				// Allow implicit conversion from I64 constants to U8 if value fits
+				if varType.Kind == TypeBuiltin && varType.String == "U8" &&
+					initType.Kind == TypeBuiltin && initType.String == "I64" &&
+					initExpr.Kind == NodeInteger {
+					// Check if the I64 value fits in U8 range (0-255)
+					if initExpr.Integer >= 0 && initExpr.Integer <= 255 {
+						// Allow the conversion by changing the init expression type to U8
+						initExpr.TypeAST = TypeU8
+					} else {
+						return fmt.Errorf("error: value %d out of range for U8 (0-255)", initExpr.Integer)
+					}
+				} else {
+					return fmt.Errorf("error: cannot initialize variable of type %s with value of type %s",
+						TypeToString(varType), TypeToString(initType))
+				}
 			}
 		}
 
@@ -3060,11 +3163,24 @@ func CheckExpression(expr *ASTNode, tc *TypeChecker) error {
 				return fmt.Errorf("error: append() first argument must be pointer to slice, got %s", TypeToString(slicePtrType))
 			}
 
-			// Value type must match slice element type
+			// Value type must match slice element type or allow implicit conversion
 			elementType := slicePtrType.Child.Child
 			if !TypesEqual(valueType, elementType) {
-				return fmt.Errorf("error: append() value type %s does not match slice element type %s",
-					TypeToString(valueType), TypeToString(elementType))
+				// Allow implicit conversion from I64 constants to U8 if value fits
+				if elementType.Kind == TypeBuiltin && elementType.String == "U8" &&
+					valueType.Kind == TypeBuiltin && valueType.String == "I64" &&
+					expr.Children[2].Kind == NodeInteger {
+					// Check if the I64 value fits in U8 range (0-255)
+					if expr.Children[2].Integer >= 0 && expr.Children[2].Integer <= 255 {
+						// Allow the conversion by changing the value type to U8
+						expr.Children[2].TypeAST = TypeU8
+					} else {
+						return fmt.Errorf("error: append() value %d out of range for U8 (0-255)", expr.Children[2].Integer)
+					}
+				} else {
+					return fmt.Errorf("error: append() value type %s does not match slice element type %s",
+						TypeToString(valueType), TypeToString(elementType))
+				}
 			}
 
 			expr.TypeAST = TypeI64 // append returns nothing, but use I64 for now
@@ -3443,10 +3559,23 @@ func CheckAssignment(lhs, rhs *ASTNode, tc *TypeChecker) error {
 		return fmt.Errorf("error: left side of assignment must be a variable, field access, or dereferenced pointer")
 	}
 
-	// Ensure types match
+	// Ensure types match or allow implicit conversion
 	if !TypesEqual(lhsType, rhsType) {
-		return fmt.Errorf("error: cannot assign %s to %s",
-			TypeToString(rhsType), TypeToString(lhsType))
+		// Allow implicit conversion from I64 constants to U8 if value fits
+		if lhsType.Kind == TypeBuiltin && lhsType.String == "U8" &&
+			rhsType.Kind == TypeBuiltin && rhsType.String == "I64" &&
+			rhs.Kind == NodeInteger {
+			// Check if the I64 value fits in U8 range (0-255)
+			if rhs.Integer >= 0 && rhs.Integer <= 255 {
+				// Allow the conversion by changing the RHS type to U8
+				rhs.TypeAST = TypeU8
+			} else {
+				return fmt.Errorf("error: value %d out of range for U8 (0-255)", rhs.Integer)
+			}
+		} else {
+			return fmt.Errorf("error: cannot assign %s to %s",
+				TypeToString(rhsType), TypeToString(lhsType))
+		}
 	}
 
 	return nil
@@ -4406,7 +4535,7 @@ func ParseStatement() *ASTNode {
 			String: CurrLiteral,
 		}
 		SkipToken(IDENT)
-		if CurrTokenType != IDENT {
+		if CurrTokenType != IDENT && CurrTokenType != LBRACKET {
 			return &ASTNode{} // error - expecting type
 		}
 
