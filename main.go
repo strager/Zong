@@ -605,8 +605,30 @@ func emitAppendFunctionBody(buf *bytes.Buffer, fn *ASTNode) {
 func EmitStatement(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 	switch node.Kind {
 	case NodeVar:
-		// Variable declarations don't generate runtime code
+		// Variable declarations don't generate runtime code for the declaration itself
 		// (locals are declared in function header)
+		// However, if there's an initialization expression, generate assignment code
+		if len(node.Children) > 1 {
+			// Has initialization: var x I64 = value;
+			// Generate equivalent assignment: x = value;
+			varName := node.Children[0]
+			initExpr := node.Children[1]
+
+			// Ensure varName has proper Symbol and TypeAST information
+			if varName.Symbol == nil {
+				panic("Variable symbol not found during initialization: " + varName.String)
+			}
+
+			// Create a synthetic assignment node
+			assignmentNode := &ASTNode{
+				Kind:     NodeBinary,
+				Op:       "=",
+				Children: []*ASTNode{varName, initExpr},
+			}
+
+			// Emit the assignment
+			EmitExpression(buf, assignmentNode, localCtx)
+		}
 		break
 
 	case NodeStruct:
@@ -2563,6 +2585,7 @@ func BuildSymbolTable(ast *ASTNode) *SymbolTable {
 			// Extract variable name and type
 			varName := node.Children[0].String
 			varType := node.TypeAST
+			hasInitializer := len(node.Children) > 1 // Check if there's an initialization expression
 
 			// Skip variables with no type information
 			if varType == nil {
@@ -2601,8 +2624,8 @@ func BuildSymbolTable(ast *ASTNode) *SymbolTable {
 					panic(err.Error())
 				}
 
-				// Struct and slice variables are "assigned" when declared (they have allocated memory)
-				if varType.Kind == TypeStruct || varType.Kind == TypeSlice {
+				// Mark variable as assigned if it has an initializer, or if it's a struct/slice
+				if hasInitializer || varType.Kind == TypeStruct || varType.Kind == TypeSlice {
 					st.AssignVariable(varName)
 				}
 			}
@@ -2786,6 +2809,23 @@ func CheckStatement(stmt *ASTNode, tc *TypeChecker) error {
 		if varType == nil {
 			return fmt.Errorf("error: variable declaration missing type")
 		}
+
+		// If there's an initialization expression, type-check it
+		if len(stmt.Children) > 1 {
+			initExpr := stmt.Children[1]
+			err := CheckExpression(initExpr, tc)
+			if err != nil {
+				return err
+			}
+
+			// Ensure initialization expression type matches variable type
+			initType := initExpr.TypeAST
+			if !TypesEqual(varType, initType) {
+				return fmt.Errorf("error: cannot initialize variable of type %s with value of type %s",
+					TypeToString(varType), TypeToString(initType))
+			}
+		}
+
 		// Note: We allow unsupported types but only type-check supported ones
 		// Unsupported types are simply ignored during WASM generation
 
@@ -3836,6 +3876,11 @@ func ToSExpr(node *ASTNode) string {
 	case NodeVar:
 		name := ToSExpr(node.Children[0])
 		typeStr := "(ident \"" + TypeToString(node.TypeAST) + "\")"
+		if len(node.Children) > 1 {
+			// Has initialization expression
+			initExpr := ToSExpr(node.Children[1])
+			return "(var " + name + " " + typeStr + " " + initExpr + ")"
+		}
 		return "(var " + name + " " + typeStr + ")"
 	case NodeBlock:
 		result := "(block"
@@ -4366,18 +4411,38 @@ func ParseStatement() *ASTNode {
 		}
 
 		// Parse type using new TypeNode system
-		typeAST := parseTypeExpression()
-		if typeAST == nil {
+		varName.TypeAST = parseTypeExpression()
+		if varName.TypeAST == nil {
 			return &ASTNode{} // error - invalid type
 		}
 
-		if CurrTokenType == SEMICOLON {
-			SkipToken(SEMICOLON)
-		}
-		return &ASTNode{
-			Kind:     NodeVar,
-			Children: []*ASTNode{varName},
-			TypeAST:  typeAST,
+		// Check for optional initialization: var x I64 = value;
+		if CurrTokenType == ASSIGN {
+			SkipToken(ASSIGN)
+			// Parse the initialization expression
+			initExpr := ParseExpression()
+
+			if CurrTokenType == SEMICOLON {
+				SkipToken(SEMICOLON)
+			}
+
+			// Return a variable declaration with initialization
+			// This will be semantically equivalent to: var x I64; x = value;
+			return &ASTNode{
+				Kind:     NodeVar,
+				Children: []*ASTNode{varName, initExpr}, // Second child is initialization expression
+				TypeAST:  varName.TypeAST,
+			}
+		} else {
+			// Regular variable declaration without initialization
+			if CurrTokenType == SEMICOLON {
+				SkipToken(SEMICOLON)
+			}
+			return &ASTNode{
+				Kind:     NodeVar,
+				Children: []*ASTNode{varName},
+				TypeAST:  varName.TypeAST,
+			}
 		}
 
 	case LBRACE:

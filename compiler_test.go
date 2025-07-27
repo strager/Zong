@@ -503,7 +503,7 @@ func TestEmitExpressionInvalidAssignmentTarget(t *testing.T) {
 		r := recover()
 		be.True(t, r != nil)
 		if r != nil {
-			be.True(t, strings.Contains(r.(string), "Invalid assignment target - must be variable, field access, or pointer dereference"))
+			be.True(t, strings.Contains(r.(string), "Invalid assignment target - must be variable, field access, pointer dereference, or slice index"))
 		}
 	}()
 
