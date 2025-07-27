@@ -598,23 +598,9 @@ func emitAppendFunctionBody(buf *bytes.Buffer, fn *ASTNode) {
 	// Stack: [dest_addr, src_addr]
 
 	// Load from src and store to dest
-	if isWASMI64Type(elementType) {
-		writeByte(&bodyBuf, I64_LOAD)
-		writeByte(&bodyBuf, 0x03) // alignment
-		writeLEB128(&bodyBuf, 0)  // offset
-		writeByte(&bodyBuf, I64_STORE)
-		writeByte(&bodyBuf, 0x03) // alignment
-		writeLEB128(&bodyBuf, 0)  // offset
-	} else if isWASMI32Type(elementType) {
-		writeByte(&bodyBuf, I32_LOAD)
-		writeByte(&bodyBuf, 0x02) // alignment
-		writeLEB128(&bodyBuf, 0)  // offset
-		writeByte(&bodyBuf, I32_STORE)
-		writeByte(&bodyBuf, 0x02) // alignment
-		writeLEB128(&bodyBuf, 0)  // offset
-	} else {
-		panic("Unsupported element type for append: " + TypeToString(elementType))
-	}
+	emitValueLoadFromMemory(&bodyBuf, elementType)
+	// Stack: [dest_addr, src_value]
+	emitValueStoreToMemory(&bodyBuf, elementType)
 
 	// Increment counter
 	writeByte(&bodyBuf, LOCAL_GET)
@@ -655,15 +641,7 @@ func emitAppendFunctionBody(buf *bytes.Buffer, fn *ASTNode) {
 	writeLEB128(&bodyBuf, 1) // value parameter
 	// Stack: [new_element_addr, value]
 
-	if isWASMI64Type(elementType) {
-		writeByte(&bodyBuf, I64_STORE)
-		writeByte(&bodyBuf, 0x03) // alignment
-		writeLEB128(&bodyBuf, 0)  // offset
-	} else if isWASMI32Type(elementType) {
-		writeByte(&bodyBuf, I32_STORE)
-		writeByte(&bodyBuf, 0x02) // alignment
-		writeLEB128(&bodyBuf, 0)  // offset
-	}
+	emitValueStoreToMemory(&bodyBuf, elementType)
 
 	// 7. Update slice.items pointer
 	writeByte(&bodyBuf, LOCAL_GET)
@@ -945,44 +923,74 @@ func EmitExpression(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 		EmitExpressionR(buf, rhs, localCtx) // Get value
 
 		// Stack is now: [address_i32, value]
-		// Generate appropriate store instruction based on type
-		switch lhs.TypeAST.Kind {
-		case TypeStruct:
-			// Struct assignment (copy) using memory.copy
-			structSize := uint32(GetTypeSize(lhs.TypeAST))
-			writeByte(buf, I32_CONST)
-			writeLEB128(buf, structSize)
-			// Stack: [dst_addr, src_addr, size]
-			writeByte(buf, 0xFC) // Multi-byte instruction prefix
-			writeLEB128(buf, 10) // memory.copy opcode
-			writeByte(buf, 0x00) // dst memory index (0)
-			writeByte(buf, 0x00) // src memory index (0)
-		case TypeSlice:
-			// Slice assignment (copy) using memory.copy
-			sliceSize := uint32(GetTypeSize(lhs.TypeAST)) // 16 bytes
-			writeByte(buf, I32_CONST)
-			writeLEB128(buf, sliceSize)
-			// Stack: [dst_addr, src_addr, size]
-			writeByte(buf, 0xFC) // Multi-byte instruction prefix
-			writeLEB128(buf, 10) // memory.copy opcode
-			writeByte(buf, 0x00) // dst memory index (0)
-			writeByte(buf, 0x00) // src memory index (0)
-		case TypePointer:
-			// Store pointer as i32
-			writeByte(buf, I32_STORE) // Store i32 to memory
-			writeByte(buf, 0x02)      // alignment (4 bytes = 2^2)
-			writeByte(buf, 0x00)      // offset
-		default:
-			// Store regular value as i64
-			writeByte(buf, I64_STORE) // Store i64 to memory
-			writeByte(buf, 0x03)      // alignment (8 bytes = 2^3)
-			writeByte(buf, 0x00)      // offset
-		}
+		emitValueStoreToMemory(buf, lhs.TypeAST)
 		return
 	}
 
 	// For all non-assignment expressions, delegate to EmitExpressionR
 	EmitExpressionR(buf, node, localCtx)
+}
+
+// Precondition: WASM stack should be: [address_i32, value]
+// Postcondition: WASM stack is: []
+//
+// The value on the stack is either the value itself (for primitives) or a pointer to the struct.
+func emitValueStoreToMemory(buf *bytes.Buffer, ty *TypeNode) {
+	switch ty.Kind {
+	case TypeStruct:
+		// Struct assignment (copy) using memory.copy
+		structSize := uint32(GetTypeSize(ty))
+		writeByte(buf, I32_CONST)
+		writeLEB128(buf, structSize)
+		// Stack: [dst_addr, src_addr, size]
+		writeByte(buf, 0xFC) // Multi-byte instruction prefix
+		writeLEB128(buf, 10) // memory.copy opcode
+		writeByte(buf, 0x00) // dst memory index (0)
+		writeByte(buf, 0x00) // src memory index (0)
+	case TypeSlice:
+		// Slice assignment (copy) using memory.copy
+		sliceSize := uint32(GetTypeSize(ty)) // 16 bytes
+		writeByte(buf, I32_CONST)
+		writeLEB128(buf, sliceSize)
+		// Stack: [dst_addr, src_addr, size]
+		writeByte(buf, 0xFC) // Multi-byte instruction prefix
+		writeLEB128(buf, 10) // memory.copy opcode
+		writeByte(buf, 0x00) // dst memory index (0)
+		writeByte(buf, 0x00) // src memory index (0)
+	case TypePointer:
+		// Store pointer as i32
+		writeByte(buf, I32_STORE) // Store i32 to memory
+		writeByte(buf, 0x02)      // alignment (4 bytes = 2^2)
+		writeByte(buf, 0x00)      // offset
+	default:
+		// Store regular value as i64
+		writeByte(buf, I64_STORE) // Store i64 to memory
+		writeByte(buf, 0x03)      // alignment (8 bytes = 2^3)
+		writeByte(buf, 0x00)      // offset
+	}
+}
+
+// Precondition: WASM stack should be: [address_i32]
+// Postcondition: WASM stack is: [value]
+//
+// The value on the stack upon return is either the value itself (for primitives) or a pointer to the struct.
+func emitValueLoadFromMemory(buf *bytes.Buffer, ty *TypeNode) {
+	if ty.Kind == TypeStruct {
+		// For struct variables, return the address of the struct (not the value)
+	} else {
+		// Non-struct stack variable - load from memory
+		if ty.Kind == TypePointer {
+			// Load pointer as i32
+			writeByte(buf, I32_LOAD) // Load i32 from memory
+			writeByte(buf, 0x02)     // alignment (4 bytes = 2^2)
+			writeByte(buf, 0x00)     // offset
+		} else {
+			// Load regular value as i64
+			writeByte(buf, I64_LOAD) // Load i64 from memory
+			writeByte(buf, 0x03)     // alignment (8 bytes = 2^3)
+			writeByte(buf, 0x00)     // offset
+		}
+	}
 }
 
 // EmitExpressionL emits code for lvalue expressions (expressions that can be assigned to or addressed)
@@ -1171,22 +1179,7 @@ func EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 		} else {
 			// Stack variable
 			EmitExpressionL(buf, node, localCtx)
-			if targetLocal.Symbol.Type.Kind == TypeStruct {
-				// For struct variables, return the address of the struct (not the value)
-			} else {
-				// Non-struct stack variable - load from memory
-				if targetLocal.Symbol.Type.Kind == TypePointer {
-					// Load pointer as i32
-					writeByte(buf, I32_LOAD) // Load i32 from memory
-					writeByte(buf, 0x02)     // alignment (4 bytes = 2^2)
-					writeByte(buf, 0x00)     // offset
-				} else {
-					// Load regular value as i64
-					writeByte(buf, I64_LOAD) // Load i64 from memory
-					writeByte(buf, 0x03)     // alignment (8 bytes = 2^3)
-					writeByte(buf, 0x00)     // offset
-				}
-			}
+			emitValueLoadFromMemory(buf, targetLocal.Symbol.Type)
 		}
 
 	case NodeBinary:
