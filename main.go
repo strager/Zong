@@ -488,25 +488,20 @@ func emitAppendFunctionBody(buf *bytes.Buffer, fn *ASTNode) {
 	// - param 0: slice_ptr (i32)
 	// - param 1: value (i64 or i32)
 	// Locals are:
-	// - local 2: i32 (loop counter)
-	// - local 3: i32 (old items pointer)
-	// - local 4: i32 (new items pointer)
-	// - local 5: i64 (current length)
-	writeLEB128(&bodyBuf, 4) // 4 local entries
+	// - local 2: i32 (old items pointer)
+	// - local 3: i32 (new items pointer)
+	// - local 4: i64 (current length)
+	writeLEB128(&bodyBuf, 3) // 3 local entries
 
-	// local 2: i32 (counter)
+	// local 2: i32 (old_items)
 	writeLEB128(&bodyBuf, 1)  // count
 	writeByte(&bodyBuf, 0x7F) // i32
 
-	// local 3: i32 (old_items)
+	// local 3: i32 (new_items)
 	writeLEB128(&bodyBuf, 1)  // count
 	writeByte(&bodyBuf, 0x7F) // i32
 
-	// local 4: i32 (new_items)
-	writeLEB128(&bodyBuf, 1)  // count
-	writeByte(&bodyBuf, 0x7F) // i32
-
-	// local 5: i64 (current_length)
+	// local 4: i64 (current_length)
 	writeLEB128(&bodyBuf, 1)  // count
 	writeByte(&bodyBuf, 0x7E) // i64
 
@@ -519,7 +514,7 @@ func emitAppendFunctionBody(buf *bytes.Buffer, fn *ASTNode) {
 	writeByte(&bodyBuf, 0x03) // alignment
 	writeLEB128(&bodyBuf, 8)  // offset to length field
 	writeByte(&bodyBuf, LOCAL_SET)
-	writeLEB128(&bodyBuf, 5) // store in current_length local
+	writeLEB128(&bodyBuf, 4) // store in current_length local
 
 	// 2. Get old items pointer and store in local
 	writeByte(&bodyBuf, LOCAL_GET)
@@ -528,11 +523,11 @@ func emitAppendFunctionBody(buf *bytes.Buffer, fn *ASTNode) {
 	writeByte(&bodyBuf, 0x02) // alignment
 	writeLEB128(&bodyBuf, 0)  // offset to items field
 	writeByte(&bodyBuf, LOCAL_SET)
-	writeLEB128(&bodyBuf, 3) // store in old_items local
+	writeLEB128(&bodyBuf, 2) // store in old_items local
 
 	// 3. Calculate total size needed: (current_length + 1) * element_size
 	writeByte(&bodyBuf, LOCAL_GET)
-	writeLEB128(&bodyBuf, 5) // current_length
+	writeLEB128(&bodyBuf, 4) // current_length
 	writeByte(&bodyBuf, I64_CONST)
 	writeLEB128Signed(&bodyBuf, 1)
 	writeByte(&bodyBuf, I64_ADD)
@@ -546,7 +541,7 @@ func emitAppendFunctionBody(buf *bytes.Buffer, fn *ASTNode) {
 	writeByte(&bodyBuf, GLOBAL_GET)
 	writeLEB128(&bodyBuf, 0) // tstack
 	writeByte(&bodyBuf, LOCAL_SET)
-	writeLEB128(&bodyBuf, 4) // store new_items pointer
+	writeLEB128(&bodyBuf, 3) // store new_items pointer
 
 	// Update tstack
 	writeByte(&bodyBuf, GLOBAL_GET)
@@ -555,81 +550,44 @@ func emitAppendFunctionBody(buf *bytes.Buffer, fn *ASTNode) {
 	writeByte(&bodyBuf, GLOBAL_SET)
 	writeLEB128(&bodyBuf, 0) // update tstack
 
-	// 5. Copy existing elements if any
+	// 5. Copy existing elements if any using memory.copy
 	writeByte(&bodyBuf, LOCAL_GET)
-	writeLEB128(&bodyBuf, 5) // current_length
+	writeLEB128(&bodyBuf, 4) // current_length
 	writeByte(&bodyBuf, I64_CONST)
 	writeLEB128Signed(&bodyBuf, 0)
 	writeByte(&bodyBuf, I64_GT_S)
 	writeByte(&bodyBuf, WASM_IF)
 	writeByte(&bodyBuf, 0x40) // void
 
-	// Initialize counter to 0
-	writeByte(&bodyBuf, I32_CONST)
-	writeLEB128(&bodyBuf, 0)
-	writeByte(&bodyBuf, LOCAL_SET)
-	writeLEB128(&bodyBuf, 2) // counter = 0
-
-	// Loop to copy elements
-	writeByte(&bodyBuf, WASM_LOOP)
-	writeByte(&bodyBuf, 0x40) // void
-
-	// Copy element at index counter
-	// dest = new_items + counter * element_size
+	// Use memory.copy to copy all existing elements at once
+	// memory.copy(dest, src, size)
 	writeByte(&bodyBuf, LOCAL_GET)
-	writeLEB128(&bodyBuf, 4) // new_items
+	writeLEB128(&bodyBuf, 3) // dest: new_items
 	writeByte(&bodyBuf, LOCAL_GET)
-	writeLEB128(&bodyBuf, 2) // counter
+	writeLEB128(&bodyBuf, 2) // src: old_items
+	// Calculate size: current_length * element_size
+	writeByte(&bodyBuf, LOCAL_GET)
+	writeLEB128(&bodyBuf, 4) // current_length
+	writeByte(&bodyBuf, I32_WRAP_I64)
 	writeByte(&bodyBuf, I32_CONST)
 	writeLEB128(&bodyBuf, elementSize)
 	writeByte(&bodyBuf, I32_MUL)
-	writeByte(&bodyBuf, I32_ADD)
-	// Stack: [dest_addr]
+	// Stack: [dest, src, size]
 
-	// src = old_items + counter * element_size
-	writeByte(&bodyBuf, LOCAL_GET)
-	writeLEB128(&bodyBuf, 3) // old_items
-	writeByte(&bodyBuf, LOCAL_GET)
-	writeLEB128(&bodyBuf, 2) // counter
-	writeByte(&bodyBuf, I32_CONST)
-	writeLEB128(&bodyBuf, elementSize)
-	writeByte(&bodyBuf, I32_MUL)
-	writeByte(&bodyBuf, I32_ADD)
-	// Stack: [dest_addr, src_addr]
+	// Emit memory.copy instruction
+	writeByte(&bodyBuf, 0xFC) // Multi-byte instruction prefix
+	writeLEB128(&bodyBuf, 10) // memory.copy opcode
+	writeByte(&bodyBuf, 0x00) // dst memory index (0)
+	writeByte(&bodyBuf, 0x00) // src memory index (0)
 
-	// Load from src and store to dest
-	emitValueLoadFromMemory(&bodyBuf, elementType)
-	// Stack: [dest_addr, src_value]
-	emitValueStoreToMemory(&bodyBuf, elementType)
-
-	// Increment counter
-	writeByte(&bodyBuf, LOCAL_GET)
-	writeLEB128(&bodyBuf, 2) // counter
-	writeByte(&bodyBuf, I32_CONST)
-	writeLEB128(&bodyBuf, 1)
-	writeByte(&bodyBuf, I32_ADD)
-	writeByte(&bodyBuf, LOCAL_SET)
-	writeLEB128(&bodyBuf, 2) // counter++
-
-	// Check if counter < current_length
-	writeByte(&bodyBuf, LOCAL_GET)
-	writeLEB128(&bodyBuf, 2) // counter
-	writeByte(&bodyBuf, I64_EXTEND_I32_S)
-	writeByte(&bodyBuf, LOCAL_GET)
-	writeLEB128(&bodyBuf, 5) // current_length
-	writeByte(&bodyBuf, I64_LT_S)
-	writeByte(&bodyBuf, WASM_BR_IF)
-	writeLEB128(&bodyBuf, 0) // branch to loop start if true
-
-	writeByte(&bodyBuf, END) // end loop
 	writeByte(&bodyBuf, END) // end if
 
 	// 6. Store new element at the end
 	// addr = new_items + current_length * element_size
 	writeByte(&bodyBuf, LOCAL_GET)
-	writeLEB128(&bodyBuf, 4) // new_items
+	writeLEB128(&bodyBuf, 3) // new_items
 	writeByte(&bodyBuf, LOCAL_GET)
-	writeLEB128(&bodyBuf, 5) // current_length
+	writeLEB128(&bodyBuf, 4) // current_length
 	writeByte(&bodyBuf, I32_WRAP_I64)
 	writeByte(&bodyBuf, I32_CONST)
 	writeLEB128(&bodyBuf, elementSize)
@@ -647,7 +605,7 @@ func emitAppendFunctionBody(buf *bytes.Buffer, fn *ASTNode) {
 	writeByte(&bodyBuf, LOCAL_GET)
 	writeLEB128(&bodyBuf, 0) // slice_ptr parameter
 	writeByte(&bodyBuf, LOCAL_GET)
-	writeLEB128(&bodyBuf, 4) // new_items
+	writeLEB128(&bodyBuf, 3) // new_items
 	writeByte(&bodyBuf, I32_STORE)
 	writeByte(&bodyBuf, 0x02) // alignment
 	writeLEB128(&bodyBuf, 0)  // offset to items field
@@ -656,7 +614,7 @@ func emitAppendFunctionBody(buf *bytes.Buffer, fn *ASTNode) {
 	writeByte(&bodyBuf, LOCAL_GET)
 	writeLEB128(&bodyBuf, 0) // slice_ptr parameter
 	writeByte(&bodyBuf, LOCAL_GET)
-	writeLEB128(&bodyBuf, 5) // current_length
+	writeLEB128(&bodyBuf, 4) // current_length
 	writeByte(&bodyBuf, I64_CONST)
 	writeLEB128Signed(&bodyBuf, 1)
 	writeByte(&bodyBuf, I64_ADD)
