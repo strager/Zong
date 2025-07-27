@@ -1,20 +1,7 @@
 // Quicksort implementation for an array of 10 hard-coded numbers
 // Iterative implementation to avoid function parameter issues
 
-func main() {
-    // Create array with 10 hard-coded numbers
-    var numbers I64[];
-    append(numbers&, 64);
-    append(numbers&, 34);
-    append(numbers&, 25);
-    append(numbers&, 12);
-    append(numbers&, 22);
-    append(numbers&, 11);
-    append(numbers&, 90);
-    append(numbers&, 5);
-    append(numbers&, 77);
-    append(numbers&, 30);
-    
+func quicksort(_ numbers: I64[]) {
     // Iterative quicksort using a stack simulation
     var stackLow I64[];
     var stackHigh I64[];
@@ -78,14 +65,32 @@ func main() {
             }
         }
     }
+}
+
+func main() {
+    // Create array with 10 hard-coded numbers
+    var ns I64[];
+    append(ns&, 64);
+    append(ns&, 34);
+    append(ns&, 25);
+    append(ns&, 12);
+    append(ns&, 22);
+    append(ns&, 11);
+    append(ns&, 90);
+    append(ns&, 5);
+    append(ns&, 77);
+    append(ns&, 30);
+    
+    // Sort the array
+    quicksort(ns);
     
     // Print sorted array
     var printK I64 = 0;
     loop {
-        if printK >= numbers.length {
+        if printK >= ns.length {
             break;
         }
-        print(numbers[printK]);
+        print(ns[printK]);
         printK = printK + 1;
     }
 }
