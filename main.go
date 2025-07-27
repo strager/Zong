@@ -550,16 +550,7 @@ func emitAppendFunctionBody(buf *bytes.Buffer, fn *ASTNode) {
 	writeByte(&bodyBuf, GLOBAL_SET)
 	writeLEB128(&bodyBuf, 0) // update tstack
 
-	// 5. Copy existing elements if any using memory.copy
-	writeByte(&bodyBuf, LOCAL_GET)
-	writeLEB128(&bodyBuf, 4) // current_length
-	writeByte(&bodyBuf, I64_CONST)
-	writeLEB128Signed(&bodyBuf, 0)
-	writeByte(&bodyBuf, I64_GT_S)
-	writeByte(&bodyBuf, WASM_IF)
-	writeByte(&bodyBuf, 0x40) // void
-
-	// Use memory.copy to copy all existing elements at once
+	// 5. Copy existing elements using memory.copy
 	// memory.copy(dest, src, size)
 	writeByte(&bodyBuf, LOCAL_GET)
 	writeLEB128(&bodyBuf, 3) // dest: new_items
@@ -579,8 +570,6 @@ func emitAppendFunctionBody(buf *bytes.Buffer, fn *ASTNode) {
 	writeLEB128(&bodyBuf, 10) // memory.copy opcode
 	writeByte(&bodyBuf, 0x00) // dst memory index (0)
 	writeByte(&bodyBuf, 0x00) // src memory index (0)
-
-	writeByte(&bodyBuf, END) // end if
 
 	// 6. Store new element at the end
 	// addr = new_items + current_length * element_size
