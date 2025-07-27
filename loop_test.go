@@ -225,3 +225,33 @@ func TestEmptyLoop(t *testing.T) {
 	be.Err(t, err, nil)
 	be.Equal(t, output, "1\n")
 }
+
+func TestNestedLoopBreakBug(t *testing.T) {
+	source := `
+		func main() {
+			loop {
+				if true {
+					loop {
+						if true {
+							print(3);
+							break;
+						}
+					}
+					print(4);
+				}
+				print(5);
+				break;
+			}
+		}
+	`
+
+	input := []byte(source + "\x00")
+	Init(input)
+	NextToken()
+	ast := ParseProgram()
+
+	wasmBytes := CompileToWASM(ast)
+	output, err := executeWasm(t, wasmBytes)
+	be.Err(t, err, nil)
+	be.Equal(t, output, "3\n4\n5\n")
+}

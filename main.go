@@ -34,8 +34,8 @@ type LocalContext struct {
 	FrameSize         uint32
 
 	// Loop context
-	InLoop       bool // Track if we're inside a loop for break/continue validation
-	ControlDepth int  // Track nesting depth of control structures (if, etc.) for branch calculation
+	ControlDepth int   // Track nesting depth of control structures (if, etc.) for branch calculation
+	LoopStack    []int // Stack of control depths at each loop entry (for break/continue targeting)
 }
 
 // WASM Binary Encoding Utilities
@@ -807,9 +807,8 @@ func EmitStatement(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 		EmitExpression(buf, node, localCtx)
 
 	case NodeLoop:
-		// Save previous loop state and mark that we're in a loop
-		prevInLoop := localCtx.InLoop
-		localCtx.InLoop = true
+		// Save current control depth for this loop's break targeting
+		localCtx.LoopStack = append(localCtx.LoopStack, localCtx.ControlDepth)
 
 		// Emit WASM: block (for break - outer block)
 		writeByte(buf, WASM_BLOCK) // block opcode
@@ -834,20 +833,24 @@ func EmitStatement(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 		// Emit WASM: end (block)
 		writeByte(buf, END) // end opcode
 
-		// Restore previous loop state
-		localCtx.InLoop = prevInLoop
+		// Pop from loop stack
+		localCtx.LoopStack = localCtx.LoopStack[:len(localCtx.LoopStack)-1]
 
 	case NodeBreak:
-		if !localCtx.InLoop {
+		if len(localCtx.LoopStack) == 0 {
 			panic("break statement outside of loop")
 		}
 
-		// Emit WASM: br N (break to outer block, accounting for nested control structures)
-		writeByte(buf, WASM_BR)                           // br opcode
-		writeLEB128(buf, uint32(1+localCtx.ControlDepth)) // branch depth (outer block + nesting)
+		// Calculate break depth: current control depth minus control depth when entering current loop, plus 1 for the loop itself
+		currentLoopControlDepth := localCtx.LoopStack[len(localCtx.LoopStack)-1]
+		nestedControlDepth := localCtx.ControlDepth - currentLoopControlDepth
+		breakDepth := 1 + nestedControlDepth // 1 to exit loop, plus nested controls within this loop
+
+		writeByte(buf, WASM_BR) // br opcode
+		writeLEB128(buf, uint32(breakDepth))
 
 	case NodeContinue:
-		if !localCtx.InLoop {
+		if len(localCtx.LoopStack) == 0 {
 			panic("continue statement outside of loop")
 		}
 
