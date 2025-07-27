@@ -46,7 +46,7 @@ func be.True(tb testing.TB, got bool)
 
 - **Lexer**: Global state lexer in main.go with `Init()` and `NextToken()`
 - **Parser**: Precedence climbing parser with `ParseExpression()` and `ParseStatement()`
-- **Type System**: `TypeNode` structures with support for I64, structs, and pointers
+- **Type System**: `TypeNode` structures with support for I64, U8, Boolean, structs, pointers, and slices
 - **Compiler**: Compiles typed, symbolified AST to WebAssembly
 - **Runtime**: Rust-based WASM executor in `wasmruntime/` directory
 
@@ -75,6 +75,23 @@ struct Point { var x I64; var y I64; }
 func add(_ a: I64, _ b: I64): I64 { return a + b; }
 func greet(name: I64, age: I64) { print(name); print(age); }
 
+// Variable declarations with initialization
+var x I64 = 42;
+var flag Boolean = true;
+
+// Control flow
+if (condition) {
+    // statements
+}
+
+loop {
+    // infinite loop
+}
+
+// Slices
+var numbers []I64;
+numbers = append(numbers, 10);
+
 // Main function
 func main() {
     var p Point;
@@ -82,14 +99,30 @@ func main() {
     p.y = 20;
     print(add(p.x, p.y));
     greet(name: 42, age: 25);
+    
+    if (p.x > 5) {
+        print(999);
+    }
 }
 ```
 
 ### Supported Types
 - **I64**: 64-bit signed integers
+- **U8**: 8-bit unsigned integers
 - **Boolean**: `true` or `false`
+- **Integer**: Compile-time integer type for type inference
 - **Structs**: User-defined composite types
 - **Pointers**: Address-of (`&`) and dereference (`*`) operations
+- **Slices**: Dynamic arrays with `append()` function support
+
+### Control Flow
+- **If statements**: Conditional execution with `if (condition) { }`
+- **Loops**: Infinite loops with `loop { }`
+
+### Variable Features
+- **Variable initialization**: `var x I64 = 42;` syntax
+- **Nested struct field access**: Multi-level field access like `obj.field.subfield`
+- **Slice operations**: Dynamic array operations with `append()`
 
 ### Key Functions
 
