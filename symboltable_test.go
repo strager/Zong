@@ -16,8 +16,9 @@ func TestDeclareVariable(t *testing.T) {
 	st := NewSymbolTable()
 
 	// Declare a variable
-	err := st.DeclareVariable("x", TypeI64)
+	symbol, err := st.DeclareVariable("x", TypeI64)
 	be.Err(t, err, nil)
+	be.True(t, symbol != nil)
 	be.Equal(t, 1, len(st.variables))
 	be.Equal(t, "x", st.variables[0].Name)
 	be.Equal(t, TypeI64, st.variables[0].Type)
@@ -28,12 +29,13 @@ func TestDeclareVariableDuplicate(t *testing.T) {
 	st := NewSymbolTable()
 
 	// Declare a variable
-	err := st.DeclareVariable("x", TypeI64)
+	_, err := st.DeclareVariable("x", TypeI64)
 	be.Err(t, err, nil)
 
 	// Try to declare the same variable again
-	err = st.DeclareVariable("x", TypeI64)
+	symbol, err := st.DeclareVariable("x", TypeI64)
 	be.True(t, err != nil)
+	be.True(t, symbol == nil)
 	be.Equal(t, "error: variable 'x' already declared", err.Error())
 }
 
@@ -45,7 +47,7 @@ func TestLookupVariable(t *testing.T) {
 	be.True(t, symbol == nil)
 
 	// Declare and lookup variable
-	err := st.DeclareVariable("x", TypeI64)
+	_, err := st.DeclareVariable("x", TypeI64)
 	be.Err(t, err, nil)
 
 	symbol = st.LookupVariable("x")
@@ -59,7 +61,7 @@ func TestAssignVariable(t *testing.T) {
 	st := NewSymbolTable()
 
 	// Declare variable
-	err := st.DeclareVariable("x", TypeI64)
+	_, err := st.DeclareVariable("x", TypeI64)
 	be.Err(t, err, nil)
 
 	// Check initially not assigned

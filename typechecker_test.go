@@ -25,7 +25,7 @@ func TestCheckExpressionInteger(t *testing.T) {
 
 func TestCheckExpressionVariableAssigned(t *testing.T) {
 	st := NewSymbolTable()
-	err := st.DeclareVariable("x", TypeI64)
+	_, err := st.DeclareVariable("x", TypeI64)
 	be.Err(t, err, nil)
 	st.AssignVariable("x")
 
@@ -63,7 +63,7 @@ func TestCheckExpressionVariableNotDeclared(t *testing.T) {
 
 func TestCheckExpressionVariableNotAssigned(t *testing.T) {
 	st := NewSymbolTable()
-	err := st.DeclareVariable("x", TypeI64)
+	_, err := st.DeclareVariable("x", TypeI64)
 	be.Err(t, err, nil)
 
 	tc := NewTypeChecker(st)
@@ -124,7 +124,7 @@ func TestCheckExpressionBinaryComparison(t *testing.T) {
 
 func TestCheckExpressionAddressOf(t *testing.T) {
 	st := NewSymbolTable()
-	err := st.DeclareVariable("x", TypeI64)
+	_, err := st.DeclareVariable("x", TypeI64)
 	be.Err(t, err, nil)
 	st.AssignVariable("x")
 
@@ -150,7 +150,7 @@ func TestCheckExpressionAddressOf(t *testing.T) {
 func TestCheckExpressionDereference(t *testing.T) {
 	st := NewSymbolTable()
 	ptrType := &TypeNode{Kind: TypePointer, Child: TypeI64}
-	err := st.DeclareVariable("ptr", ptrType)
+	_, err := st.DeclareVariable("ptr", ptrType)
 	be.Err(t, err, nil)
 	st.AssignVariable("ptr")
 
@@ -174,7 +174,7 @@ func TestCheckExpressionDereference(t *testing.T) {
 
 func TestCheckExpressionDereferenceNonPointer(t *testing.T) {
 	st := NewSymbolTable()
-	err := st.DeclareVariable("x", TypeI64)
+	_, err := st.DeclareVariable("x", TypeI64)
 	be.Err(t, err, nil)
 	st.AssignVariable("x")
 
@@ -236,7 +236,7 @@ func TestCheckExpressionUnknownFunction(t *testing.T) {
 
 func TestCheckAssignmentValid(t *testing.T) {
 	st := NewSymbolTable()
-	err := st.DeclareVariable("x", TypeI64)
+	_, err := st.DeclareVariable("x", TypeI64)
 	be.Err(t, err, nil)
 
 	tc := NewTypeChecker(st)
@@ -271,7 +271,7 @@ func TestCheckAssignmentUndeclaredVariable(t *testing.T) {
 func TestCheckAssignmentPointerDereference(t *testing.T) {
 	st := NewSymbolTable()
 	ptrType := &TypeNode{Kind: TypePointer, Child: TypeI64}
-	err := st.DeclareVariable("ptr", ptrType)
+	_, err := st.DeclareVariable("ptr", ptrType)
 	be.Err(t, err, nil)
 	st.AssignVariable("ptr")
 

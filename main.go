@@ -2608,11 +2608,11 @@ func NewSymbolTable() *SymbolTable {
 }
 
 // DeclareVariable adds a variable declaration to the symbol table
-func (st *SymbolTable) DeclareVariable(name string, varType *TypeNode) error {
+func (st *SymbolTable) DeclareVariable(name string, varType *TypeNode) (*SymbolInfo, error) {
 	// Check for duplicate declaration
 	for _, v := range st.variables {
 		if v.Name == name {
-			return fmt.Errorf("error: variable '%s' already declared", name)
+			return nil, fmt.Errorf("error: variable '%s' already declared", name)
 		}
 	}
 
@@ -2621,7 +2621,9 @@ func (st *SymbolTable) DeclareVariable(name string, varType *TypeNode) error {
 		Type:     varType,
 		Assigned: false,
 	})
-	return nil
+
+	// Return a pointer to the newly created symbol
+	return &st.variables[len(st.variables)-1], nil
 }
 
 // AssignVariable marks a variable as assigned
@@ -3075,10 +3077,11 @@ func BuildSymbolTable(ast *ASTNode) *SymbolTable {
 					}
 				}
 
-				err := st.DeclareVariable(varName, varType)
+				symbol, err := st.DeclareVariable(varName, varType)
 				if err != nil {
 					panic(err.Error())
 				}
+				node.Children[0].Symbol = symbol
 
 				// Mark variable as assigned if it has an initializer, or if it's a struct/slice
 				if hasInitializer || varType.Kind == TypeStruct || varType.Kind == TypeSlice {
@@ -3126,7 +3129,7 @@ func BuildSymbolTable(ast *ASTNode) *SymbolTable {
 			// added to the global symbol table without conflicts.
 			for _, param := range node.Parameters {
 				// Create a variable symbol for each parameter
-				err := st.DeclareVariable(param.Name, param.Type)
+				_, err := st.DeclareVariable(param.Name, param.Type)
 				if err != nil {
 					panic(err.Error())
 				}
@@ -3167,24 +3170,21 @@ func BuildSymbolTable(ast *ASTNode) *SymbolTable {
 
 			// Declare function parameters in symbol table and populate Symbol field
 			for i, param := range node.Parameters {
-				err := st.DeclareVariable(param.Name, param.Type)
+				symbol, err := st.DeclareVariable(param.Name, param.Type)
 				if err != nil {
 					// If parameter conflicts with global variable, that's okay for now
 					// We'll handle proper scoping in a future improvement
 					// But we still need to populate the Symbol field with the existing symbol
-					symbol := st.LookupVariable(param.Name)
-					if symbol != nil {
-						node.Parameters[i].Symbol = symbol
+					existingSymbol := st.LookupVariable(param.Name)
+					if existingSymbol != nil {
+						node.Parameters[i].Symbol = existingSymbol
 					}
 				} else {
 					// Mark parameter as assigned (since it gets its value from the call)
 					st.AssignVariable(param.Name)
 
-					// Populate the Symbol field in the FunctionParameter
-					symbol := st.LookupVariable(param.Name)
-					if symbol != nil {
-						node.Parameters[i].Symbol = symbol
-					}
+					// Populate the Symbol field in the FunctionParameter using the returned symbol
+					node.Parameters[i].Symbol = symbol
 				}
 			}
 
