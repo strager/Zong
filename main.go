@@ -1635,7 +1635,7 @@ func CompileToWASM(ast *ASTNode) []byte {
 	// Check if this is legacy expression compilation (no functions)
 	if len(functions) == 0 {
 		// Legacy path for single expressions
-		return compileLegacyExpression(ast, symbolTable)
+		return compileLegacyExpression(ast)
 	}
 
 	// Emit WASM module header and sections in streaming fashion
@@ -1686,9 +1686,9 @@ func isExpressionNode(node *ASTNode) bool {
 }
 
 // compileLegacyExpression compiles single expressions (backward compatibility)
-func compileLegacyExpression(ast *ASTNode, symbolTable *SymbolTable) []byte {
+func compileLegacyExpression(ast *ASTNode) []byte {
 	// Run type checking first
-	tc := NewTypeChecker(symbolTable)
+	tc := NewTypeChecker()
 	var err error
 	if isExpressionNode(ast) {
 		err = CheckExpression(ast, tc)
@@ -2309,7 +2309,8 @@ type ASTNode struct {
 	Op       string // "+", "-", "==", "!"
 	Children []*ASTNode
 	// NodeCall:
-	ParameterNames []string
+	ParameterNames   []string
+	ResolvedFunction *FunctionInfo // Resolved function information (populated during BuildSymbolTable)
 	// NodeVar:
 	TypeAST *TypeNode // Type information for variable declarations
 	// NodeIdent (variable references):
@@ -2581,9 +2582,8 @@ type SymbolTable struct {
 
 // TypeChecker holds state for type checking
 type TypeChecker struct {
-	errors      []string
-	symbolTable *SymbolTable
-	LoopDepth   int // Track loop nesting for break/continue validation
+	errors    []string
+	LoopDepth int // Track loop nesting for break/continue validation
 }
 
 func (tc *TypeChecker) EnterLoop() {
@@ -3226,21 +3226,56 @@ func BuildSymbolTable(ast *ASTNode) *SymbolTable {
 
 	populateReferences(ast)
 
+	// Pass 3: resolve function calls and populate ResolvedFunction field
+	var resolveFunctionCalls func(*ASTNode)
+	resolveFunctionCalls = func(node *ASTNode) {
+		if node.Kind == NodeCall {
+			// Get function name from first child
+			if len(node.Children) > 0 && node.Children[0].Kind == NodeIdent {
+				funcName := node.Children[0].String
+
+				// Look up function in symbol table
+				function := st.LookupFunction(funcName)
+				if function != nil {
+					// Store resolved function in AST node
+					node.ResolvedFunction = function
+				}
+				// Note: We don't panic on missing functions here since that's handled during type checking
+			}
+		}
+
+		if node.Kind == NodeFunc {
+			// Special handling for function nodes - only traverse the function body
+			if node.Body != nil {
+				resolveFunctionCalls(node.Body)
+			}
+			return // Don't traverse children normally for functions
+		}
+
+		// Traverse children
+		for _, child := range node.Children {
+			if child != nil {
+				resolveFunctionCalls(child)
+			}
+		}
+	}
+
+	resolveFunctionCalls(ast)
+
 	return st
 }
 
 // NewTypeChecker creates a new type checker with the given symbol table
-func NewTypeChecker(symbolTable *SymbolTable) *TypeChecker {
+func NewTypeChecker() *TypeChecker {
 	return &TypeChecker{
-		errors:      make([]string, 0),
-		symbolTable: symbolTable,
+		errors: make([]string, 0),
 	}
 }
 
 // CheckProgram performs type checking on the entire AST
 func CheckProgram(ast *ASTNode, symbolTable *SymbolTable) error {
 
-	tc := NewTypeChecker(symbolTable)
+	tc := NewTypeChecker()
 
 	err := CheckStatement(ast, tc)
 	if err != nil {
@@ -3620,12 +3655,8 @@ func CheckExpression(expr *ASTNode, tc *TypeChecker) error {
 			return nil
 		} else {
 			// User-defined function
-			if tc.symbolTable == nil {
-				return fmt.Errorf("error: no symbol table for function validation")
-			}
-
-			// Look up function in symbol table
-			function := tc.symbolTable.LookupFunction(funcName)
+			// Use the pre-resolved function from BuildSymbolTable
+			function := expr.ResolvedFunction
 			if function == nil {
 				return fmt.Errorf("error: unknown function '%s'", funcName)
 			}

@@ -8,8 +8,7 @@ import (
 )
 
 func TestCheckExpressionInteger(t *testing.T) {
-	st := NewSymbolTable()
-	tc := NewTypeChecker(st)
+	tc := NewTypeChecker()
 
 	// Create integer node
 	intNode := &ASTNode{
@@ -29,7 +28,7 @@ func TestCheckExpressionVariableAssigned(t *testing.T) {
 	be.Err(t, err, nil)
 	symbol.Assigned = true
 
-	tc := NewTypeChecker(st)
+	tc := NewTypeChecker()
 
 	// Create variable reference node with symbol reference
 	varNode := &ASTNode{
@@ -45,8 +44,7 @@ func TestCheckExpressionVariableAssigned(t *testing.T) {
 }
 
 func TestCheckExpressionVariableNotDeclared(t *testing.T) {
-	st := NewSymbolTable()
-	tc := NewTypeChecker(st)
+	tc := NewTypeChecker()
 
 	// Create variable reference node
 	varNode := &ASTNode{
@@ -65,7 +63,7 @@ func TestCheckExpressionVariableNotAssigned(t *testing.T) {
 	symbol, err := st.DeclareVariable("x", TypeI64)
 	be.Err(t, err, nil)
 
-	tc := NewTypeChecker(st)
+	tc := NewTypeChecker()
 
 	// Create variable reference node with symbol reference
 	varNode := &ASTNode{
@@ -81,8 +79,7 @@ func TestCheckExpressionVariableNotAssigned(t *testing.T) {
 }
 
 func TestCheckExpressionBinaryArithmetic(t *testing.T) {
-	st := NewSymbolTable()
-	tc := NewTypeChecker(st)
+	tc := NewTypeChecker()
 
 	// Create binary expression: 42 + 10
 	binaryNode := &ASTNode{
@@ -101,8 +98,7 @@ func TestCheckExpressionBinaryArithmetic(t *testing.T) {
 }
 
 func TestCheckExpressionBinaryComparison(t *testing.T) {
-	st := NewSymbolTable()
-	tc := NewTypeChecker(st)
+	tc := NewTypeChecker()
 
 	// Create binary expression: 42 == 10
 	binaryNode := &ASTNode{
@@ -126,7 +122,7 @@ func TestCheckExpressionAddressOf(t *testing.T) {
 	be.Err(t, err, nil)
 	symbol.Assigned = true
 
-	tc := NewTypeChecker(st)
+	tc := NewTypeChecker()
 
 	// Create address-of expression: x& with symbol reference
 	addrNode := &ASTNode{
@@ -151,7 +147,7 @@ func TestCheckExpressionDereference(t *testing.T) {
 	be.Err(t, err, nil)
 	symbol.Assigned = true
 
-	tc := NewTypeChecker(st)
+	tc := NewTypeChecker()
 
 	// Create dereference expression: ptr* with symbol reference
 	derefNode := &ASTNode{
@@ -174,7 +170,7 @@ func TestCheckExpressionDereferenceNonPointer(t *testing.T) {
 	be.Err(t, err, nil)
 	symbol.Assigned = true
 
-	tc := NewTypeChecker(st)
+	tc := NewTypeChecker()
 
 	// Create dereference expression: x* with symbol reference
 	derefNode := &ASTNode{
@@ -192,8 +188,7 @@ func TestCheckExpressionDereferenceNonPointer(t *testing.T) {
 }
 
 func TestCheckExpressionFunctionCall(t *testing.T) {
-	st := NewSymbolTable()
-	tc := NewTypeChecker(st)
+	tc := NewTypeChecker()
 
 	// Create function call: print(42)
 	callNode := &ASTNode{
@@ -211,8 +206,7 @@ func TestCheckExpressionFunctionCall(t *testing.T) {
 }
 
 func TestCheckExpressionUnknownFunction(t *testing.T) {
-	st := NewSymbolTable()
-	tc := NewTypeChecker(st)
+	tc := NewTypeChecker()
 
 	// Create function call: unknown(42)
 	callNode := &ASTNode{
@@ -234,7 +228,7 @@ func TestCheckAssignmentValid(t *testing.T) {
 	symbol, err := st.DeclareVariable("x", TypeI64)
 	be.Err(t, err, nil)
 
-	tc := NewTypeChecker(st)
+	tc := NewTypeChecker()
 
 	// Create assignment nodes: x = 42 with symbol reference
 	lhs := &ASTNode{Kind: NodeIdent, String: "x", Symbol: symbol}
@@ -249,8 +243,7 @@ func TestCheckAssignmentValid(t *testing.T) {
 }
 
 func TestCheckAssignmentUndeclaredVariable(t *testing.T) {
-	st := NewSymbolTable()
-	tc := NewTypeChecker(st)
+	tc := NewTypeChecker()
 
 	// Create assignment nodes: undefined = 42
 	lhs := &ASTNode{Kind: NodeIdent, String: "undefined"}
@@ -269,7 +262,7 @@ func TestCheckAssignmentPointerDereference(t *testing.T) {
 	be.Err(t, err, nil)
 	symbol.Assigned = true
 
-	tc := NewTypeChecker(st)
+	tc := NewTypeChecker()
 
 	// Create assignment nodes: ptr* = 42 with symbol reference
 	lhs := &ASTNode{
