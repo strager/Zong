@@ -57,39 +57,6 @@ func TestLookupVariable(t *testing.T) {
 	be.Equal(t, false, symbol.Assigned)
 }
 
-func TestAssignVariable(t *testing.T) {
-	st := NewSymbolTable()
-
-	// Declare variable
-	_, err := st.DeclareVariable("x", TypeI64)
-	be.Err(t, err, nil)
-
-	// Check initially not assigned
-	symbol := st.LookupVariable("x")
-	be.Equal(t, false, symbol.Assigned)
-
-	// Assign variable
-	st.AssignVariable("x")
-
-	// Check now assigned
-	symbol = st.LookupVariable("x")
-	be.True(t, symbol.Assigned)
-}
-
-func TestAssignVariableNotDeclared(t *testing.T) {
-	st := NewSymbolTable()
-
-	// Try to assign non-existent variable - should panic
-	defer func() {
-		r := recover()
-		be.True(t, r != nil)
-		errorMsg := r.(string)
-		be.Equal(t, "error: variable 'undefined' used before declaration", errorMsg)
-	}()
-
-	st.AssignVariable("undefined")
-}
-
 func TestBuildSymbolTableSimple(t *testing.T) {
 	// Parse: var x I64;
 	input := []byte("var x I64;\x00")

@@ -25,14 +25,13 @@ func TestCheckExpressionInteger(t *testing.T) {
 
 func TestCheckExpressionVariableAssigned(t *testing.T) {
 	st := NewSymbolTable()
-	_, err := st.DeclareVariable("x", TypeI64)
+	symbol, err := st.DeclareVariable("x", TypeI64)
 	be.Err(t, err, nil)
-	st.AssignVariable("x")
+	symbol.Assigned = true
 
 	tc := NewTypeChecker(st)
 
 	// Create variable reference node with symbol reference
-	symbol := st.LookupVariable("x")
 	varNode := &ASTNode{
 		Kind:   NodeIdent,
 		String: "x",
@@ -63,13 +62,12 @@ func TestCheckExpressionVariableNotDeclared(t *testing.T) {
 
 func TestCheckExpressionVariableNotAssigned(t *testing.T) {
 	st := NewSymbolTable()
-	_, err := st.DeclareVariable("x", TypeI64)
+	symbol, err := st.DeclareVariable("x", TypeI64)
 	be.Err(t, err, nil)
 
 	tc := NewTypeChecker(st)
 
 	// Create variable reference node with symbol reference
-	symbol := st.LookupVariable("x")
 	varNode := &ASTNode{
 		Kind:   NodeIdent,
 		String: "x",
@@ -124,14 +122,13 @@ func TestCheckExpressionBinaryComparison(t *testing.T) {
 
 func TestCheckExpressionAddressOf(t *testing.T) {
 	st := NewSymbolTable()
-	_, err := st.DeclareVariable("x", TypeI64)
+	symbol, err := st.DeclareVariable("x", TypeI64)
 	be.Err(t, err, nil)
-	st.AssignVariable("x")
+	symbol.Assigned = true
 
 	tc := NewTypeChecker(st)
 
 	// Create address-of expression: x& with symbol reference
-	symbol := st.LookupVariable("x")
 	addrNode := &ASTNode{
 		Kind: NodeUnary,
 		Op:   "&",
@@ -150,14 +147,13 @@ func TestCheckExpressionAddressOf(t *testing.T) {
 func TestCheckExpressionDereference(t *testing.T) {
 	st := NewSymbolTable()
 	ptrType := &TypeNode{Kind: TypePointer, Child: TypeI64}
-	_, err := st.DeclareVariable("ptr", ptrType)
+	symbol, err := st.DeclareVariable("ptr", ptrType)
 	be.Err(t, err, nil)
-	st.AssignVariable("ptr")
+	symbol.Assigned = true
 
 	tc := NewTypeChecker(st)
 
 	// Create dereference expression: ptr* with symbol reference
-	symbol := st.LookupVariable("ptr")
 	derefNode := &ASTNode{
 		Kind: NodeUnary,
 		Op:   "*",
@@ -174,14 +170,13 @@ func TestCheckExpressionDereference(t *testing.T) {
 
 func TestCheckExpressionDereferenceNonPointer(t *testing.T) {
 	st := NewSymbolTable()
-	_, err := st.DeclareVariable("x", TypeI64)
+	symbol, err := st.DeclareVariable("x", TypeI64)
 	be.Err(t, err, nil)
-	st.AssignVariable("x")
+	symbol.Assigned = true
 
 	tc := NewTypeChecker(st)
 
 	// Create dereference expression: x* with symbol reference
-	symbol := st.LookupVariable("x")
 	derefNode := &ASTNode{
 		Kind: NodeUnary,
 		Op:   "*",
@@ -236,13 +231,12 @@ func TestCheckExpressionUnknownFunction(t *testing.T) {
 
 func TestCheckAssignmentValid(t *testing.T) {
 	st := NewSymbolTable()
-	_, err := st.DeclareVariable("x", TypeI64)
+	symbol, err := st.DeclareVariable("x", TypeI64)
 	be.Err(t, err, nil)
 
 	tc := NewTypeChecker(st)
 
 	// Create assignment nodes: x = 42 with symbol reference
-	symbol := st.LookupVariable("x")
 	lhs := &ASTNode{Kind: NodeIdent, String: "x", Symbol: symbol}
 	rhs := &ASTNode{Kind: NodeInteger, Integer: 42}
 
@@ -271,14 +265,13 @@ func TestCheckAssignmentUndeclaredVariable(t *testing.T) {
 func TestCheckAssignmentPointerDereference(t *testing.T) {
 	st := NewSymbolTable()
 	ptrType := &TypeNode{Kind: TypePointer, Child: TypeI64}
-	_, err := st.DeclareVariable("ptr", ptrType)
+	symbol, err := st.DeclareVariable("ptr", ptrType)
 	be.Err(t, err, nil)
-	st.AssignVariable("ptr")
+	symbol.Assigned = true
 
 	tc := NewTypeChecker(st)
 
 	// Create assignment nodes: ptr* = 42 with symbol reference
-	symbol := st.LookupVariable("ptr")
 	lhs := &ASTNode{
 		Kind: NodeUnary,
 		Op:   "*",

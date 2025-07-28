@@ -2626,17 +2626,6 @@ func (st *SymbolTable) DeclareVariable(name string, varType *TypeNode) (*SymbolI
 	return &st.variables[len(st.variables)-1], nil
 }
 
-// AssignVariable marks a variable as assigned
-func (st *SymbolTable) AssignVariable(name string) {
-	for i := range st.variables {
-		if st.variables[i].Name == name {
-			st.variables[i].Assigned = true
-			return
-		}
-	}
-	panic(fmt.Sprintf("error: variable '%s' used before declaration", name))
-}
-
 // LookupVariable finds a variable in the symbol table
 func (st *SymbolTable) LookupVariable(name string) *SymbolInfo {
 	for i := range st.variables {
@@ -3085,7 +3074,7 @@ func BuildSymbolTable(ast *ASTNode) *SymbolTable {
 
 				// Mark variable as assigned if it has an initializer, or if it's a struct/slice
 				if hasInitializer || varType.Kind == TypeStruct || varType.Kind == TypeSlice {
-					st.AssignVariable(varName)
+					symbol.Assigned = true
 				}
 			}
 
@@ -3129,12 +3118,12 @@ func BuildSymbolTable(ast *ASTNode) *SymbolTable {
 			// added to the global symbol table without conflicts.
 			for _, param := range node.Parameters {
 				// Create a variable symbol for each parameter
-				_, err := st.DeclareVariable(param.Name, param.Type)
+				symbol, err := st.DeclareVariable(param.Name, param.Type)
 				if err != nil {
 					panic(err.Error())
 				}
 				// Parameters are considered assigned when declared
-				st.AssignVariable(param.Name)
+				symbol.Assigned = true
 			}
 
 			// Only traverse the function body, not the children (which would include parameters)
@@ -3181,7 +3170,7 @@ func BuildSymbolTable(ast *ASTNode) *SymbolTable {
 					}
 				} else {
 					// Mark parameter as assigned (since it gets its value from the call)
-					st.AssignVariable(param.Name)
+					symbol.Assigned = true
 
 					// Populate the Symbol field in the FunctionParameter using the returned symbol
 					node.Parameters[i].Symbol = symbol
