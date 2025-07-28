@@ -36,8 +36,8 @@ func TestStringLiteralTypeChecking(t *testing.T) {
 	ast := ParseProgram()
 
 	// Build symbol table and run type checking
-	symbolTable := BuildSymbolTable(ast)
-	err := CheckProgram(ast, symbolTable)
+	_ = BuildSymbolTable(ast)
+	err := CheckProgram(ast)
 	be.Err(t, err, nil) // Should not error
 
 	// Check that string literal has correct type

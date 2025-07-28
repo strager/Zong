@@ -287,8 +287,8 @@ func TestCheckProgramSuccess(t *testing.T) {
 	ast := ParseStatement()
 
 	// Build symbol table and check program
-	st := BuildSymbolTable(ast)
-	err := CheckProgram(ast, st)
+	_ = BuildSymbolTable(ast)
+	err := CheckProgram(ast)
 	be.Err(t, err, nil)
 }
 
@@ -300,8 +300,8 @@ func TestCheckProgramError(t *testing.T) {
 	ast := ParseStatement()
 
 	// Build symbol table and check program
-	st := BuildSymbolTable(ast)
-	err := CheckProgram(ast, st)
+	_ = BuildSymbolTable(ast)
+	err := CheckProgram(ast)
 	be.True(t, err != nil)
 	be.True(t, strings.Contains(err.Error(), "variable 'x' used before assignment"))
 }

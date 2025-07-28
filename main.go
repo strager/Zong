@@ -1598,7 +1598,7 @@ func CompileToWASM(ast *ASTNode) []byte {
 	functions := extractFunctions(ast)
 
 	// Perform type checking with original slice types
-	err := CheckProgram(ast, symbolTable)
+	err := CheckProgram(ast)
 	if err != nil {
 		panic(err.Error())
 	}
@@ -3273,7 +3273,7 @@ func NewTypeChecker() *TypeChecker {
 }
 
 // CheckProgram performs type checking on the entire AST
-func CheckProgram(ast *ASTNode, symbolTable *SymbolTable) error {
+func CheckProgram(ast *ASTNode) error {
 
 	tc := NewTypeChecker()
 

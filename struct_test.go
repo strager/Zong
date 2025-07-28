@@ -155,8 +155,8 @@ func TestStructTypeChecking(t *testing.T) {
 	}
 
 	// Build symbol table and perform type checking
-	symbolTable := BuildSymbolTable(blockAST)
-	err := CheckProgram(blockAST, symbolTable)
+	_ = BuildSymbolTable(blockAST)
+	err := CheckProgram(blockAST)
 
 	// Should not have any type errors
 	be.Err(t, err, nil)
@@ -179,8 +179,8 @@ func TestFieldAccessTypeError(t *testing.T) {
 	}
 
 	// Build symbol table and perform type checking
-	symbolTable := BuildSymbolTable(blockAST)
-	err := CheckProgram(blockAST, symbolTable)
+	_ = BuildSymbolTable(blockAST)
+	err := CheckProgram(blockAST)
 
 	// Should have a type error (cannot access field of non-struct type)
 	be.True(t, err != nil)

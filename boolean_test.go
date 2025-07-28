@@ -187,8 +187,7 @@ func TestBooleanTypeChecking(t *testing.T) {
 	ast := ParseProgram()
 
 	// Should fail type checking
-	symbolTable := NewSymbolTable()
-	err := CheckProgram(ast, symbolTable)
+	err := CheckProgram(ast)
 	be.Equal(t, err != nil, true)
 }
 
