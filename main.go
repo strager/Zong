@@ -1756,57 +1756,21 @@ func BuildLocalContext(ast *ASTNode, fnNode *ASTNode) *LocalContext {
 	return ctx
 }
 
-// addParameters adds function parameters to the LocalContext by finding them in the function body
+// addParameters adds function parameters to the LocalContext using their Symbol field
 func (ctx *LocalContext) addParameters(fnNode *ASTNode) {
 	// Extract parameter info from function node
 	params := fnNode.Parameters
 
-	// Create a set of parameter names for lookup
-	paramNames := make(map[string]*TypeNode)
+	// Add each parameter to the local context using its Symbol field
 	for _, param := range params {
-		paramNames[param.Name] = param.Type
-	}
-
-	// Find parameter references in the function body and collect their symbols
-	var findParamSymbols func(*ASTNode)
-	findParamSymbols = func(node *ASTNode) {
-		if node == nil {
-			return
+		if param.Symbol != nil {
+			ctx.Variables = append(ctx.Variables, LocalVarInfo{
+				Symbol:  param.Symbol,
+				Storage: VarStorageParameterLocal,
+				// Address will be assigned later in assignWASMIndices
+			})
+			ctx.ParameterCount++
 		}
-		if node.Kind == NodeIdent {
-			if _, isParam := paramNames[node.String]; isParam {
-				// This is a parameter reference
-				if node.Symbol != nil {
-					// Check if we already have this parameter
-					alreadyExists := false
-					for _, existing := range ctx.Variables {
-						if existing.Symbol == node.Symbol {
-							alreadyExists = true
-							break
-						}
-					}
-
-					if !alreadyExists {
-						ctx.Variables = append(ctx.Variables, LocalVarInfo{
-							Symbol:  node.Symbol,
-							Storage: VarStorageParameterLocal,
-							// Address will be assigned later in assignWASMIndices
-						})
-						ctx.ParameterCount++
-					}
-				}
-			}
-		}
-
-		// Recursively process children
-		for _, child := range node.Children {
-			findParamSymbols(child)
-		}
-	}
-
-	// Traverse the function body to find parameter references
-	if fnNode.Body != nil {
-		findParamSymbols(fnNode.Body)
 	}
 }
 
@@ -2604,7 +2568,8 @@ type FunctionInfo struct {
 type FunctionParameter struct {
 	Name    string
 	Type    *TypeNode
-	IsNamed bool // true for named parameters, false for positional
+	IsNamed bool        // true for named parameters, false for positional
+	Symbol  *SymbolInfo // Link to symbol table entry for this parameter
 }
 
 // SymbolTable tracks variable declarations and assignments
@@ -3200,15 +3165,26 @@ func BuildSymbolTable(ast *ASTNode) *SymbolTable {
 			// Store the original symbol table variables count to restore later
 			originalVarCount := len(st.variables)
 
-			// Declare function parameters in symbol table
-			for _, param := range node.Parameters {
+			// Declare function parameters in symbol table and populate Symbol field
+			for i, param := range node.Parameters {
 				err := st.DeclareVariable(param.Name, param.Type)
 				if err != nil {
 					// If parameter conflicts with global variable, that's okay for now
 					// We'll handle proper scoping in a future improvement
+					// But we still need to populate the Symbol field with the existing symbol
+					symbol := st.LookupVariable(param.Name)
+					if symbol != nil {
+						node.Parameters[i].Symbol = symbol
+					}
 				} else {
 					// Mark parameter as assigned (since it gets its value from the call)
 					st.AssignVariable(param.Name)
+
+					// Populate the Symbol field in the FunctionParameter
+					symbol := st.LookupVariable(param.Name)
+					if symbol != nil {
+						node.Parameters[i].Symbol = symbol
+					}
 				}
 			}
 
