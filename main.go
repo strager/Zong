@@ -471,7 +471,7 @@ func EmitExportSection(buf *bytes.Buffer) {
 	writeBytes(buf, sectionBuf.Bytes())
 }
 
-func EmitCodeSection(buf *bytes.Buffer, functions []*ASTNode, symbolTable *SymbolTable) {
+func EmitCodeSection(buf *bytes.Buffer, functions []*ASTNode) {
 	writeByte(buf, 0x0A) // code section id
 
 	var sectionBuf bytes.Buffer
@@ -479,7 +479,7 @@ func EmitCodeSection(buf *bytes.Buffer, functions []*ASTNode, symbolTable *Symbo
 
 	// Emit each function body
 	for _, fn := range functions {
-		emitSingleFunction(&sectionBuf, fn, symbolTable)
+		emitSingleFunction(&sectionBuf, fn)
 	}
 
 	writeLEB128(buf, uint32(sectionBuf.Len()))
@@ -487,7 +487,7 @@ func EmitCodeSection(buf *bytes.Buffer, functions []*ASTNode, symbolTable *Symbo
 }
 
 // emitSingleFunction emits the code for a single function
-func emitSingleFunction(buf *bytes.Buffer, fn *ASTNode, symbolTable *SymbolTable) {
+func emitSingleFunction(buf *bytes.Buffer, fn *ASTNode) {
 	// Check if this is a generated append function
 	if isGeneratedAppendFunction(fn.FunctionName) {
 		emitAppendFunctionBody(buf, fn)
@@ -495,7 +495,7 @@ func emitSingleFunction(buf *bytes.Buffer, fn *ASTNode, symbolTable *SymbolTable
 	}
 
 	// Use unified local management
-	localCtx := BuildLocalContext(fn.Body, fn.Parameters, symbolTable)
+	localCtx := BuildLocalContext(fn.Body, fn)
 
 	// Generate function body
 	var bodyBuf bytes.Buffer
@@ -1646,7 +1646,7 @@ func CompileToWASM(ast *ASTNode) []byte {
 	EmitMemorySection(&buf)                        // memory for tstack operations
 	EmitGlobalSection(&buf, dataSection.TotalSize) // tstack global with initial value
 	EmitExportSection(&buf)                        // export main function
-	EmitCodeSection(&buf, functions, symbolTable)  // all function bodies
+	EmitCodeSection(&buf, functions)               // all function bodies
 	EmitDataSection(&buf, dataSection)             // string literal data
 
 	return buf.Bytes()
@@ -1700,7 +1700,7 @@ func compileLegacyExpression(ast *ASTNode, symbolTable *SymbolTable) []byte {
 	}
 
 	// Use same unified system
-	localCtx := BuildLocalContext(ast, []FunctionParameter{}, symbolTable)
+	localCtx := BuildLocalContext(ast, nil)
 
 	// Generate function body
 	var bodyBuf bytes.Buffer
@@ -1736,14 +1736,16 @@ func compileLegacyExpression(ast *ASTNode, symbolTable *SymbolTable) []byte {
 }
 
 // BuildLocalContext creates a unified LocalContext for both legacy and function compilation paths
-func BuildLocalContext(ast *ASTNode, params []FunctionParameter, symbolTable *SymbolTable) *LocalContext {
+func BuildLocalContext(ast *ASTNode, fnNode *ASTNode) *LocalContext {
 	ctx := &LocalContext{}
 
-	// Phase 1: Add parameters
-	ctx.addParameters(params, symbolTable)
+	// Phase 1: Add parameters (if this is a function)
+	if fnNode != nil {
+		ctx.addParameters(fnNode)
+	}
 
 	// Phase 2: Collect body variables
-	ctx.collectBodyVariables(ast, symbolTable)
+	ctx.collectBodyVariables(ast)
 
 	// Phase 3: Calculate frame pointer (if needed)
 	ctx.calculateFramePointer()
@@ -1754,27 +1756,62 @@ func BuildLocalContext(ast *ASTNode, params []FunctionParameter, symbolTable *Sy
 	return ctx
 }
 
-// addParameters adds function parameters to the LocalContext
-func (ctx *LocalContext) addParameters(params []FunctionParameter, symbolTable *SymbolTable) {
+// addParameters adds function parameters to the LocalContext by finding them in the function body
+func (ctx *LocalContext) addParameters(fnNode *ASTNode) {
+	// Extract parameter info from function node
+	params := fnNode.Parameters
+
+	// Create a set of parameter names for lookup
+	paramNames := make(map[string]*TypeNode)
 	for _, param := range params {
-		// Look up the parameter in the symbol table
-		// Parameters are now added to the symbol table by BuildSymbolTable
-		symbol := symbolTable.LookupVariable(param.Name)
-		if symbol == nil {
-			panic("Parameter " + param.Name + " not found in symbol table")
+		paramNames[param.Name] = param.Type
+	}
+
+	// Find parameter references in the function body and collect their symbols
+	var findParamSymbols func(*ASTNode)
+	findParamSymbols = func(node *ASTNode) {
+		if node == nil {
+			return
+		}
+		if node.Kind == NodeIdent {
+			if _, isParam := paramNames[node.String]; isParam {
+				// This is a parameter reference
+				if node.Symbol != nil {
+					// Check if we already have this parameter
+					alreadyExists := false
+					for _, existing := range ctx.Variables {
+						if existing.Symbol == node.Symbol {
+							alreadyExists = true
+							break
+						}
+					}
+
+					if !alreadyExists {
+						ctx.Variables = append(ctx.Variables, LocalVarInfo{
+							Symbol:  node.Symbol,
+							Storage: VarStorageParameterLocal,
+							// Address will be assigned later in assignWASMIndices
+						})
+						ctx.ParameterCount++
+					}
+				}
+			}
 		}
 
-		ctx.Variables = append(ctx.Variables, LocalVarInfo{
-			Symbol:  symbol,
-			Storage: VarStorageParameterLocal,
-			// Address will be assigned later in assignWASMIndices
-		})
-		ctx.ParameterCount++
+		// Recursively process children
+		for _, child := range node.Children {
+			findParamSymbols(child)
+		}
+	}
+
+	// Traverse the function body to find parameter references
+	if fnNode.Body != nil {
+		findParamSymbols(fnNode.Body)
 	}
 }
 
 // collectBodyVariables traverses AST to find all var declarations and address-of operations
-func (ctx *LocalContext) collectBodyVariables(node *ASTNode, symbolTable *SymbolTable) {
+func (ctx *LocalContext) collectBodyVariables(node *ASTNode) {
 	var frameOffset uint32 = 0
 
 	var traverse func(*ASTNode)
@@ -1784,21 +1821,27 @@ func (ctx *LocalContext) collectBodyVariables(node *ASTNode, symbolTable *Symbol
 			// Don't traverse struct children - field declarations are not local variables
 			return
 		case NodeVar:
-			// Extract variable name
-			varName := node.Children[0].String
+			// Extract variable identifier node and name
+			varIdent := node.Children[0]
+			varName := varIdent.String
 
 			resolvedType := node.TypeAST
 
+			// Skip variables with unsupported types (same filter as BuildSymbolTable)
+			if !(isWASMI64Type(resolvedType) || isWASMI32Type(resolvedType) || resolvedType.Kind == TypeStruct || resolvedType.Kind == TypeSlice) {
+				// Skip unsupported types like string
+				return
+			}
+
+			// Use the symbol from the identifier node
+			if varIdent.Symbol == nil {
+				panic("Variable identifier has no symbol information: " + varName)
+			}
+
 			// Support I64, I64* (pointers are i32 in WASM), and other types
 			if isWASMI32Type(resolvedType) || isWASMI64Type(resolvedType) {
-				// Look up the variable in the symbol table
-				symbol := symbolTable.LookupVariable(varName)
-				if symbol == nil {
-					panic("Variable not found in symbol table: " + varName)
-				}
-
 				ctx.Variables = append(ctx.Variables, LocalVarInfo{
-					Symbol:  symbol,
+					Symbol:  varIdent.Symbol,
 					Storage: VarStorageLocal,
 					// Address will be allocated later.
 				})
@@ -1806,14 +1849,8 @@ func (ctx *LocalContext) collectBodyVariables(node *ASTNode, symbolTable *Symbol
 				// Struct variables are always stored on tstack (addressed)
 				structSize := uint32(GetTypeSize(resolvedType))
 
-				// Look up the variable in the symbol table
-				symbol := symbolTable.LookupVariable(varName)
-				if symbol == nil {
-					panic("Variable not found in symbol table: " + varName)
-				}
-
 				ctx.Variables = append(ctx.Variables, LocalVarInfo{
-					Symbol:  symbol,
+					Symbol:  varIdent.Symbol,
 					Storage: VarStorageTStack,
 					Address: frameOffset,
 				})
