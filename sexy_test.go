@@ -793,16 +793,8 @@ func assertFuncMatch(t *testing.T, zongAST *ASTNode, sexyPattern *sexy.Node, pat
 
 	// Fifth item should be the function body (array of statements)
 	bodyPattern := sexyPattern.Items[4]
-	if zongAST.Body == nil {
-		assertNodeArray(t, nil, bodyPattern, path+".body")
-	} else {
-		// Function has a body - should be a block statement
-		if zongAST.Body.Kind != NodeBlock {
-			t.Errorf("At %s: expected NodeBlock for function body, got %v", path, zongAST.Body.Kind)
-			return
-		}
-		assertNodeArray(t, zongAST.Body.Children, bodyPattern, path+".body")
-	}
+	// Function statements are now directly in Children
+	assertNodeArray(t, zongAST.Children, bodyPattern, path+".body")
 }
 
 // assertStructMatch matches Zong NodeStruct against Sexy NodeList patterns

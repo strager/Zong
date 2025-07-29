@@ -495,7 +495,7 @@ func emitSingleFunction(buf *bytes.Buffer, fn *ASTNode) {
 	}
 
 	// Use unified local management
-	localCtx := BuildLocalContext(fn.Body, fn)
+	localCtx := BuildLocalContext(fn, fn)
 
 	// Generate function body
 	var bodyBuf bytes.Buffer
@@ -509,7 +509,9 @@ func emitSingleFunction(buf *bytes.Buffer, fn *ASTNode) {
 	}
 
 	// Generate function body
-	EmitStatement(&bodyBuf, fn.Body, localCtx)
+	for _, stmt := range fn.Children {
+		EmitStatement(&bodyBuf, stmt, localCtx)
+	}
 	writeByte(&bodyBuf, END) // end instruction
 
 	// Write function body size and content
@@ -2321,7 +2323,6 @@ type ASTNode struct {
 	FunctionName string              // Function name
 	Parameters   []FunctionParameter // Function parameters
 	ReturnType   *TypeNode           // Return type (nil for void)
-	Body         *ASTNode            // Function body (block statement)
 }
 
 // TypeKind represents different kinds of types
@@ -3094,11 +3095,6 @@ func collectSliceTypes(node *ASTNode) {
 		collectSliceTypesFromType(node.TypeAST)
 	}
 
-	// For functions, also check the body
-	if node.Kind == NodeFunc && node.Body != nil {
-		collectSliceTypes(node.Body)
-	}
-
 	// Recursively process children
 	for _, child := range node.Children {
 		collectSliceTypes(child)
@@ -3175,8 +3171,10 @@ func collectStringsFromNode(node *ASTNode, stringMap map[string]uint32, address 
 	}
 
 	// Process function bodies
-	if node.Kind == NodeFunc && node.Body != nil {
-		collectStringsFromNode(node.Body, stringMap, address)
+	if node.Kind == NodeFunc {
+		for _, stmt := range node.Children {
+			collectStringsFromNode(stmt, stringMap, address)
+		}
 	}
 }
 
@@ -3375,9 +3373,12 @@ func BuildSymbolTable(ast *ASTNode) *SymbolTable {
 			}
 
 			// Process function body with parameters in scope
-			if node.Body != nil {
-				processWithScoping(node.Body, false)
+			// Push an additional scope for the function body to allow variable shadowing
+			st.PushScope()
+			for _, stmt := range node.Children {
+				processWithScoping(stmt, false)
 			}
+			st.PopScope()
 
 			// Pop scope when done with function
 			st.PopScope()
@@ -3461,11 +3462,6 @@ func BuildSymbolTable(ast *ASTNode) *SymbolTable {
 			}
 		}
 
-		// Special handling for function nodes to process their bodies
-		if node.Kind == NodeFunc && node.Body != nil {
-			resolveVariableStructTypes(node.Body)
-		}
-
 		// Traverse children
 		for _, child := range node.Children {
 			if child != nil {
@@ -3518,14 +3514,6 @@ func BuildSymbolTable(ast *ASTNode) *SymbolTable {
 				}
 				// Note: We don't panic on missing functions here since that's handled during type checking
 			}
-		}
-
-		if node.Kind == NodeFunc {
-			// Special handling for function nodes - only traverse the function body
-			if node.Body != nil {
-				resolveFunctionCalls(node.Body)
-			}
-			return // Don't traverse children normally for functions
 		}
 
 		// Traverse children
@@ -3664,8 +3652,8 @@ func CheckStatement(stmt *ASTNode, tc *TypeChecker) error {
 
 	case NodeFunc:
 		// Function declaration - check the function body
-		if stmt.Body != nil {
-			err := CheckStatement(stmt.Body, tc)
+		for _, stmt := range stmt.Children {
+			err := CheckStatement(stmt, tc)
 			if err != nil {
 				return err
 			}
@@ -4875,7 +4863,11 @@ func ToSExpr(node *ASTNode) string {
 		} else {
 			result += " void"
 		}
-		result += " " + ToSExpr(node.Body) + ")"
+		result += " (block"
+		for _, stmt := range node.Children {
+			result += " " + ToSExpr(stmt)
+		}
+		result += "))"
 		return result
 	default:
 		return ""
@@ -5546,14 +5538,22 @@ func parseFunctionDeclaration() *ASTNode {
 	if CurrTokenType != LBRACE {
 		panic("Expected '{' for function body")
 	}
-	body := ParseStatement() // This will parse the block statement
+	SkipToken(LBRACE)
+	var statements []*ASTNode
+	for CurrTokenType != RBRACE && CurrTokenType != EOF {
+		stmt := ParseStatement()
+		statements = append(statements, stmt)
+	}
+	if CurrTokenType == RBRACE {
+		SkipToken(RBRACE)
+	}
 
 	return &ASTNode{
 		Kind:         NodeFunc,
 		FunctionName: functionName,
 		Parameters:   parameters,
 		ReturnType:   returnType,
-		Body:         body,
+		Children:     statements,
 	}
 }
 
