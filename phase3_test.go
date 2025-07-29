@@ -1,8 +1,9 @@
 package main
 
 import (
-	"github.com/nalgeon/be"
 	"testing"
+
+	"github.com/nalgeon/be"
 )
 
 // Phase 3 Tests: Advanced Returns

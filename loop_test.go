@@ -1,8 +1,9 @@
 package main
 
 import (
-	"github.com/nalgeon/be"
 	"testing"
+
+	"github.com/nalgeon/be"
 )
 
 // Loop Integration Tests
