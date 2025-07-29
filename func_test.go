@@ -5,52 +5,7 @@ import (
 	"testing"
 )
 
-// Test function declaration parsing
-func TestFunctionDeclarationParsing(t *testing.T) {
-	tests := []struct {
-		name     string
-		source   string
-		expected string
-	}{
-		{
-			name:     "void function no parameters",
-			source:   "func test() {}",
-			expected: `(func "test" () void (block))`,
-		},
-		{
-			name:     "function with I64 return type",
-			source:   "func add(): I64 {}",
-			expected: `(func "add" () "I64" (block))`,
-		},
-		{
-			name:     "function with positional parameters",
-			source:   "func add(_ addA: I64, _ addB: I64): I64 {}",
-			expected: `(func "add" ((param "addA" "I64" positional) (param "addB" "I64" positional)) "I64" (block))`,
-		},
-		{
-			name:     "function with named parameters",
-			source:   "func test(testX: I64, testY: I64) {}",
-			expected: `(func "test" ((param "testX" "I64" named) (param "testY" "I64" named)) void (block))`,
-		},
-		{
-			name:     "function with body",
-			source:   "func test() { var x I64; }",
-			expected: `(func "test" () void (block (var (ident "x") (ident "I64"))))`,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			input := []byte(tt.source + "\x00")
-			Init(input)
-			NextToken()
-			ast := ParseStatement()
-
-			result := ToSExpr(ast)
-			be.Equal(t, result, tt.expected)
-		})
-	}
-}
+// TestFunctionDeclarationParsing removed - duplicates test/functions_test.md
 
 // Test basic function compilation
 func TestBasicFunctionCompilation(t *testing.T) {
@@ -212,37 +167,7 @@ func TestNestedFunctionCalls(t *testing.T) {
 
 // Phase 2 Tests: Named Parameters
 
-// Test named parameters parsing
-func TestNamedParameterParsing(t *testing.T) {
-	tests := []struct {
-		name     string
-		source   string
-		expected string
-	}{
-		{
-			name:     "function with named parameters",
-			source:   "func test(testX2: I64, testY2: I64): I64 {}",
-			expected: `(func "test" ((param "testX2" "I64" named) (param "testY2" "I64" named)) "I64" (block))`,
-		},
-		{
-			name:     "mixed positional and named parameters",
-			source:   "func test(_ testA: I64, testX3: I64, testY3: I64): I64 {}",
-			expected: `(func "test" ((param "testA" "I64" positional) (param "testX3" "I64" named) (param "testY3" "I64" named)) "I64" (block))`,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			input := []byte(tt.source + "\x00")
-			Init(input)
-			NextToken()
-			ast := ParseStatement()
-
-			result := ToSExpr(ast)
-			be.Equal(t, result, tt.expected)
-		})
-	}
-}
+// TestNamedParameterParsing removed - duplicates test/functions_test.md
 
 // Test named parameter function calls
 func TestNamedParameterCalls(t *testing.T) {

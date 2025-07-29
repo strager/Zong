@@ -6,70 +6,15 @@ import (
 	"github.com/nalgeon/be"
 )
 
-func TestStructDeclarationParsing(t *testing.T) {
-	input := []byte("struct Point { var x I64; var y I64; }\x00")
-	Init(input)
-	NextToken()
+// TestStructDeclarationParsing removed - duplicates test/structs_test.md
 
-	ast := ParseStatement()
+// TestStructTypeInVariableDeclaration removed - duplicates test/structs_test.md
 
-	expectedSExpr := `(struct "Point" (var (ident "x") (ident "I64")) (var (ident "y") (ident "I64")))`
-	actualSExpr := ToSExpr(ast)
+// TestFieldAccessParsing removed - duplicates test/structs_test.md
 
-	be.Equal(t, actualSExpr, expectedSExpr)
-}
+// TestFieldAssignmentParsing removed - duplicates test/structs_test.md
 
-func TestStructTypeInVariableDeclaration(t *testing.T) {
-	input := []byte("var p Point;\x00")
-	Init(input)
-	NextToken()
-
-	ast := ParseStatement()
-
-	expectedSExpr := `(var (ident "p") (ident "Point"))`
-	actualSExpr := ToSExpr(ast)
-
-	be.Equal(t, actualSExpr, expectedSExpr)
-}
-
-func TestFieldAccessParsing(t *testing.T) {
-	input := []byte("p.x\x00")
-	Init(input)
-	NextToken()
-
-	ast := ParseExpression()
-
-	expectedSExpr := `(dot (ident "p") "x")`
-	actualSExpr := ToSExpr(ast)
-
-	be.Equal(t, actualSExpr, expectedSExpr)
-}
-
-func TestFieldAssignmentParsing(t *testing.T) {
-	input := []byte("p.x = 42\x00")
-	Init(input)
-	NextToken()
-
-	ast := ParseExpression()
-
-	expectedSExpr := `(binary "=" (dot (ident "p") "x") (integer 42))`
-	actualSExpr := ToSExpr(ast)
-
-	be.Equal(t, actualSExpr, expectedSExpr)
-}
-
-func TestComplexStructExpression(t *testing.T) {
-	input := []byte("p.x + q.y\x00")
-	Init(input)
-	NextToken()
-
-	ast := ParseExpression()
-
-	expectedSExpr := `(binary "+" (dot (ident "p") "x") (dot (ident "q") "y"))`
-	actualSExpr := ToSExpr(ast)
-
-	be.Equal(t, actualSExpr, expectedSExpr)
-}
+// TestComplexStructExpression removed - duplicates test/structs_test.md
 
 func TestStructSymbolTable(t *testing.T) {
 	input := []byte(`struct Point { var x I64; var y I64; }

@@ -93,41 +93,7 @@ func TestSliceSize(t *testing.T) {
 }
 
 // SExpr tests for slice parsing as required by the plan
-func TestSliceSExprParsing(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    string
-		expected string
-	}{
-		{
-			name:     "slice variable declaration",
-			input:    "var nums I64[];",
-			expected: "(var (ident \"nums\") (ident \"I64[]\"))",
-		},
-		{
-			name:     "slice subscript",
-			input:    "nums[0];",
-			expected: "(idx (ident \"nums\") (integer 0))",
-		},
-		{
-			name:     "slice assignment",
-			input:    "nums[1] = 42;",
-			expected: "(binary \"=\" (idx (ident \"nums\") (integer 1)) (integer 42))",
-		},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			input := []byte(test.input + "\x00")
-			Init(input)
-			NextToken()
-
-			stmt := ParseStatement()
-			result := ToSExpr(stmt)
-			be.Equal(t, result, test.expected)
-		})
-	}
-}
+// TestSliceSExprParsing removed - duplicates test/slices_test.md
 
 // Integration tests as specified in the plan
 // NOTE: append() functionality is partially implemented - these tests are commented out

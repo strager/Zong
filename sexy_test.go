@@ -468,7 +468,7 @@ func assertVarMatch(t *testing.T, zongAST *ASTNode, sexyPattern *sexy.Node, path
 
 	// First item should be the symbol "var-decl"
 	if sexyPattern.Items[0].Type != sexy.NodeSymbol || sexyPattern.Items[0].Text != "var-decl" {
-		t.Errorf("At %s: expected 'var' symbol, got %v with text '%s'", path, sexyPattern.Items[0].Type, sexyPattern.Items[0].Text)
+		t.Errorf("At %s: expected 'var-decl' symbol, got %v with text '%s'", path, sexyPattern.Items[0].Type, sexyPattern.Items[0].Text)
 		return
 	}
 

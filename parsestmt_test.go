@@ -6,113 +6,13 @@ import (
 	"github.com/nalgeon/be"
 )
 
-func TestParseIfStatement(t *testing.T) {
-	tests := []struct {
-		input    string
-		expected string
-	}{
-		{
-			input:    "if x { y; }\x00",
-			expected: "(if (ident \"x\") (block (ident \"y\")))",
-		},
-		{
-			input:    "if 1 + 2 { 3; }\x00",
-			expected: "(if (binary \"+\" (integer 1) (integer 2)) (block (integer 3)))",
-		},
-		{
-			input:    "if foo == bar { return 42; }\x00",
-			expected: "(if (binary \"==\" (ident \"foo\") (ident \"bar\")) (block (return (integer 42))))",
-		},
-	}
+// TestParseIfStatement removed - duplicates test/statements_test.md
 
-	for _, test := range tests {
-		Init([]byte(test.input))
-		NextToken()
-		result := ParseStatement()
-		actual := ToSExpr(result)
-		be.Equal(t, actual, test.expected)
-	}
-}
+// TestParseIfElseStatement removed - duplicates test/statements_test.md
 
-func TestParseIfElseStatement(t *testing.T) {
-	tests := []struct {
-		input    string
-		expected string
-	}{
-		{
-			input:    "if x { y; } else { z; }\x00",
-			expected: "(if (ident \"x\") (block (ident \"y\")) _ (block (ident \"z\")))",
-		},
-		{
-			input:    "if x == 1 { print(1); } else { print(0); }\x00",
-			expected: "(if (binary \"==\" (ident \"x\") (integer 1)) (block (call (ident \"print\") (integer 1))) _ (block (call (ident \"print\") (integer 0))))",
-		},
-		{
-			input:    "if x > 0 { print(1); } else if x < 0 { print(2); } else { print(0); }\x00",
-			expected: "(if (binary \">\" (ident \"x\") (integer 0)) (block (call (ident \"print\") (integer 1))) (binary \"<\" (ident \"x\") (integer 0)) (block (call (ident \"print\") (integer 2))) _ (block (call (ident \"print\") (integer 0))))",
-		},
-	}
+// TestParseVarStatement removed - duplicates test/statements_test.md
 
-	for _, test := range tests {
-		Init([]byte(test.input))
-		NextToken()
-		result := ParseStatement()
-		actual := ToSExpr(result)
-		be.Equal(t, actual, test.expected)
-	}
-}
-
-func TestParseVarStatement(t *testing.T) {
-	tests := []struct {
-		input    string
-		expected string
-	}{
-		{
-			input:    "var x int;\x00",
-			expected: "(var (ident \"x\") (ident \"int\"))",
-		},
-		{
-			input:    "var name string;\x00",
-			expected: "(var (ident \"name\") (ident \"string\"))",
-		},
-		{
-			input:    "var count MyType;\x00",
-			expected: "(var (ident \"count\") (ident \"MyType\"))",
-		},
-	}
-
-	for _, test := range tests {
-		Init([]byte(test.input))
-		NextToken()
-		result := ParseStatement()
-		actual := ToSExpr(result)
-		be.Equal(t, actual, test.expected)
-	}
-}
-
-func TestParsePointerVariableDeclaration(t *testing.T) {
-	tests := []struct {
-		input    string
-		expected string
-	}{
-		{
-			input:    "var ptr I64*;\x00",
-			expected: "(var (ident \"ptr\") (ident \"I64*\"))",
-		},
-		{
-			input:    "var x I64;\x00",
-			expected: "(var (ident \"x\") (ident \"I64\"))",
-		},
-	}
-
-	for _, test := range tests {
-		Init([]byte(test.input))
-		NextToken()
-		result := ParseStatement()
-		actual := ToSExpr(result)
-		be.Equal(t, actual, test.expected)
-	}
-}
+// TestParsePointerVariableDeclaration removed - duplicates test/statements_test.md
 
 func TestParseBlockStatement(t *testing.T) {
 	tests := []struct {
@@ -174,42 +74,6 @@ func TestParseReturnStatement(t *testing.T) {
 		{
 			input:    "return foo == bar;\x00",
 			expected: "(return (binary \"==\" (ident \"foo\") (ident \"bar\")))",
-		},
-	}
-
-	for _, test := range tests {
-		Init([]byte(test.input))
-		NextToken()
-		result := ParseStatement()
-		actual := ToSExpr(result)
-		be.Equal(t, actual, test.expected)
-	}
-}
-
-func TestParseLoopStatement(t *testing.T) {
-	tests := []struct {
-		input    string
-		expected string
-	}{
-		{
-			input:    "loop { }\x00",
-			expected: "(loop)",
-		},
-		{
-			input:    "loop { x; }\x00",
-			expected: "(loop (ident \"x\"))",
-		},
-		{
-			input:    "loop { break; }\x00",
-			expected: "(loop (break))",
-		},
-		{
-			input:    "loop { continue; }\x00",
-			expected: "(loop (continue))",
-		},
-		{
-			input:    "loop { var i int; if i == 10 { break; } }\x00",
-			expected: "(loop (var (ident \"i\") (ident \"int\")) (if (binary \"==\" (ident \"i\") (integer 10)) (block (break))))",
 		},
 	}
 
