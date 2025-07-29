@@ -13,7 +13,7 @@ var x I64 = 42;
 var flag Boolean = true;
 ```
 ```ast
-[(var-decl "flag" "Boolean" (boolean true))]
+[(var-decl "flag" "Boolean" true)]
 ```
 
 ## Test: string initialization

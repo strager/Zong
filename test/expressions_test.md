@@ -281,7 +281,7 @@ items[x + 1]
 !true
 ```
 ```ast
-(unary "!" (boolean true))
+(unary "!" true)
 ```
 
 ## Test: double negation
@@ -329,7 +329,7 @@ x[y] + z
 !f() == true
 ```
 ```ast
-(binary "==" (unary "!" (call (var "f"))) (boolean true))
+(binary "==" (unary "!" (call (var "f"))) true)
 ```
 
 ## Test: address of identifier
@@ -457,7 +457,7 @@ arr[0]&*
 true
 ```
 ```ast
-(boolean true)
+true
 ```
 
 ## Test: boolean literal false
@@ -465,7 +465,7 @@ true
 false
 ```
 ```ast
-(boolean false)
+false
 ```
 
 ## Test: integer addition from wasmutil

@@ -60,6 +60,20 @@ if x > 0 { print(1); } else if x < 0 { print(2); } else { print(0); }
   [(call (var "print") 0)])]
 ```
 
+## Test: block statement
+```zong-program
+{
+    {
+        {}
+    }
+}
+```
+```ast
+[(block
+  [(block
+    [(block [])])])]
+```
+
 ## Test: variable declaration with type
 ```zong-program
 var x int;

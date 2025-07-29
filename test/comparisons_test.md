@@ -53,7 +53,7 @@ x + 1 > y
 (x < y) == true
 ```
 ```ast
-(binary "==" (binary "<" (var "x") (var "y")) (boolean true))
+(binary "==" (binary "<" (var "x") (var "y")) true)
 ```
 
 ## Test: comparison with parentheses and equality

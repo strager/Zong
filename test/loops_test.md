@@ -5,7 +5,8 @@
 loop { print(42); }
 ```
 ```ast
-[(loop (call (var "print") 42))]
+[(loop
+  [(call (var "print") 42)])]
 ```
 
 ## Test: loop with break
@@ -13,7 +14,7 @@ loop { print(42); }
 loop { break; }
 ```
 ```ast
-[(loop break)]
+[(loop [break])]
 ```
 
 ## Test: loop with continue
@@ -21,7 +22,7 @@ loop { break; }
 loop { continue; }
 ```
 ```ast
-[(loop continue)]
+[(loop [continue])]
 ```
 
 ## Test: loop with break and semicolon
@@ -29,7 +30,9 @@ loop { continue; }
 loop { break; print(1); }
 ```
 ```ast
-[(loop break (call (var "print") 1))]
+[(loop
+  [break
+   (call (var "print") 1)])]
 ```
 
 ## Test: loop with continue and semicolon
@@ -37,7 +40,9 @@ loop { break; print(1); }
 loop { continue; print(1); }
 ```
 ```ast
-[(loop continue (call (var "print") 1))]
+[(loop
+  [continue
+   (call (var "print") 1)])]
 ```
 
 ## Test: nested loop with break
@@ -45,7 +50,8 @@ loop { continue; print(1); }
 loop { loop { break; } }
 ```
 ```ast
-[(loop (loop break))]
+[(loop
+  [(loop [break])])]
 ```
 
 ## Test: loop with multiple statements
@@ -53,5 +59,24 @@ loop { loop { break; } }
 loop { print(1); print(2); break; }
 ```
 ```ast
-[(loop (call (var "print") 1) (call (var "print") 2) break)]
+[(loop
+  [(call (var "print") 1)
+   (call (var "print") 2)
+   break])]
+```
+
+## Test: loop with conditional break
+```zong-program
+loop {
+    var i I64;
+    if i == 10 {
+        break;
+    }
+}
+```
+```ast
+[(loop
+  [(var-decl "i" "I64")
+   (if (binary "==" (var "i") 10)
+    [break])])]"
 ```

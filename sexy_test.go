@@ -125,76 +125,56 @@ func assertPatternMatch(t *testing.T, zongAST *ASTNode, sexyPattern *sexy.Node, 
 // assertIntegerMatch matches Zong NodeInteger against Sexy NodeInteger
 func assertIntegerMatch(t *testing.T, zongAST *ASTNode, sexyPattern *sexy.Node, path string) {
 	if sexyPattern.Type != sexy.NodeInteger {
-		t.Errorf("At %s: expected Sexy integer, got %v", path, sexyPattern.Type)
+		t.Errorf("At %s: expected integer, got type %v", path, sexyPattern.Type)
 		return
 	}
-
-	expectedValue := sexyPattern.Text
 	actualValue := intToString(zongAST.Integer)
-
-	be.Equal(t, actualValue, expectedValue, "At %s: integer value mismatch", path)
+	if actualValue != sexyPattern.Text {
+		t.Errorf("At %s: expected integer %s, got %v", path, actualValue, sexyPattern.Text)
+	}
 }
 
 // assertBooleanMatch matches Zong NodeBoolean against Sexy patterns
-// Sexy patterns for booleans are lists like (boolean true) or (boolean false)
+// Sexy patterns for booleans are lists like true or false
 func assertBooleanMatch(t *testing.T, zongAST *ASTNode, sexyPattern *sexy.Node, path string) {
-	if sexyPattern.Type != sexy.NodeList {
-		t.Errorf("At %s: expected Sexy list for boolean literal, got %v", path, sexyPattern.Type)
+	if sexyPattern.Type != sexy.NodeSymbol {
+		t.Errorf("At %s: expected symbol for boolean value, got type %v", path, sexyPattern.Items[1].Type)
 		return
 	}
-
-	if len(sexyPattern.Items) != 2 {
-		t.Errorf("At %s: expected (boolean true/false) pattern with 2 items, got %d", path, len(sexyPattern.Items))
-		return
-	}
-
-	// First item should be the symbol "boolean"
-	if sexyPattern.Items[0].Type != sexy.NodeSymbol || sexyPattern.Items[0].Text != "boolean" {
-		t.Errorf("At %s: expected 'boolean' symbol, got %v with text '%s'", path, sexyPattern.Items[0].Type, sexyPattern.Items[0].Text)
-		return
-	}
-
-	// Second item should be the boolean value as a symbol (true or false)
-	if sexyPattern.Items[1].Type != sexy.NodeSymbol {
-		t.Errorf("At %s: expected symbol for boolean value, got %v", path, sexyPattern.Items[1].Type)
-		return
-	}
-
-	expectedValue := sexyPattern.Items[1].Text
 	actualValue := "false"
 	if zongAST.Boolean {
 		actualValue = "true"
 	}
-
-	be.Equal(t, actualValue, expectedValue, "At %s: boolean value mismatch", path)
+	if actualValue != sexyPattern.Text {
+		t.Errorf("At %s: expected %s, got %v", path, sexyPattern.Text, actualValue)
+		return
+	}
 }
 
 // assertStringMatch matches Zong NodeString against Sexy patterns
 // Sexy patterns for strings are lists like (string "value")
 func assertStringMatch(t *testing.T, zongAST *ASTNode, sexyPattern *sexy.Node, path string) {
 	if sexyPattern.Type != sexy.NodeList {
-		t.Errorf("At %s: expected Sexy list for string literal, got %v", path, sexyPattern.Type)
+		t.Errorf("At %s: expected Sexy list for string literal, got type %v", path, sexyPattern.Type)
 		return
 	}
-
 	if len(sexyPattern.Items) != 2 {
 		t.Errorf("At %s: expected (string \"value\") pattern with 2 items, got %d", path, len(sexyPattern.Items))
 		return
 	}
-
-	// First item should be the symbol "string"
 	if sexyPattern.Items[0].Type != sexy.NodeSymbol || sexyPattern.Items[0].Text != "string" {
 		t.Errorf("At %s: expected 'string' symbol, got %v with text '%s'", path, sexyPattern.Items[0].Type, sexyPattern.Items[0].Text)
 		return
 	}
-
-	// Second item should be the string value
-	if sexyPattern.Items[1].Type != sexy.NodeString {
-		t.Errorf("At %s: expected string for string value, got %v", path, sexyPattern.Items[1].Type)
+	expected := sexyPattern.Items[1]
+	if expected.Type != sexy.NodeString {
+		t.Errorf("At %s: expected string for string value, got type %v", path, expected.Type)
 		return
 	}
-
-	be.Equal(t, zongAST.String, sexyPattern.Items[1].Text, "At %s: string value mismatch", path)
+	if expected.Text != zongAST.String {
+		t.Errorf("At %s: expected string %#v, got %#v", path, expected.Text, zongAST.String)
+		return
+	}
 }
 
 // assertIdentMatch matches Zong NodeIdent (variable references) against Sexy patterns
@@ -202,108 +182,89 @@ func assertStringMatch(t *testing.T, zongAST *ASTNode, sexyPattern *sexy.Node, p
 func assertIdentMatch(t *testing.T, zongAST *ASTNode, sexyPattern *sexy.Node, path string) {
 	// For variable references like "x" in Zong, the Sexy pattern should be (var "x")
 	if sexyPattern.Type != sexy.NodeList {
-		t.Errorf("At %s: expected Sexy list for variable reference, got %v", path, sexyPattern.Type)
+		t.Errorf("At %s: expected Sexy list for variable reference, got type %v", path, sexyPattern.Type)
 		return
 	}
-
 	if len(sexyPattern.Items) != 2 {
 		t.Errorf("At %s: expected (var \"name\") pattern with 2 items, got %d", path, len(sexyPattern.Items))
 		return
 	}
-
-	// First item should be the symbol "var"
 	if sexyPattern.Items[0].Type != sexy.NodeSymbol || sexyPattern.Items[0].Text != "var" {
 		t.Errorf("At %s: expected 'var' symbol, got %v with text '%s'", path, sexyPattern.Items[0].Type, sexyPattern.Items[0].Text)
 		return
 	}
-
-	// Second item should be the variable name as a string
-	if sexyPattern.Items[1].Type != sexy.NodeString {
-		t.Errorf("At %s: expected string for variable name, got %v", path, sexyPattern.Items[1].Type)
+	expected := sexyPattern.Items[1]
+	if expected.Type != sexy.NodeString {
+		t.Errorf("At %s: expected string for variable name, got %v", path, expected.Type)
 		return
 	}
-
-	be.Equal(t, zongAST.String, sexyPattern.Items[1].Text, "At %s: variable name mismatch", path)
+	if expected.Text != zongAST.String {
+		t.Errorf("At %s: expected variable name %v, got %v", path, expected.Text, zongAST.String)
+		return
+	}
 }
 
 // assertBinaryMatch matches Zong NodeBinary against Sexy NodeList patterns
 // Zong binary expressions map to Sexy patterns like (binary "+" left right)
 func assertBinaryMatch(t *testing.T, zongAST *ASTNode, sexyPattern *sexy.Node, path string) {
 	if sexyPattern.Type != sexy.NodeList {
-		t.Errorf("At %s: expected Sexy list for binary expression, got %v", path, sexyPattern.Type)
+		t.Errorf("At %s: expected Sexy list for binary expression, got type %v", path, sexyPattern.Type)
 		return
 	}
-
 	if len(sexyPattern.Items) != 4 {
 		t.Errorf("At %s: expected (binary \"op\" left right) pattern with 4 items, got %d", path, len(sexyPattern.Items))
 		return
 	}
-
-	// First item should be the symbol "binary"
 	if sexyPattern.Items[0].Type != sexy.NodeSymbol || sexyPattern.Items[0].Text != "binary" {
 		t.Errorf("At %s: expected 'binary' symbol, got %v with text '%s'", path, sexyPattern.Items[0].Type, sexyPattern.Items[0].Text)
 		return
 	}
-
-	// Second item should be the operator as a string
-	if sexyPattern.Items[1].Type != sexy.NodeString {
-		t.Errorf("At %s: expected string for operator, got %v", path, sexyPattern.Items[1].Type)
+	expectedOp := sexyPattern.Items[1]
+	if expectedOp.Type != sexy.NodeString {
+		t.Errorf("At %s: expected string for operator, got %v", path, expectedOp.Type)
 		return
 	}
-
-	be.Equal(t, zongAST.Op, sexyPattern.Items[1].Text, "At %s: operator mismatch", path)
-
-	// Check that we have the expected number of children
+	if expectedOp.Text != zongAST.Op {
+		t.Errorf("At %s: expected operator %s, got %s", path, expectedOp.Text, zongAST.Op)
+		return
+	}
 	if len(zongAST.Children) != 2 {
 		t.Errorf("At %s: expected 2 children for binary expression, got %d", path, len(zongAST.Children))
 		return
 	}
-
-	// Recursively match left child (third item in pattern)
-	leftPattern := sexyPattern.Items[2]
-	rightPattern := sexyPattern.Items[3]
-
-	// Handle simple atoms (integers, strings, variables) vs nested lists
-	assertPatternMatch(t, zongAST.Children[0], leftPattern, path+".left")
-	assertPatternMatch(t, zongAST.Children[1], rightPattern, path+".right")
+	assertPatternMatch(t, zongAST.Children[0], sexyPattern.Items[2], path+".left")
+	assertPatternMatch(t, zongAST.Children[1], sexyPattern.Items[3], path+".right")
 }
 
 // assertUnaryMatch matches Zong NodeUnary against Sexy NodeList patterns
 // Zong unary expressions map to Sexy patterns like (unary "!" operand)
 func assertUnaryMatch(t *testing.T, zongAST *ASTNode, sexyPattern *sexy.Node, path string) {
 	if sexyPattern.Type != sexy.NodeList {
-		t.Errorf("At %s: expected Sexy list for unary expression, got %v", path, sexyPattern.Type)
+		t.Errorf("At %s: expected Sexy list for unary expression, got type %v", path, sexyPattern.Type)
 		return
 	}
-
 	if len(sexyPattern.Items) != 3 {
 		t.Errorf("At %s: expected (unary \"op\" operand) pattern with 3 items, got %d", path, len(sexyPattern.Items))
 		return
 	}
-
-	// First item should be the symbol "unary"
 	if sexyPattern.Items[0].Type != sexy.NodeSymbol || sexyPattern.Items[0].Text != "unary" {
 		t.Errorf("At %s: expected 'unary' symbol, got %v with text '%s'", path, sexyPattern.Items[0].Type, sexyPattern.Items[0].Text)
 		return
 	}
-
-	// Second item should be the operator as a string
-	if sexyPattern.Items[1].Type != sexy.NodeString {
-		t.Errorf("At %s: expected string for operator, got %v", path, sexyPattern.Items[1].Type)
+	expectedOp := sexyPattern.Items[1]
+	if expectedOp.Type != sexy.NodeString {
+		t.Errorf("At %s: expected string for operator, got %v", path, expectedOp.Type)
 		return
 	}
-
-	be.Equal(t, zongAST.Op, sexyPattern.Items[1].Text, "At %s: operator mismatch", path)
-
-	// Check that we have the expected number of children
+	if zongAST.Op != expectedOp.Text {
+		t.Errorf("At %s: expected operator %s, got %s", path, expectedOp.Text, zongAST.Op)
+		return
+	}
 	if len(zongAST.Children) != 1 {
 		t.Errorf("At %s: expected 1 child for unary expression, got %d", path, len(zongAST.Children))
 		return
 	}
-
-	// Recursively match operand (third item in pattern)
-	operandPattern := sexyPattern.Items[2]
-	assertPatternMatch(t, zongAST.Children[0], operandPattern, path+".operand")
+	assertPatternMatch(t, zongAST.Children[0], sexyPattern.Items[2], path+".operand")
 }
 
 // assertCallMatch matches Zong NodeCall against Sexy NodeList patterns
@@ -440,7 +401,10 @@ func assertDotMatch(t *testing.T, zongAST *ASTNode, sexyPattern *sexy.Node, path
 	}
 
 	// Match the field name
-	be.Equal(t, zongAST.FieldName, sexyPattern.Items[2].Text, "At %s: field name mismatch", path)
+	if zongAST.FieldName != sexyPattern.Items[2].Text {
+		t.Errorf("At %s: field name mismatch, expected %s, got %s", path, sexyPattern.Items[2].Text, zongAST.FieldName)
+		return
+	}
 
 	// Recursively match struct expression (second item in pattern)
 	structPattern := sexyPattern.Items[1]
@@ -484,7 +448,10 @@ func assertVarMatch(t *testing.T, zongAST *ASTNode, sexyPattern *sexy.Node, path
 		t.Errorf("At %s: expected var pattern \"var_name\", got %v", path, namePattern.Type)
 		return
 	}
-	be.Equal(t, zongAST.Children[0].String, namePattern.Text, "At %s: var name mismatch", path)
+	if zongAST.Children[0].String != namePattern.Text {
+		t.Errorf("At %s: var name mismatch, expected %s, got %s", path, namePattern.Text, zongAST.Children[0].String)
+		return
+	}
 
 	// Match type (from TypeAST field, represented as "type_string")
 	typePattern := sexyPattern.Items[2]
@@ -500,7 +467,10 @@ func assertVarMatch(t *testing.T, zongAST *ASTNode, sexyPattern *sexy.Node, path
 
 	actualTypeName := TypeToString(zongAST.TypeAST)
 	expectedTypeName := typePattern.Text
-	be.Equal(t, actualTypeName, expectedTypeName, "At %s: type name mismatch", path)
+	if actualTypeName != expectedTypeName {
+		t.Errorf("At %s: type name mismatch, expected %s, got %s", path, expectedTypeName, actualTypeName)
+		return
+	}
 
 	// Match initialization expression if present
 	if len(zongAST.Children) > 1 {
@@ -511,18 +481,18 @@ func assertVarMatch(t *testing.T, zongAST *ASTNode, sexyPattern *sexy.Node, path
 
 // assertBlockMatch matches Zong NodeBlock against Sexy patterns
 // Zong blocks can map to:
-// - (block stmt1 stmt2 ...) for explicit blocks
+// - (block [stmt1 stmt2 ...]) for explicit blocks
 // - [stmt1 stmt2 ...] for program-level statement lists
 func assertBlockMatch(t *testing.T, zongAST *ASTNode, sexyPattern *sexy.Node, path string) {
-	var expectedStmts []*sexy.Node
+	var expectedStmts *sexy.Node
 
-	if sexyPattern.Type == sexy.NodeArray {
+	if sexyPattern.Type == sexy.NodeArray && path == "root" {
 		// Program-level pattern: [stmt1 stmt2 ...]
-		expectedStmts = sexyPattern.Items
+		expectedStmts = sexyPattern
 	} else if sexyPattern.Type == sexy.NodeList {
-		// Explicit block pattern: (block stmt1 stmt2 ...)
-		if len(sexyPattern.Items) < 1 {
-			t.Errorf("At %s: expected (block ...) pattern with at least 1 item, got %d", path, len(sexyPattern.Items))
+		// Explicit block pattern: (block [stmt1 stmt2 ...])
+		if len(sexyPattern.Items) != 2 {
+			t.Errorf("At %s: expected (block [...]) pattern, got %d", path, len(sexyPattern.Items))
 			return
 		}
 
@@ -532,24 +502,14 @@ func assertBlockMatch(t *testing.T, zongAST *ASTNode, sexyPattern *sexy.Node, pa
 			return
 		}
 
-		expectedStmts = sexyPattern.Items[1:] // Skip "block"
+		expectedStmts = sexyPattern.Items[1]
 	} else {
 		t.Errorf("At %s: expected Sexy array or list for block, got %v", path, sexyPattern.Type)
 		return
 	}
 
 	// Match the statements
-	actualStmts := zongAST.Children
-
-	if len(expectedStmts) != len(actualStmts) {
-		t.Errorf("At %s: expected %d statements, got %d", path, len(expectedStmts), len(actualStmts))
-		return
-	}
-
-	for i, expectedStmt := range expectedStmts {
-		actualStmt := actualStmts[i]
-		assertPatternMatch(t, actualStmt, expectedStmt, path+".stmt"+string(rune('0'+i)))
-	}
+	assertNodeArray(t, zongAST.Children, expectedStmts, path)
 }
 
 // assertReturnMatch matches Zong NodeReturn against Sexy NodeList patterns
@@ -730,7 +690,10 @@ func assertFuncMatch(t *testing.T, zongAST *ASTNode, sexyPattern *sexy.Node, pat
 		return
 	}
 
-	be.Equal(t, zongAST.FunctionName, namePattern.Text, "At %s: function name mismatch", path)
+	if zongAST.FunctionName != namePattern.Text {
+		t.Errorf("At %s: function name mismatch, expected %s, got %s", path, namePattern.Text, zongAST.FunctionName)
+		return
+	}
 
 	// Third item should be the parameters array
 	paramsPattern := sexyPattern.Items[2]
@@ -773,7 +736,10 @@ func assertFuncMatch(t *testing.T, zongAST *ASTNode, sexyPattern *sexy.Node, pat
 			t.Errorf("At %s.param%d: expected string for parameter name, got %v", path, i, expectedParam.Items[1].Type)
 			continue
 		}
-		be.Equal(t, actualParam.Name, expectedParam.Items[1].Text)
+		if actualParam.Name != expectedParam.Items[1].Text {
+			t.Errorf("At %s.param%d: parameter name mismatch, expected %s, got %s", path, i, expectedParam.Items[1].Text, actualParam.Name)
+			continue
+		}
 
 		// Third item should be parameter type
 		if expectedParam.Items[2].Type != sexy.NodeString {
@@ -781,7 +747,10 @@ func assertFuncMatch(t *testing.T, zongAST *ASTNode, sexyPattern *sexy.Node, pat
 			continue
 		}
 		actualTypeName := TypeToString(actualParam.Type)
-		be.Equal(t, actualTypeName, expectedParam.Items[2].Text)
+		if actualTypeName != expectedParam.Items[2].Text {
+			t.Errorf("At %s.param%d: parameter type mismatch, expected %s, got %s", path, i, expectedParam.Items[2].Text, actualTypeName)
+			continue
+		}
 
 		// Fourth item should be parameter kind (positional/named)
 		if expectedParam.Items[3].Type != sexy.NodeSymbol {
@@ -793,7 +762,10 @@ func assertFuncMatch(t *testing.T, zongAST *ASTNode, sexyPattern *sexy.Node, pat
 		if actualParam.IsNamed {
 			actualKind = "named"
 		}
-		be.Equal(t, actualKind, expectedKind)
+		if actualKind != expectedKind {
+			t.Errorf("At %s.param%d: parameter kind mismatch, expected %s, got %s", path, i, expectedKind, actualKind)
+			continue
+		}
 	}
 
 	// Fourth item should be the return type (string or nil)
@@ -809,7 +781,10 @@ func assertFuncMatch(t *testing.T, zongAST *ASTNode, sexyPattern *sexy.Node, pat
 			t.Errorf("At %s: expected return type '%s', got void (nil)", path, returnTypePattern.Text)
 		} else {
 			actualReturnType := TypeToString(zongAST.ReturnType)
-			be.Equal(t, actualReturnType, returnTypePattern.Text, "At %s: return type mismatch", path)
+			if actualReturnType != returnTypePattern.Text {
+				t.Errorf("At %s: return type mismatch, expected %s, got %s", path, returnTypePattern.Text, actualReturnType)
+				return
+			}
 		}
 	} else {
 		t.Errorf("At %s: expected string or nil for return type, got %v", path, returnTypePattern.Type)
@@ -818,35 +793,15 @@ func assertFuncMatch(t *testing.T, zongAST *ASTNode, sexyPattern *sexy.Node, pat
 
 	// Fifth item should be the function body (array of statements)
 	bodyPattern := sexyPattern.Items[4]
-	if bodyPattern.Type != sexy.NodeArray {
-		t.Errorf("At %s: expected array for function body, got %v (pattern: %v)", path, bodyPattern.Type, bodyPattern.String())
-		return
-	}
-
-	expectedBodyStmts := bodyPattern.Items
-
 	if zongAST.Body == nil {
-		// Function has no body
-		if len(expectedBodyStmts) != 0 {
-			t.Errorf("At %s: expected %d body statements, got no body", path, len(expectedBodyStmts))
-		}
+		assertNodeArray(t, nil, bodyPattern, path+".body")
 	} else {
 		// Function has a body - should be a block statement
 		if zongAST.Body.Kind != NodeBlock {
 			t.Errorf("At %s: expected NodeBlock for function body, got %v", path, zongAST.Body.Kind)
 			return
 		}
-
-		actualBodyStmts := zongAST.Body.Children
-		if len(expectedBodyStmts) != len(actualBodyStmts) {
-			t.Errorf("At %s: expected %d body statements, got %d", path, len(expectedBodyStmts), len(actualBodyStmts))
-			return
-		}
-
-		for i, expectedStmt := range expectedBodyStmts {
-			actualStmt := actualBodyStmts[i]
-			assertPatternMatch(t, actualStmt, expectedStmt, path+".body"+string(rune('0'+i)))
-		}
+		assertNodeArray(t, zongAST.Body.Children, bodyPattern, path+".body")
 	}
 }
 
@@ -878,7 +833,10 @@ func assertStructMatch(t *testing.T, zongAST *ASTNode, sexyPattern *sexy.Node, p
 	}
 
 	// For NodeStruct, the struct name is stored in the String field
-	be.Equal(t, zongAST.String, namePattern.Text, "At %s: struct name mismatch", path)
+	if zongAST.String != namePattern.Text {
+		t.Errorf("At %s: struct name mismatch, expected %s, got %s", path, namePattern.Text, zongAST.String)
+		return
+	}
 
 	// Third item should be the fields array
 	fieldsPattern := sexyPattern.Items[2]
@@ -936,7 +894,10 @@ func assertStructMatch(t *testing.T, zongAST *ASTNode, sexyPattern *sexy.Node, p
 		}
 
 		actualFieldName := actualFieldDecl.Children[0].String
-		be.Equal(t, actualFieldName, expectedField.Items[1].Text)
+		if actualFieldName != expectedField.Items[1].Text {
+			t.Errorf("At %s.field%d: field name mismatch, expected %s, got %s", path, i, expectedField.Items[1].Text, actualFieldName)
+			continue
+		}
 
 		// Third item should be field type
 		if expectedField.Items[2].Type != sexy.NodeString {
@@ -950,41 +911,42 @@ func assertStructMatch(t *testing.T, zongAST *ASTNode, sexyPattern *sexy.Node, p
 		}
 
 		actualTypeName := TypeToString(actualFieldDecl.TypeAST)
-		be.Equal(t, actualTypeName, expectedField.Items[2].Text)
+		if actualTypeName != expectedField.Items[2].Text {
+			t.Errorf("At %s.field%d: field type mismatch, expected %s, got %s", path, i, expectedField.Items[2].Text, actualTypeName)
+			continue
+		}
 	}
 }
 
 // assertLoopMatch matches Zong NodeLoop against Sexy NodeList patterns
-// Zong loops map to Sexy patterns like (loop stmt1 stmt2 ...)
+// Zong loops map to Sexy patterns like (loop [stmt1 stmt2 ...])
 func assertLoopMatch(t *testing.T, zongAST *ASTNode, sexyPattern *sexy.Node, path string) {
 	if sexyPattern.Type != sexy.NodeList {
 		t.Errorf("At %s: expected Sexy list for loop, got %v", path, sexyPattern.Type)
 		return
 	}
-
-	if len(sexyPattern.Items) < 1 {
-		t.Errorf("At %s: expected (loop ...) pattern with at least 1 item, got %d", path, len(sexyPattern.Items))
+	if len(sexyPattern.Items) != 2 {
+		t.Errorf("At %s: expected (loop [...]) pattern, got %d", path, len(sexyPattern.Items))
 		return
 	}
-
-	// First item should be the symbol "loop"
 	if sexyPattern.Items[0].Type != sexy.NodeSymbol || sexyPattern.Items[0].Text != "loop" {
 		t.Errorf("At %s: expected 'loop' symbol, got %v with text '%s'", path, sexyPattern.Items[0].Type, sexyPattern.Items[0].Text)
 		return
 	}
+	assertNodeArray(t, zongAST.Children, sexyPattern.Items[1], path+".body")
+}
 
-	// Match the statements
-	expectedStmts := sexyPattern.Items[1:] // Skip "loop"
-	actualStmts := zongAST.Children
-
-	if len(expectedStmts) != len(actualStmts) {
-		t.Errorf("At %s: expected %d statements, got %d", path, len(expectedStmts), len(actualStmts))
+func assertNodeArray(t *testing.T, zongASTs []*ASTNode, sexyPattern *sexy.Node, path string) {
+	if sexyPattern.Type != sexy.NodeArray {
+		t.Errorf("At %s: expected array, got %v (pattern: %v)", path, sexyPattern.Type, sexyPattern.String())
 		return
 	}
-
-	for i, expectedStmt := range expectedStmts {
-		actualStmt := actualStmts[i]
-		assertPatternMatch(t, actualStmt, expectedStmt, path+".stmt"+string(rune('0'+i)))
+	if len(sexyPattern.Items) != len(zongASTs) {
+		t.Errorf("At %s: expected %d nodes, got %d", path, len(sexyPattern.Items), len(zongASTs))
+		return
+	}
+	for i := range sexyPattern.Items {
+		assertPatternMatch(t, zongASTs[i], sexyPattern.Items[i], path+"."+string(rune('0'+i)))
 	}
 }
 
@@ -995,8 +957,6 @@ func assertBreakMatch(t *testing.T, zongAST *ASTNode, sexyPattern *sexy.Node, pa
 		t.Errorf("At %s: expected Sexy symbol for break statement, got %v", path, sexyPattern.Type)
 		return
 	}
-
-	// Pattern should be the symbol "break"
 	if sexyPattern.Text != "break" {
 		t.Errorf("At %s: expected 'break' symbol, got '%s'", path, sexyPattern.Text)
 		return
@@ -1010,8 +970,6 @@ func assertContinueMatch(t *testing.T, zongAST *ASTNode, sexyPattern *sexy.Node,
 		t.Errorf("At %s: expected Sexy symbol for continue statement, got %v", path, sexyPattern.Type)
 		return
 	}
-
-	// Pattern should be the symbol "continue"
 	if sexyPattern.Text != "continue" {
 		t.Errorf("At %s: expected 'continue' symbol, got '%s'", path, sexyPattern.Text)
 		return
