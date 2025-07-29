@@ -2550,11 +2550,27 @@ func isWASMI32Type(t *TypeNode) bool {
 	panic("Unknown TypeKind: " + string(t.Kind))
 }
 
-// SymbolInfo represents information about a declared variable
+// SymbolKind represents the type of symbol
+type SymbolKind int
+
+const (
+	SymbolVariable SymbolKind = iota
+	SymbolFunction
+	SymbolStruct
+)
+
+// SymbolInfo represents information about a declared symbol (variable, function, or struct)
 type SymbolInfo struct {
 	Name     string
 	Type     *TypeNode
-	Assigned bool // tracks if variable has been assigned a value
+	Kind     SymbolKind
+	Assigned bool // tracks if variable has been assigned a value (only relevant for variables)
+
+	// For function symbols
+	FunctionInfo *FunctionInfo
+
+	// For struct symbols
+	StructType *TypeNode
 }
 
 // FunctionInfo represents information about a declared function
@@ -2573,11 +2589,24 @@ type FunctionParameter struct {
 	Symbol  *SymbolInfo // Link to symbol table entry for this parameter
 }
 
-// SymbolTable tracks variable declarations and assignments
+// UnresolvedReference represents a reference to a symbol that hasn't been declared yet
+type UnresolvedReference struct {
+	Name    string
+	ASTNode *ASTNode // Node that needs symbol reference filled in
+}
+
+// Scope represents a single scope level in the symbol hierarchy
+type Scope struct {
+	parent  *Scope                 // Parent scope for scope chain
+	symbols map[string]*SymbolInfo // All symbols (variables, functions, structs) in this scope
+}
+
+// SymbolTable tracks variable declarations and assignments with hierarchical scoping
 type SymbolTable struct {
-	variables []SymbolInfo
-	structs   []*TypeNode    // struct type definitions
-	functions []FunctionInfo // function declarations
+	currentScope   *Scope
+	unresolvedRefs []UnresolvedReference
+	allFunctions   []FunctionInfo // Global list for WASM index assignment
+	allScopes      []*Scope       // Keep track of all scopes for traversal
 }
 
 // TypeChecker holds state for type checking
@@ -2600,38 +2629,120 @@ func (tc *TypeChecker) InLoop() bool {
 
 // NewSymbolTable creates a new empty symbol table
 func NewSymbolTable() *SymbolTable {
-	return &SymbolTable{
-		variables: make([]SymbolInfo, 0),
-		structs:   make([]*TypeNode, 0),
-		functions: make([]FunctionInfo, 0),
+	globalScope := &Scope{
+		parent:  nil,
+		symbols: make(map[string]*SymbolInfo),
+	}
+
+	st := &SymbolTable{
+		currentScope:   globalScope,
+		unresolvedRefs: make([]UnresolvedReference, 0),
+		allFunctions:   make([]FunctionInfo, 0),
+		allScopes:      []*Scope{globalScope},
+	}
+
+	// Add built-in functions
+	// print function (WASM index 0)
+	printFunc := FunctionInfo{
+		Name:       "print",
+		Parameters: []FunctionParameter{{Name: "value", Type: TypeI64, IsNamed: false}},
+		ReturnType: nil, // void
+		WasmIndex:  0,
+	}
+	printSymbol := &SymbolInfo{
+		Name:         "print",
+		Type:         nil,
+		Kind:         SymbolFunction,
+		FunctionInfo: &printFunc,
+	}
+	globalScope.symbols["print"] = printSymbol
+
+	// print_bytes function (WASM index 1)
+	printBytesFunc := FunctionInfo{
+		Name:       "print_bytes",
+		Parameters: []FunctionParameter{{Name: "slice", Type: &TypeNode{Kind: TypeSlice, Child: TypeU8}, IsNamed: false}},
+		ReturnType: nil, // void
+		WasmIndex:  1,
+	}
+	printBytesSymbol := &SymbolInfo{
+		Name:         "print_bytes",
+		Type:         nil,
+		Kind:         SymbolFunction,
+		FunctionInfo: &printBytesFunc,
+	}
+	globalScope.symbols["print_bytes"] = printBytesSymbol
+
+	// append function (generic builtin)
+	appendFunc := FunctionInfo{
+		Name: "append",
+		Parameters: []FunctionParameter{
+			{Name: "slice_ptr", Type: nil, IsNamed: false}, // Generic type
+			{Name: "value", Type: nil, IsNamed: false},     // Generic type
+		},
+		ReturnType: nil, // void
+		WasmIndex:  0,   // Not directly called, generates specific functions
+	}
+	appendSymbol := &SymbolInfo{
+		Name:         "append",
+		Type:         nil,
+		Kind:         SymbolFunction,
+		FunctionInfo: &appendFunc,
+	}
+	globalScope.symbols["append"] = appendSymbol
+
+	return st
+}
+
+// PushScope creates a new scope and makes it current
+func (st *SymbolTable) PushScope() {
+	newScope := &Scope{
+		parent:  st.currentScope,
+		symbols: make(map[string]*SymbolInfo),
+	}
+	st.currentScope = newScope
+	st.allScopes = append(st.allScopes, newScope)
+}
+
+// PopScope removes the current scope and returns to the parent
+func (st *SymbolTable) PopScope() {
+	if st.currentScope.parent != nil {
+		st.currentScope = st.currentScope.parent
 	}
 }
 
 // DeclareVariable adds a variable declaration to the symbol table
 func (st *SymbolTable) DeclareVariable(name string, varType *TypeNode) (*SymbolInfo, error) {
-	// Check for duplicate declaration
-	for _, v := range st.variables {
-		if v.Name == name {
-			return nil, fmt.Errorf("error: variable '%s' already declared", name)
-		}
+	// Check for duplicate declaration in current scope only
+	if _, exists := st.currentScope.symbols[name]; exists {
+		return nil, fmt.Errorf("error: variable '%s' already declared", name)
 	}
 
-	st.variables = append(st.variables, SymbolInfo{
+	// Create new symbol
+	symbol := &SymbolInfo{
 		Name:     name,
 		Type:     varType,
+		Kind:     SymbolVariable,
 		Assigned: false,
-	})
+	}
 
-	// Return a pointer to the newly created symbol
-	return &st.variables[len(st.variables)-1], nil
+	// Add to current scope
+	st.currentScope.symbols[name] = symbol
+
+	// Resolve any unresolved references to this symbol
+	st.resolvePendingReferences(name, symbol)
+
+	return symbol, nil
 }
 
-// LookupVariable finds a variable in the symbol table
+// LookupVariable finds a variable in the symbol table, searching through the scope chain
 func (st *SymbolTable) LookupVariable(name string) *SymbolInfo {
-	for i := range st.variables {
-		if st.variables[i].Name == name {
-			return &st.variables[i]
+	// Search through scope chain from current to root
+	scope := st.currentScope
+	for scope != nil {
+		if symbol, exists := scope.symbols[name]; exists && symbol.Kind == SymbolVariable {
+			return symbol
 		}
+		scope = scope.parent
 	}
 	return nil
 }
@@ -2639,56 +2750,189 @@ func (st *SymbolTable) LookupVariable(name string) *SymbolInfo {
 // DeclareStruct adds a struct declaration to the symbol table
 func (st *SymbolTable) DeclareStruct(structType *TypeNode) error {
 	name := structType.String
-	// Check for duplicate declaration
-	for _, existingStruct := range st.structs {
-		if existingStruct.String == name {
-			return fmt.Errorf("error: struct '%s' already declared", name)
-		}
+
+	// Check for duplicate declaration in current scope only
+	if _, exists := st.currentScope.symbols[name]; exists {
+		return fmt.Errorf("error: struct '%s' already declared", name)
 	}
 
-	st.structs = append(st.structs, structType)
+	// Create new symbol for struct
+	symbol := &SymbolInfo{
+		Name:       name,
+		Type:       structType,
+		Kind:       SymbolStruct,
+		StructType: structType,
+	}
+
+	// Add to current scope
+	st.currentScope.symbols[name] = symbol
+
+	// Resolve any unresolved references to this struct
+	st.resolvePendingReferences(name, symbol)
+
 	return nil
 }
 
-// LookupStruct finds a struct type by name
+// LookupStruct finds a struct type by name, searching through the scope chain
 func (st *SymbolTable) LookupStruct(name string) *TypeNode {
-	for _, structType := range st.structs {
-		if structType.String == name {
-			return structType
+	// Search through scope chain from current to root
+	scope := st.currentScope
+	for scope != nil {
+		if symbol, exists := scope.symbols[name]; exists && symbol.Kind == SymbolStruct {
+			return symbol.StructType
 		}
+		scope = scope.parent
 	}
 	return nil
 }
 
 // DeclareFunction adds a function declaration to the symbol table
 func (st *SymbolTable) DeclareFunction(name string, parameters []FunctionParameter, returnType *TypeNode) error {
-	// Check for duplicate declaration
-	for _, fn := range st.functions {
-		if fn.Name == name {
-			return fmt.Errorf("function '%s' already declared", name)
-		}
+	// Check for duplicate declaration in current scope only
+	if _, exists := st.currentScope.symbols[name]; exists {
+		return fmt.Errorf("function '%s' already declared", name)
 	}
 
 	// Assign WASM index (builtin functions like print start at 0, user functions follow)
-	wasmIndex := uint32(2 + len(st.functions)) // print is at index 0, print_bytes is at index 1
+	wasmIndex := uint32(2 + len(st.allFunctions)) // print is at index 0, print_bytes is at index 1
 
-	st.functions = append(st.functions, FunctionInfo{
+	// Create function info
+	funcInfo := FunctionInfo{
 		Name:       name,
 		Parameters: parameters,
 		ReturnType: returnType,
 		WasmIndex:  wasmIndex,
-	})
+	}
+
+	// Create new symbol for function
+	symbol := &SymbolInfo{
+		Name:         name,
+		Type:         returnType, // Function return type as the symbol type
+		Kind:         SymbolFunction,
+		FunctionInfo: &funcInfo,
+	}
+
+	// Add to current scope
+	st.currentScope.symbols[name] = symbol
+
+	// Add to global function list for WASM indexing
+	st.allFunctions = append(st.allFunctions, funcInfo)
+
+	// Resolve any unresolved references to this function
+	st.resolvePendingReferences(name, symbol)
+
 	return nil
 }
 
-// LookupFunction finds a function by name
+// LookupFunction finds a function by name, searching through the scope chain
 func (st *SymbolTable) LookupFunction(name string) *FunctionInfo {
-	for i := range st.functions {
-		if st.functions[i].Name == name {
-			return &st.functions[i]
+	// Search through scope chain from current to root
+	scope := st.currentScope
+	for scope != nil {
+		if symbol, exists := scope.symbols[name]; exists && symbol.Kind == SymbolFunction {
+			return symbol.FunctionInfo
 		}
+		scope = scope.parent
 	}
 	return nil
+}
+
+// LookupSymbol finds any symbol by name, searching through the scope chain
+func (st *SymbolTable) LookupSymbol(name string) *SymbolInfo {
+	// Search through scope chain from current to root
+	scope := st.currentScope
+	for scope != nil {
+		if symbol, exists := scope.symbols[name]; exists {
+			return symbol
+		}
+		scope = scope.parent
+	}
+	return nil
+}
+
+// AddUnresolvedReference adds a reference that couldn't be resolved immediately
+func (st *SymbolTable) AddUnresolvedReference(name string, node *ASTNode) {
+	st.unresolvedRefs = append(st.unresolvedRefs, UnresolvedReference{
+		Name:    name,
+		ASTNode: node,
+	})
+}
+
+// resolvePendingReferences resolves any unresolved references to the given symbol
+func (st *SymbolTable) resolvePendingReferences(name string, symbol *SymbolInfo) {
+	// Find and resolve all matching unresolved references
+	remainingRefs := make([]UnresolvedReference, 0)
+	for _, ref := range st.unresolvedRefs {
+		if ref.Name == name {
+			// Resolve this reference
+			ref.ASTNode.Symbol = symbol
+		} else {
+			// Keep this unresolved reference
+			remainingRefs = append(remainingRefs, ref)
+		}
+	}
+	st.unresolvedRefs = remainingRefs
+}
+
+// ReportUnresolvedSymbols returns errors for any symbols that remain unresolved
+func (st *SymbolTable) ReportUnresolvedSymbols() []error {
+	var errors []error
+	for _, ref := range st.unresolvedRefs {
+		errors = append(errors, fmt.Errorf("undefined symbol '%s'", ref.Name))
+	}
+	return errors
+}
+
+// GetAllVariables returns all variable symbols from all scopes
+func (st *SymbolTable) GetAllVariables() []*SymbolInfo {
+	var variables []*SymbolInfo
+	// Collect variables from all scopes
+	for _, scope := range st.allScopes {
+		for _, symbol := range scope.symbols {
+			if symbol.Kind == SymbolVariable {
+				variables = append(variables, symbol)
+			}
+		}
+	}
+	return variables
+}
+
+// GetAllStructs returns all struct symbols from all scopes
+func (st *SymbolTable) GetAllStructs() []*TypeNode {
+	var structs []*TypeNode
+	// Collect structs from all scopes
+	for _, scope := range st.allScopes {
+		for _, symbol := range scope.symbols {
+			if symbol.Kind == SymbolStruct {
+				structs = append(structs, symbol.StructType)
+			}
+		}
+	}
+	return structs
+}
+
+// GetAllFunctions returns all function definitions (for WASM compatibility)
+func (st *SymbolTable) GetAllFunctions() []FunctionInfo {
+	return st.allFunctions
+}
+
+// collectSymbolsByKind recursively collects symbols of a specific kind from a scope and all its children
+func (st *SymbolTable) collectSymbolsByKind(scope *Scope, kind SymbolKind, result *[]*SymbolInfo) {
+	if scope == nil {
+		return
+	}
+
+	// Collect from current scope
+	for _, symbol := range scope.symbols {
+		if symbol.Kind == kind {
+			*result = append(*result, symbol)
+		}
+	}
+
+	// For now, we don't have child scope tracking, so we can't traverse child scopes
+	// This is a limitation of our current implementation - we only have parent pointers
+	// For the current use case, this should be sufficient since most of these symbols
+	// will be at the global scope anyway
 }
 
 // ConvertStructASTToType converts a struct AST node to a TypeNode with calculated field offsets
@@ -2760,15 +3004,15 @@ func synthesizeSliceStruct(sliceType *TypeNode) *TypeNode {
 // transformSlicesToStructs converts all slice types to struct types throughout the AST and symbol table
 func transformSlicesToStructs(ast *ASTNode, symbolTable *SymbolTable) {
 	// Transform types in symbol table
-	for _, symbol := range symbolTable.variables {
+	for _, symbol := range symbolTable.GetAllVariables() {
 		transformTypeNodeSlices(symbol.Type)
 	}
-	for _, structDef := range symbolTable.structs {
+	for _, structDef := range symbolTable.GetAllStructs() {
 		for i := range structDef.Fields {
 			transformTypeNodeSlices(structDef.Fields[i].Type)
 		}
 	}
-	for _, funcDef := range symbolTable.functions {
+	for _, funcDef := range symbolTable.GetAllFunctions() {
 		transformTypeNodeSlices(funcDef.ReturnType)
 		for i := range funcDef.Parameters {
 			transformTypeNodeSlices(funcDef.Parameters[i].Type)
@@ -3015,10 +3259,9 @@ func generateAllAppendFunctions() {
 func BuildSymbolTable(ast *ASTNode) *SymbolTable {
 	st := NewSymbolTable()
 
-	// Pass 1: collect all struct and variable declarations
-	// (must be done first to handle variables declared in nested scopes)
-	var collectDeclarations func(*ASTNode)
-	collectDeclarations = func(node *ASTNode) {
+	// Pass 1: Collect all struct and function declarations (no scoping)
+	var collectGlobalDeclarations func(*ASTNode)
+	collectGlobalDeclarations = func(node *ASTNode) {
 		switch node.Kind {
 		case NodeStruct:
 			// Convert struct AST to TypeNode and declare it
@@ -3026,56 +3269,6 @@ func BuildSymbolTable(ast *ASTNode) *SymbolTable {
 			err := st.DeclareStruct(structType)
 			if err != nil {
 				panic(err.Error())
-			}
-
-		case NodeVar:
-			// Extract variable name and type
-			varName := node.Children[0].String
-			varType := node.TypeAST
-			hasInitializer := len(node.Children) > 1 // Check if there's an initialization expression
-
-			// Skip variables with no type information
-			if varType == nil {
-				break
-			}
-
-			// Only add supported types to symbol table for type checking
-			// This includes I64, Bool, pointers, struct types, and slice types
-			if isWASMI64Type(varType) || isWASMI32Type(varType) || varType.Kind == TypeStruct || varType.Kind == TypeSlice {
-				// For struct types, resolve the struct name to actual struct type
-				if varType.Kind == TypeStruct {
-					// Look up the struct definition
-					structDef := st.LookupStruct(varType.String)
-					if structDef != nil {
-						// Use the complete struct definition
-						varType = structDef
-						node.TypeAST = varType
-					}
-				}
-				// For slice types, resolve the element type if it's a struct
-				if varType.Kind == TypeSlice && varType.Child.Kind == TypeStruct {
-					// Look up the struct definition for the element type
-					elementStructDef := st.LookupStruct(varType.Child.String)
-					if elementStructDef != nil {
-						// Create new slice type with resolved element type
-						varType = &TypeNode{
-							Kind:  TypeSlice,
-							Child: elementStructDef,
-						}
-						node.TypeAST = varType
-					}
-				}
-
-				symbol, err := st.DeclareVariable(varName, varType)
-				if err != nil {
-					panic(err.Error())
-				}
-				node.Children[0].Symbol = symbol
-
-				// Mark variable as assigned if it has an initializer, or if it's a struct/slice
-				if hasInitializer || varType.Kind == TypeStruct || varType.Kind == TypeSlice {
-					symbol.Assigned = true
-				}
 			}
 
 		case NodeFunc:
@@ -3107,98 +3300,183 @@ func BuildSymbolTable(ast *ASTNode) *SymbolTable {
 				}
 			}
 
-			// Declare function with resolved parameter types and return type
+			// Declare function (in global scope)
 			err := st.DeclareFunction(node.FunctionName, node.Parameters, node.ReturnType)
 			if err != nil {
 				panic(err.Error())
 			}
+		}
 
-			// Add function parameters to the symbol table
-			// Since we made parameter names unique across all functions, they can be
-			// added to the global symbol table without conflicts.
-			for _, param := range node.Parameters {
-				// Create a variable symbol for each parameter
-				symbol, err := st.DeclareVariable(param.Name, param.Type)
+		// Traverse children for other declarations
+		for _, child := range node.Children {
+			if child != nil {
+				collectGlobalDeclarations(child)
+			}
+		}
+	}
+
+	// Pass 2: Process variables and references with proper scoping
+	var processWithScoping func(*ASTNode, bool)
+	processWithScoping = func(node *ASTNode, isTopLevel bool) {
+		switch node.Kind {
+		case NodeStruct:
+			// Skip struct processing - already handled in pass 1
+			return
+
+		case NodeVar:
+			// Extract variable name and type
+			varName := node.Children[0].String
+			varType := node.TypeAST
+			hasInitializer := len(node.Children) > 1
+
+			// Skip variables with no type information
+			if varType == nil {
+				break
+			}
+
+			// Only add supported types to symbol table
+			if isWASMI64Type(varType) || isWASMI32Type(varType) || varType.Kind == TypeStruct || varType.Kind == TypeSlice {
+				symbol, err := st.DeclareVariable(varName, varType)
 				if err != nil {
 					panic(err.Error())
 				}
-				// Parameters are considered assigned when declared
-				symbol.Assigned = true
+				node.Children[0].Symbol = symbol
+
+				// Mark variable as assigned if it has an initializer or if it's a struct/slice
+				if hasInitializer || varType.Kind == TypeStruct || varType.Kind == TypeSlice {
+					symbol.Assigned = true
+				}
 			}
 
-			// Only traverse the function body, not the children (which would include parameters)
-			if node.Body != nil {
-				collectDeclarations(node.Body)
+			// Process initializer expression if present (Children[1] and beyond)
+			for i := 1; i < len(node.Children); i++ {
+				if node.Children[i] != nil {
+					processWithScoping(node.Children[i], false)
+				}
 			}
-			return // Don't traverse children normally for functions
+			return
+
+		case NodeFunc:
+			// Function already declared in pass 1, now handle scoping
+			// Push new scope for function parameters and body
+			st.PushScope()
+
+			// Declare function parameters in the function scope
+			for i, param := range node.Parameters {
+				symbol, err := st.DeclareVariable(param.Name, param.Type)
+				if err != nil {
+					panic(err.Error()) // Parameters should not conflict in their own scope
+				}
+				// Mark parameter as assigned (since it gets its value from the call)
+				symbol.Assigned = true
+
+				// Populate the Symbol field in the FunctionParameter using the returned symbol
+				node.Parameters[i].Symbol = symbol
+			}
+
+			// Process function body with parameters in scope
+			if node.Body != nil {
+				processWithScoping(node.Body, false)
+			}
+
+			// Pop scope when done with function
+			st.PopScope()
+			return
+
+		case NodeBlock:
+			// Only push new scope for nested blocks, not the top-level program block
+			if !isTopLevel {
+				st.PushScope()
+			}
+			// Process children in the appropriate scope
+			for _, child := range node.Children {
+				if child != nil {
+					processWithScoping(child, false)
+				}
+			}
+			// Only pop scope if we pushed one
+			if !isTopLevel {
+				st.PopScope()
+			}
+			return
+
+		case NodeIdent:
+			// Handle identifier references
+			varName := node.String
+			// Try to resolve immediately
+			symbol := st.LookupSymbol(varName)
+			if symbol != nil {
+				node.Symbol = symbol
+			} else {
+				// Add as unresolved reference for later resolution
+				st.AddUnresolvedReference(varName, node)
+			}
+		}
+
+		// Traverse children for other node types
+		for _, child := range node.Children {
+			if child != nil {
+				processWithScoping(child, false)
+			}
+		}
+	}
+
+	// Execute both passes
+	collectGlobalDeclarations(ast)
+	processWithScoping(ast, true)
+
+	// Pass 1.5: resolve struct types in variable declarations now that all structs are declared
+	var resolveVariableStructTypes func(*ASTNode)
+	resolveVariableStructTypes = func(node *ASTNode) {
+		if node.Kind == NodeVar {
+			varType := node.TypeAST
+			if varType != nil && varType.Kind == TypeStruct {
+				// Look up the struct definition
+				structDef := st.LookupStruct(varType.String)
+				if structDef != nil {
+					// Use the complete struct definition
+					node.TypeAST = structDef
+					// Update the symbol's type as well
+					if node.Children[0].Symbol != nil {
+						node.Children[0].Symbol.Type = structDef
+					}
+				}
+			}
+			// For slice types, resolve the element type if it's a struct
+			if varType != nil && varType.Kind == TypeSlice && varType.Child.Kind == TypeStruct {
+				// Look up the struct definition for the element type
+				elementStructDef := st.LookupStruct(varType.Child.String)
+				if elementStructDef != nil {
+					// Create new slice type with resolved element type
+					resolvedSliceType := &TypeNode{
+						Kind:  TypeSlice,
+						Child: elementStructDef,
+					}
+					node.TypeAST = resolvedSliceType
+					// Update the symbol's type as well
+					if node.Children[0].Symbol != nil {
+						node.Children[0].Symbol.Type = resolvedSliceType
+					}
+				}
+			}
+		}
+
+		// Special handling for function nodes to process their bodies
+		if node.Kind == NodeFunc && node.Body != nil {
+			resolveVariableStructTypes(node.Body)
 		}
 
 		// Traverse children
 		for _, child := range node.Children {
 			if child != nil {
-				collectDeclarations(child)
+				resolveVariableStructTypes(child)
 			}
 		}
 	}
+	resolveVariableStructTypes(ast)
 
-	// Pass 2: populate Symbol references for all NodeIdent nodes
-	var populateReferences func(*ASTNode)
-	populateReferences = func(node *ASTNode) {
-		if node.Kind == NodeIdent {
-			varName := node.String
-			symbol := st.LookupVariable(varName)
-			if symbol != nil {
-				node.Symbol = symbol
-			}
-		}
-
-		// Special handling for function nodes - declare parameters and traverse the body with scoping
-		if node.Kind == NodeFunc {
-			// Store the original symbol table variables count to restore later
-			originalVarCount := len(st.variables)
-
-			// Declare function parameters in symbol table and populate Symbol field
-			for i, param := range node.Parameters {
-				symbol, err := st.DeclareVariable(param.Name, param.Type)
-				if err != nil {
-					// If parameter conflicts with global variable, that's okay for now
-					// We'll handle proper scoping in a future improvement
-					// But we still need to populate the Symbol field with the existing symbol
-					existingSymbol := st.LookupVariable(param.Name)
-					if existingSymbol != nil {
-						node.Parameters[i].Symbol = existingSymbol
-					}
-				} else {
-					// Mark parameter as assigned (since it gets its value from the call)
-					symbol.Assigned = true
-
-					// Populate the Symbol field in the FunctionParameter using the returned symbol
-					node.Parameters[i].Symbol = symbol
-				}
-			}
-
-			// Populate references in function body with parameters in scope
-			if node.Body != nil {
-				populateReferences(node.Body)
-			}
-
-			// Remove function parameters from symbol table to avoid conflicts with other functions
-			st.variables = st.variables[:originalVarCount]
-		} else {
-			// Traverse children
-			for _, child := range node.Children {
-				if child != nil {
-					populateReferences(child)
-				}
-			}
-		}
-	}
-
-	// Execute all passes
-	collectDeclarations(ast)
-
-	// Pass 1.5: resolve struct field types now that all structs are declared
-	for _, structType := range st.structs {
+	// Pass 1.6: resolve struct field types now that all structs are declared
+	for _, structType := range st.GetAllStructs() {
 		for i, field := range structType.Fields {
 			if field.Type.Kind == TypeStruct {
 				// Look up the struct definition for this field
@@ -3212,7 +3490,7 @@ func BuildSymbolTable(ast *ASTNode) *SymbolTable {
 	}
 
 	// Pass 1.6: recalculate field offsets now that all field types are resolved
-	for _, structType := range st.structs {
+	for _, structType := range st.GetAllStructs() {
 		var currentOffset uint32 = 0
 		for i, field := range structType.Fields {
 			// Update the field offset
@@ -3223,8 +3501,6 @@ func BuildSymbolTable(ast *ASTNode) *SymbolTable {
 			currentOffset += uint32(fieldSize)
 		}
 	}
-
-	populateReferences(ast)
 
 	// Pass 3: resolve function calls and populate ResolvedFunction field
 	var resolveFunctionCalls func(*ASTNode)
@@ -3261,6 +3537,16 @@ func BuildSymbolTable(ast *ASTNode) *SymbolTable {
 	}
 
 	resolveFunctionCalls(ast)
+
+	// Report any unresolved symbols as errors
+	unresolved := st.ReportUnresolvedSymbols()
+	if len(unresolved) > 0 {
+		// For now, panic on unresolved symbols
+		// TODO: Return these errors properly
+		for _, err := range unresolved {
+			panic(err.Error())
+		}
+	}
 
 	return st
 }

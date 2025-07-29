@@ -650,7 +650,7 @@ func TestTypeCheckingErrors(t *testing.T) {
 		{
 			name:          "variable used before declaration",
 			code:          "print(undefined_var)",
-			expectedError: "variable 'undefined_var' used before declaration",
+			expectedError: "undefined symbol 'undefined_var'",
 		},
 		{
 			name:          "variable used before assignment",
@@ -675,7 +675,7 @@ func TestTypeCheckingErrors(t *testing.T) {
 		{
 			name:          "unknown function call",
 			code:          "unknown_func(42)",
-			expectedError: "unknown function 'unknown_func'",
+			expectedError: "undefined symbol 'unknown_func'",
 		},
 		{
 			name:          "print with wrong argument count",
