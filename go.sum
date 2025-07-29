@@ -1,2 +1,4 @@
 github.com/nalgeon/be v0.2.0 h1:i1Rsh0F+aNnHdbgph5Cy8Xm5uMVeWrUpm1olgzlPsMo=
 github.com/nalgeon/be v0.2.0/go.mod h1:PMwMuBLopwKJkSHnr2qHyLcZYUTqNejN7A8RAqNWO3E=
+github.com/yuin/goldmark v1.7.13 h1:GPddIs617DnBLFFVJFgpo1aBfe/4xcvMc3SB5t/D0pA=
+github.com/yuin/goldmark v1.7.13/go.mod h1:ip/1k0VRfGynBgxOz0yCqHrbZXhcjxyuS66Brc7iBKg=
