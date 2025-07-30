@@ -116,6 +116,34 @@ func executeWasmFromFile(t *testing.T, wasmFile string) (string, error) {
 	return stdout.String(), nil
 }
 
+// Helper function to append test cases to Sexy format files
+func appendSexyTest(filename, testName, input, inputType, expected string) {
+	// Create test directory if it doesn't exist
+	testDir := "test"
+	if err := os.MkdirAll(testDir, 0755); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to create test directory: %v\n", err)
+		return
+	}
+
+	filePath := filepath.Join(testDir, filename)
+
+	// Open file for appending (create if doesn't exist)
+	file, err := os.OpenFile(filePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to open file %s: %v\n", filePath, err)
+		return
+	}
+	defer file.Close()
+
+	// Write the test case in Sexy format
+	content := fmt.Sprintf("### Test: %s\n```%s\n%s\n```\n```execute\n%s\n```\n\n",
+		testName, inputType, input, expected)
+
+	if _, err := file.WriteString(content); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to write to file %s: %v\n", filePath, err)
+	}
+}
+
 // Test: print(42)
 
 // Verify WASM was generated
@@ -128,285 +156,8 @@ func executeWasmFromFile(t *testing.T, wasmFile string) (string, error) {
 
 // Test: print(1 + 2 * 3) - should be 7, not 9
 
-func TestDivisionAndModulo(t *testing.T) {
-	tests := []struct {
-		expr     string
-		expected string
-	}{
-		{"print(20 / 4)", "5\n"},
-		{"print(23 % 5)", "3\n"},
-		{"print(15 / 3 + 2)", "7\n"}, // Division has higher precedence than addition
-	}
-
-	for _, test := range tests {
-		t.Run(test.expr, func(t *testing.T) {
-			wasmBytes := compileExpression(t, test.expr)
-			output, err := executeWasm(t, wasmBytes)
-			be.Err(t, err, nil)
-			be.Equal(t, output, test.expected)
-		})
-	}
-}
-
-func TestComparisons(t *testing.T) {
-	tests := []struct {
-		expr     string
-		expected string
-	}{
-		{"print(5 > 3)", "1\n"},  // true = 1 in WASM i64
-		{"print(3 > 5)", "0\n"},  // false = 0 in WASM i64
-		{"print(5 == 5)", "1\n"}, // true
-		{"print(5 != 3)", "1\n"}, // true
-		{"print(3 < 5)", "1\n"},  // true
-	}
-
-	for _, test := range tests {
-		t.Run(test.expr, func(t *testing.T) {
-			wasmBytes := compileExpression(t, test.expr)
-			output, err := executeWasm(t, wasmBytes)
-			be.Err(t, err, nil)
-			be.Equal(t, output, test.expected)
-		})
-	}
-}
-
 // Test deeply nested expression: print(((2 + 3) * 4 - 8) / 2 + 1)
 // Should be: (5 * 4 - 8) / 2 + 1 = (20 - 8) / 2 + 1 = 12 / 2 + 1 = 6 + 1 = 7
-
-func TestAddressOfOperations(t *testing.T) {
-	tests := []struct {
-		expr     string
-		expected string
-	}{
-		// Test address of variable - should print some address value
-		{"{ var x I64; x = 42; print(x&); }", "0\n"}, // First addressed variable at offset 0
-		// Test multiple addressed variables
-		{"{ var x I64; var y I64; x = 10; y = 20; print(x&); print(y&); }", "0\n8\n"}, // x at 0, y at 8
-		// Test address of rvalue expression
-		{"{ var x I64; x = 5; print((x + 10)&); }", "0\n"}, // Expression result stored at tstack=0
-	}
-
-	for _, test := range tests {
-		t.Run(test.expr, func(t *testing.T) {
-			input := []byte(test.expr + "\x00")
-			Init(input)
-			NextToken()
-			ast := ParseStatement()
-			wasmBytes := CompileToWASM(ast)
-
-			output, err := executeWasm(t, wasmBytes)
-			be.Err(t, err, nil)
-			be.Equal(t, output, test.expected)
-		})
-	}
-}
-
-func TestFullCapabilitiesDemo(t *testing.T) {
-	// Comprehensive test of all supported operations
-	tests := []struct {
-		name     string
-		expr     string
-		expected string
-		desc     string
-	}{
-		{"literals", "print(42)", "42\n", "Integer literals"},
-		{"addition", "print(10 + 5)", "15\n", "Addition"},
-		{"subtraction", "print(10 - 3)", "7\n", "Subtraction"},
-		{"multiplication", "print(6 * 7)", "42\n", "Multiplication"},
-		{"division", "print(20 / 4)", "5\n", "Division"},
-		{"modulo", "print(17 % 5)", "2\n", "Modulo"},
-		{"precedence", "print(2 + 3 * 4)", "14\n", "Operator precedence (mult before add)"},
-		{"parentheses", "print((2 + 3) * 4)", "20\n", "Parentheses override precedence"},
-		{"equal_true", "print(5 == 5)", "1\n", "Equality (true)"},
-		{"equal_false", "print(5 == 3)", "0\n", "Equality (false)"},
-		{"not_equal", "print(5 != 3)", "1\n", "Not equal"},
-		{"greater_than", "print(5 > 3)", "1\n", "Greater than"},
-		{"less_than", "print(3 < 5)", "1\n", "Less than"},
-		{"complex", "print((10 + 5) * 2 - 3)", "27\n", "Complex nested expression"},
-		{"mixed_ops", "print(20 / 4 + 3 * 2)", "11\n", "Mixed arithmetic with precedence"},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			t.Logf("Testing %s: %s", test.desc, test.expr)
-			wasmBytes := compileExpression(t, test.expr)
-			executeWasmAndVerify(t, wasmBytes, test.expected)
-		})
-	}
-}
-
-// TestPointerOperations tests comprehensive pointer functionality including:
-// - Basic pointer assignment and dereferencing (ptr = var&, print(ptr*))
-// - Bidirectional synchronization (modify via pointer, read via variable and vice versa)
-// - Multiple pointers to the same target
-// - Pointer dereferencing in arithmetic expressions
-// - Assignment through pointer dereferencing (ptr* = value)
-func TestPointerOperations(t *testing.T) {
-	tests := []struct {
-		name     string
-		expr     string
-		expected string
-		desc     string
-	}{
-		{
-			"basic_pointer_assignment",
-			"{ var x I64; var ptr I64*; x = 42; ptr = x&; print(ptr*); }",
-			"42\n",
-			"Basic pointer: assign address, dereference to read value",
-		},
-		{
-			"modify_via_pointer_read_via_var",
-			"{ var x I64; var ptr I64*; x = 10; ptr = x&; ptr* = 99; print(x); }",
-			"99\n",
-			"Modify pointee via pointer, read via original variable",
-		},
-		{
-			"modify_via_var_read_via_pointer",
-			"{ var x I64; var ptr I64*; x = 25; ptr = x&; x = 77; print(ptr*); }",
-			"77\n",
-			"Modify via variable, read via pointer",
-		},
-		{
-			"pointer_in_arithmetic",
-			"{ var x I64; var ptr I64*; x = 7; ptr = x&; print(ptr* + 3); }",
-			"10\n",
-			"Use pointer dereference in arithmetic expression",
-		},
-		{
-			"multiple_pointers_same_target",
-			"{ var x I64; var ptr1 I64*; var ptr2 I64*; x = 123; ptr1 = x&; ptr2 = x&; print(ptr1*); print(ptr2*); ptr1* = 456; print(ptr2*); }",
-			"123\n123\n456\n",
-			"Multiple pointers to same variable - modify via one, read via another",
-		},
-		{
-			"sequential_pointer_ops",
-			"{ var x I64; var ptr I64*; x = 100; ptr = x&; print(ptr*); ptr* = 200; print(x); }",
-			"100\n200\n",
-			"Sequential pointer operations on same variable",
-		},
-		{
-			"pointer_in_expression",
-			"{ var x I64; var y I64; var ptr I64*; x = 8; y = 7; ptr = x&; print(ptr* * y + 6); }",
-			"62\n",
-			"Use pointer dereference in complex expression: (8 * 7 + 6)",
-		},
-		{
-			"pointer_modification_sequence",
-			"{ var x I64; var ptr I64*; x = 5; ptr = x&; ptr* = ptr* + 1; print(x); ptr* = ptr* * 2; print(x); }",
-			"6\n12\n",
-			"Sequential modifications via pointer",
-		},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			t.Logf("Testing %s: %s", test.desc, test.expr)
-			input := []byte(test.expr + "\x00")
-			Init(input)
-			NextToken()
-			ast := ParseStatement()
-			wasmBytes := CompileToWASM(ast)
-
-			output, err := executeWasm(t, wasmBytes)
-			be.Err(t, err, nil)
-			be.Equal(t, output, test.expected)
-		})
-	}
-}
-
-// TestAdvancedPointerScenarios tests more complex pointer use cases including:
-// - Address-of complex expressions stored on stack
-// - Pointer chains and transitive modifications
-// - Expression result addresses with proper stack frame management
-func TestAdvancedPointerScenarios(t *testing.T) {
-	tests := []struct {
-		name     string
-		expr     string
-		expected string
-		desc     string
-	}{
-		{
-			"pointer_to_expression_result",
-			"{ var x I64; x = 5; print((x + 10)&); print((x * 2)&); }",
-			"0\n8\n",
-			"Address-of expressions stored on stack at different offsets",
-		},
-		{
-			"complex_pointer_assignment",
-			"{ var a I64; var b I64; var c I64; var ptr I64*; a = 1; b = 2; c = 3; ptr = (a + b)&; print(ptr*); ptr = (b * c)&; print(ptr*); }",
-			"3\n6\n",
-			"Pointer to complex expression results",
-		},
-		{
-			"pointer_chain_modification",
-			"{ var x I64; var ptr1 I64*; var ptr2 I64*; x = 50; ptr1 = x&; ptr2 = ptr1; ptr2* = 75; print(x); print(ptr1*); }",
-			"75\n75\n",
-			"Chain of pointer assignments - modify through second pointer",
-		},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			t.Logf("Testing %s: %s", test.desc, test.expr)
-			input := []byte(test.expr + "\x00")
-			Init(input)
-			NextToken()
-			ast := ParseStatement()
-			wasmBytes := CompileToWASM(ast)
-
-			output, err := executeWasm(t, wasmBytes)
-			be.Err(t, err, nil)
-			be.Equal(t, output, test.expected)
-		})
-	}
-}
-
-func TestTypeASTInCompilation(t *testing.T) {
-	tests := []struct {
-		name     string
-		code     string
-		expected string
-	}{
-		{
-			name:     "I64 variable with TypeAST",
-			code:     "{ var x I64; x = 42; print(x); }",
-			expected: "42\n",
-		},
-		{
-			name:     "Second I64 variable with TypeAST",
-			code:     "{ var y I64; y = 7; print(y); }",
-			expected: "7\n",
-		},
-		{
-			name:     "Pointer variable with TypeAST",
-			code:     "{ var ptr I64*; var x I64; x = 99; ptr = x&; print(ptr*); }",
-			expected: "99\n",
-		},
-		{
-			name:     "Multiple types with TypeAST",
-			code:     "{ var x I64; var y I64; var ptr I64*; x = 10; y = 0; ptr = x&; print(x); print(y); print(ptr*); }",
-			expected: "10\n0\n10\n",
-		},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			input := []byte(test.code + "\x00")
-			Init(input)
-			NextToken()
-			ast := ParseStatement()
-
-			// Verify TypeAST is populated in the parsed AST
-			verifyTypeASTPopulated(t, ast)
-
-			// Compile and execute
-			wasmBytes := CompileToWASM(ast)
-			output, err := executeWasm(t, wasmBytes)
-			be.Err(t, err, nil)
-			be.Equal(t, output, test.expected)
-		})
-	}
-}
 
 // Helper function to verify TypeAST is populated in variable declarations
 func verifyTypeASTPopulated(t *testing.T, node *ASTNode) {
@@ -651,59 +402,6 @@ func TestTypeCheckingErrors(t *testing.T) {
 // Test that struct fields are zero-initialized by default
 
 // Test that struct variables work alongside regular I64 variables
-
-// Phase 1 Function Tests - Basic function support
-func TestPhase1Functions(t *testing.T) {
-	tests := []struct {
-		name     string
-		source   string
-		expected string
-	}{
-		{
-			name: "simple function call",
-			source: `func add(_ addA5: I64, _ addB5: I64): I64 { return addA5 + addB5; }
-					 func main() { print(add(5, 3)); }`,
-			expected: "8\n",
-		},
-		{
-			name: "void function",
-			source: `func printTwice(_ printTwiceX2: I64) { print(printTwiceX2); print(printTwiceX2); }
-					 func main() { printTwice(42); }`,
-			expected: "42\n42\n",
-		},
-		{
-			name: "multiple function calls",
-			source: `func double(_ doubleX2: I64): I64 { return doubleX2 * 2; }
-					 func triple(_ tripleX2: I64): I64 { return tripleX2 * 3; }
-					 func main() { print(double(5)); print(triple(4)); }`,
-			expected: "10\n12\n",
-		},
-		{
-			name: "nested function calls",
-			source: `func add(_ addA6: I64, _ addB6: I64): I64 { return addA6 + addB6; }
-					 func multiply(_ multiplyA2: I64, _ multiplyB2: I64): I64 { return multiplyA2 * multiplyB2; }
-					 func main() { print(add(multiply(2, 3), multiply(4, 5))); }`,
-			expected: "26\n",
-		},
-		{
-			name: "function with complex expression",
-			source: `func compute(_ computeA2: I64, _ computeB2: I64, _ computeC2: I64): I64 { return (computeA2 + computeB2) * computeC2 - 10; }
-					 func main() { print(compute(3, 4, 5)); }`,
-			expected: "25\n",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			input := []byte(tt.source + "\x00")
-			Init(input)
-			NextToken()
-			ast := ParseProgram()
-			wasmBytes := CompileToWASM(ast)
-			executeWasmAndVerify(t, wasmBytes, tt.expected)
-		})
-	}
-}
 
 // Test basic if statement
 
