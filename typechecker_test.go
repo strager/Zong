@@ -1,7 +1,6 @@
 package main
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/nalgeon/be"
@@ -41,41 +40,6 @@ func TestCheckExpressionVariableAssigned(t *testing.T) {
 	err = CheckExpression(varNode, tc)
 	be.Err(t, err, nil)
 	be.Equal(t, TypeI64, varNode.TypeAST)
-}
-
-func TestCheckExpressionVariableNotDeclared(t *testing.T) {
-	tc := NewTypeChecker()
-
-	// Create variable reference node
-	varNode := &ASTNode{
-		Kind:   NodeIdent,
-		String: "undefined",
-	}
-
-	// Check expression
-	err := CheckExpression(varNode, tc)
-	be.True(t, err != nil)
-	be.Equal(t, "error: variable 'undefined' used before declaration", err.Error())
-}
-
-func TestCheckExpressionVariableNotAssigned(t *testing.T) {
-	st := NewSymbolTable()
-	symbol, err := st.DeclareVariable("x", TypeI64)
-	be.Err(t, err, nil)
-
-	tc := NewTypeChecker()
-
-	// Create variable reference node with symbol reference
-	varNode := &ASTNode{
-		Kind:   NodeIdent,
-		String: "x",
-		Symbol: symbol,
-	}
-
-	// Check expression
-	err = CheckExpression(varNode, tc)
-	be.True(t, err != nil)
-	be.Equal(t, "error: variable 'x' used before assignment", err.Error())
 }
 
 func TestCheckExpressionBinaryArithmetic(t *testing.T) {
@@ -164,29 +128,6 @@ func TestCheckExpressionDereference(t *testing.T) {
 	be.Equal(t, TypeI64, derefNode.TypeAST)
 }
 
-func TestCheckExpressionDereferenceNonPointer(t *testing.T) {
-	st := NewSymbolTable()
-	symbol, err := st.DeclareVariable("x", TypeI64)
-	be.Err(t, err, nil)
-	symbol.Assigned = true
-
-	tc := NewTypeChecker()
-
-	// Create dereference expression: x* with symbol reference
-	derefNode := &ASTNode{
-		Kind: NodeUnary,
-		Op:   "*",
-		Children: []*ASTNode{
-			{Kind: NodeIdent, String: "x", Symbol: symbol},
-		},
-	}
-
-	// Check expression
-	err = CheckExpression(derefNode, tc)
-	be.True(t, err != nil)
-	be.Equal(t, "error: cannot dereference non-pointer type I64", err.Error())
-}
-
 func TestCheckExpressionFunctionCall(t *testing.T) {
 	tc := NewTypeChecker()
 
@@ -203,24 +144,6 @@ func TestCheckExpressionFunctionCall(t *testing.T) {
 	err := CheckExpression(callNode, tc)
 	be.Err(t, err, nil)
 	be.Equal(t, TypeI64, callNode.TypeAST)
-}
-
-func TestCheckExpressionUnknownFunction(t *testing.T) {
-	tc := NewTypeChecker()
-
-	// Create function call: unknown(42)
-	callNode := &ASTNode{
-		Kind: NodeCall,
-		Children: []*ASTNode{
-			{Kind: NodeIdent, String: "unknown"},
-			{Kind: NodeInteger, Integer: 42},
-		},
-	}
-
-	// Check expression
-	err := CheckExpression(callNode, tc)
-	be.True(t, err != nil)
-	be.Equal(t, "error: unknown function 'unknown'", err.Error())
 }
 
 func TestCheckAssignmentValid(t *testing.T) {
@@ -240,19 +163,6 @@ func TestCheckAssignmentValid(t *testing.T) {
 
 	// Verify variable is now assigned
 	be.Equal(t, true, symbol.Assigned)
-}
-
-func TestCheckAssignmentUndeclaredVariable(t *testing.T) {
-	tc := NewTypeChecker()
-
-	// Create assignment nodes: undefined = 42
-	lhs := &ASTNode{Kind: NodeIdent, String: "undefined"}
-	rhs := &ASTNode{Kind: NodeInteger, Integer: 42}
-
-	// Check assignment
-	err := CheckAssignment(lhs, rhs, tc)
-	be.True(t, err != nil)
-	be.Equal(t, "error: variable 'undefined' used before declaration", err.Error())
 }
 
 func TestCheckAssignmentPointerDereference(t *testing.T) {
@@ -290,18 +200,4 @@ func TestCheckProgramSuccess(t *testing.T) {
 	_ = BuildSymbolTable(ast)
 	err := CheckProgram(ast)
 	be.Err(t, err, nil)
-}
-
-func TestCheckProgramError(t *testing.T) {
-	// Parse: { var x I64; print(x); } (use before assignment)
-	input := []byte("{ var x I64; print(x); }\x00")
-	Init(input)
-	NextToken()
-	ast := ParseStatement()
-
-	// Build symbol table and check program
-	_ = BuildSymbolTable(ast)
-	err := CheckProgram(ast)
-	be.True(t, err != nil)
-	be.True(t, strings.Contains(err.Error(), "variable 'x' used before assignment"))
 }

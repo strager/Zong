@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -55,6 +56,8 @@ func TestSexyAllTests(t *testing.T) {
 								assertPatternMatch(t, ast, assertion.ParsedSexy, "root")
 							} else if assertion.Type == sexy.AssertionTypeExecute {
 								assertExecutionMatch(t, ast, assertion.Content, tc.InputType)
+							} else if assertion.Type == sexy.AssertionTypeCompileError {
+								assertCompileErrorMatch(t, tc.Input, assertion.Content, tc.InputType)
 							}
 						})
 					}
@@ -996,4 +999,54 @@ func assertExecutionMatch(t *testing.T, ast *ASTNode, expectedOutput string, inp
 	if actualOutput != normalizedExpected {
 		t.Errorf("Execution output mismatch:\n  Expected: %q\n  Actual:   %q", normalizedExpected, actualOutput)
 	}
+}
+
+// assertCompileErrorMatch attempts to compile the given input and verifies it produces the expected error
+func assertCompileErrorMatch(t *testing.T, input string, expectedError string, inputType sexy.InputType) {
+	t.Helper()
+
+	// Capture compilation errors by attempting to parse and compile
+	defer func() {
+		if r := recover(); r != nil {
+			// If expectedError is empty, any error is acceptable (for robustness tests)
+			if expectedError == "" {
+				// Test passes - we expected some error and got one
+				return
+			}
+			// Check if the panic message exactly matches the expected error
+			panicMsg := fmt.Sprintf("%v", r)
+			if panicMsg != expectedError {
+				t.Errorf("Compilation error mismatch:\n  Expected error: %q\n  Actual error:   %q", expectedError, panicMsg)
+			}
+		} else {
+			if expectedError == "" {
+				t.Errorf("Expected compilation to fail (for robustness test), but compilation succeeded")
+			} else {
+				t.Errorf("Expected compilation error %q, but compilation succeeded", expectedError)
+			}
+		}
+	}()
+
+	// Parse the input
+	input = input + "\x00" // Null-terminate as required by Zong parser
+	Init([]byte(input))
+	NextToken()
+
+	var ast *ASTNode
+	switch inputType {
+	case sexy.InputTypeZongExpr:
+		ast = ParseExpression()
+	case sexy.InputTypeZongProgram:
+		ast = ParseProgram()
+	default:
+		t.Fatalf("Unknown input type: %s", inputType)
+	}
+
+	// If parsing succeeded, try to compile to catch compilation errors
+	if ast != nil {
+		CompileToWASM(ast)
+	}
+
+	// If we reach this point, compilation succeeded when it should have failed
+	t.Errorf("Expected compilation error containing %q, but compilation succeeded", expectedError)
 }

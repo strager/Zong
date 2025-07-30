@@ -22,10 +22,11 @@ const (
 type AssertionType string
 
 const (
-	AssertionTypeAST     AssertionType = "ast"
-	AssertionTypeASTSym  AssertionType = "ast-sym"
-	AssertionTypeTypes   AssertionType = "types"
-	AssertionTypeExecute AssertionType = "execute"
+	AssertionTypeAST          AssertionType = "ast"
+	AssertionTypeASTSym       AssertionType = "ast-sym"
+	AssertionTypeTypes        AssertionType = "types"
+	AssertionTypeExecute      AssertionType = "execute"
+	AssertionTypeCompileError AssertionType = "compile-error"
 )
 
 // Assertion represents a single assertion in a Sexy test
@@ -120,7 +121,7 @@ func ExtractTestCases(markdownContent string) ([]TestCase, error) {
 					Content: content,
 				}
 
-				if assertion.Type != AssertionTypeExecute {
+				if assertion.Type != AssertionTypeExecute && assertion.Type != AssertionTypeCompileError {
 					parsedSexy, parseErr := Parse(content)
 					if parseErr != nil {
 						return ast.WalkStop, fmt.Errorf("line %d: failed to parse Sexy assertion in test '%s': %w", lineNum, currentTestCase.Name, parseErr)
@@ -188,7 +189,8 @@ func isAssertionFence(language string) bool {
 	return language == string(AssertionTypeAST) ||
 		language == string(AssertionTypeASTSym) ||
 		language == string(AssertionTypeTypes) ||
-		language == string(AssertionTypeExecute)
+		language == string(AssertionTypeExecute) ||
+		language == string(AssertionTypeCompileError)
 }
 
 // validateTestCase ensures a test case has both input and at least one assertion

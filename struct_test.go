@@ -79,27 +79,3 @@ func TestStructTypeSize(t *testing.T) {
 }
 
 // TestStructTypeChecking removed - now covered by test/structs_test.md
-
-func TestFieldAccessTypeError(t *testing.T) {
-	input := []byte("var x I64; x = 42; x.field;\x00")
-	Init(input)
-	NextToken()
-
-	// Parse statements
-	varAST := ParseStatement()
-	assignAST := ParseStatement()
-	accessAST := ParseStatement()
-
-	// Create a block containing all statements
-	blockAST := &ASTNode{
-		Kind:     NodeBlock,
-		Children: []*ASTNode{varAST, assignAST, accessAST},
-	}
-
-	// Build symbol table and perform type checking
-	_ = BuildSymbolTable(blockAST)
-	err := CheckProgram(blockAST)
-
-	// Should have a type error (cannot access field of non-struct type)
-	be.True(t, err != nil)
-}
