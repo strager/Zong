@@ -69,28 +69,7 @@ func TestParseTypeExpressionNonIdentToken(t *testing.T) {
 	be.Equal(t, nil, result)
 }
 
-// Tests for additional edge cases in parsing
-func TestParseExpressionRightAssociativity(t *testing.T) {
-	// Test right-associativity of assignment operator
-	input := []byte("a = b = c\x00")
-	Init(input)
-	NextToken()
-
-	result := ParseExpression()
-	be.True(t, result != nil)
-
-	// Verify the structure represents right-associativity: a = (b = c)
-	be.Equal(t, NodeBinary, result.Kind)
-	be.Equal(t, "=", result.Op)
-
-	be.True(t, result.Children != nil)
-	be.Equal(t, 2, len(result.Children))
-
-	// Right child should be another assignment
-	rightChild := result.Children[1]
-	be.Equal(t, NodeBinary, rightChild.Kind)
-	be.Equal(t, "=", rightChild.Op)
-}
+// TestParseExpressionRightAssociativity removed - now covered by test/parsing_comprehensive_test.md
 
 // TestParseExpressionOperatorPrecedence removed - duplicates test/expressions_test.md and test/binary_expr_test.md
 

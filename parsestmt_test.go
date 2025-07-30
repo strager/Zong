@@ -14,45 +14,7 @@ import (
 
 // TestParsePointerVariableDeclaration removed - duplicates test/statements_test.md
 
-func TestParseBlockStatement(t *testing.T) {
-	tests := []struct {
-		input    string
-		expected string
-	}{
-		{
-			input:    "{ }\x00",
-			expected: "(block)",
-		},
-		{
-			input:    "{ x; }\x00",
-			expected: "(block (ident \"x\"))",
-		},
-		{
-			input:    "{ 1; 2; }\x00",
-			expected: "(block (integer 1) (integer 2))",
-		},
-		{
-			input:    "{ var x int; return x; }\x00",
-			expected: "(block (var (ident \"x\") (ident \"int\")) (return (ident \"x\")))",
-		},
-		{
-			input:    "{ var x I64; var ptr I64*; }\x00",
-			expected: "(block (var (ident \"x\") (ident \"I64\")) (var (ident \"ptr\") (ident \"I64*\")))",
-		},
-		{
-			input:    "{ { } }\x00",
-			expected: "(block (block))",
-		},
-	}
-
-	for _, test := range tests {
-		Init([]byte(test.input))
-		NextToken()
-		result := ParseStatement()
-		actual := ToSExpr(result)
-		be.Equal(t, actual, test.expected)
-	}
-}
+// TestParseBlockStatement removed - now covered by test/parsing_comprehensive_test.md
 
 func TestParseReturnStatement(t *testing.T) {
 	tests := []struct {
@@ -126,65 +88,9 @@ func TestParseContinueStatement(t *testing.T) {
 	}
 }
 
-func TestParseExpressionStatement(t *testing.T) {
-	tests := []struct {
-		input    string
-		expected string
-	}{
-		{
-			input:    "x;\x00",
-			expected: "(ident \"x\")",
-		},
-		{
-			input:    "42;\x00",
-			expected: "(integer 42)",
-		},
-		{
-			input:    "a + b;\x00",
-			expected: "(binary \"+\" (ident \"a\") (ident \"b\"))",
-		},
-		{
-			input:    "x * y + z;\x00",
-			expected: "(binary \"+\" (binary \"*\" (ident \"x\") (ident \"y\")) (ident \"z\"))",
-		},
-	}
+// TestParseExpressionStatement removed - now covered by test/parsing_comprehensive_test.md
 
-	for _, test := range tests {
-		Init([]byte(test.input))
-		NextToken()
-		result := ParseStatement()
-		actual := ToSExpr(result)
-		be.Equal(t, actual, test.expected)
-	}
-}
-
-func TestComplexStatements(t *testing.T) {
-	tests := []struct {
-		input    string
-		expected string
-	}{
-		{
-			input:    "if x > 0 { var y int; return y + 1; }\x00",
-			expected: "(if (binary \">\" (ident \"x\") (integer 0)) (block (var (ident \"y\") (ident \"int\")) (return (binary \"+\" (ident \"y\") (integer 1)))))",
-		},
-		{
-			input:    "loop { if done { break; } continue; }\x00",
-			expected: "(loop (if (ident \"done\") (block (break))) (continue))",
-		},
-		{
-			input:    "{ if a { { b; } } }\x00",
-			expected: "(block (if (ident \"a\") (block (block (ident \"b\")))))",
-		},
-	}
-
-	for _, test := range tests {
-		Init([]byte(test.input))
-		NextToken()
-		result := ParseStatement()
-		actual := ToSExpr(result)
-		be.Equal(t, actual, test.expected)
-	}
-}
+// TestComplexStatements removed - now covered by test/parsing_comprehensive_test.md
 
 func TestVarTypeAST(t *testing.T) {
 	tests := []struct {

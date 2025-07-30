@@ -288,39 +288,7 @@ func TestEmitAddressOfNonAddressedVariable(t *testing.T) {
 	EmitAddressOf(&buf, operand, localCtx)
 }
 
-// Test for stack variable access with address-of operator
-func TestStackVariableAddressAccess(t *testing.T) {
-	source := "{ var a I64; var b I64; a = 0; b = 0; print(a&); print(b&); print(a); print(b); }"
-
-	// Parse the source code
-	Init([]byte(source + "\x00"))
-	NextToken()
-	ast := ParseStatement()
-
-	// Should parse successfully
-	if ast == nil {
-		t.Fatal("Failed to parse source code")
-	}
-
-	// Compile to WASM and execute
-	wasmBytes := CompileToWASM(ast)
-	if len(wasmBytes) == 0 {
-		t.Fatal("Failed to compile to WASM")
-	}
-
-	// Execute and verify output (addresses should be different)
-	output, err := executeWasm(t, wasmBytes)
-	if err != nil {
-		t.Fatalf("Failed to execute WASM: %v", err)
-	}
-	lines := strings.Split(strings.TrimSpace(output), "\n")
-	if len(lines) < 2 {
-		t.Fatalf("Expected at least 2 output lines, got %d: %v", len(lines), lines)
-	}
-
-	// Addresses should be different (distinct values)
-	be.True(t, lines[0] != lines[1])
-}
+// TestStackVariableAddressAccess removed - now covered by test/TestAddressOfOperations_test.md
 
 // Helper function to test that compilation fails with type checking error
 func expectTypeError(t *testing.T, code string, expectedError string) {
@@ -412,20 +380,4 @@ func TestTypeCheckingErrors(t *testing.T) {
 // Test nested if statements
 
 // Test if statement with false condition (should print nothing)
-func TestIfStatementFalse(t *testing.T) {
-	source := `func main() {
-		var x I64;
-		x = 420;
-		if x == 42 {
-			print(1);
-		}
-	}`
-
-	input := []byte(source + "\x00")
-	Init(input)
-	NextToken()
-	ast := ParseStatement()
-
-	wasmBytes := CompileToWASM(ast)
-	executeWasmAndVerify(t, wasmBytes, "")
-}
+// TestIfStatementFalse removed - now covered by test/statements_test.md

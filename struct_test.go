@@ -78,34 +78,7 @@ func TestStructTypeSize(t *testing.T) {
 	be.Equal(t, size, 16) // 8 bytes for x + 8 bytes for y
 }
 
-func TestStructTypeChecking(t *testing.T) {
-	input := []byte(`struct Point { var x I64; var y I64; }
-	var p Point;
-	p.x = 42;
-	print(p.y);
-	\x00`)
-	Init(input)
-	NextToken()
-
-	// Parse all statements
-	structAST := ParseStatement()
-	varAST := ParseStatement()
-	assignAST := ParseStatement()
-	printAST := ParseStatement()
-
-	// Create a block containing all statements
-	blockAST := &ASTNode{
-		Kind:     NodeBlock,
-		Children: []*ASTNode{structAST, varAST, assignAST, printAST},
-	}
-
-	// Build symbol table and perform type checking
-	_ = BuildSymbolTable(blockAST)
-	err := CheckProgram(blockAST)
-
-	// Should not have any type errors
-	be.Err(t, err, nil)
-}
+// TestStructTypeChecking removed - now covered by test/structs_test.md
 
 func TestFieldAccessTypeError(t *testing.T) {
 	input := []byte("var x I64; x = 42; x.field;\x00")

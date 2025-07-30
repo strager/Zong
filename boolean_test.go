@@ -8,24 +8,7 @@ import (
 
 // Boolean Tests
 
-func TestBooleanParsing(t *testing.T) {
-	source := `
-		func main() {
-			var x Boolean;
-			x = true;
-		}
-	`
-
-	input := []byte(source + "\x00")
-	Init(input)
-	NextToken()
-	ast := ParseProgram()
-
-	// Check that the AST contains boolean nodes
-	expected := `(block (func "main" () void (block (var (ident "x") (ident "Boolean")) (binary "=" (ident "x") (boolean true)))))`
-	result := ToSExpr(ast)
-	be.Equal(t, result, expected)
-}
+// TestBooleanParsing removed - now covered by test/types_comprehensive_test.md
 
 func TestBooleanTypeChecking(t *testing.T) {
 	source := `
