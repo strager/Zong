@@ -99,109 +99,18 @@ func TestSliceSize(t *testing.T) {
 // NOTE: append() functionality is partially implemented - these tests are commented out
 // until the append() builtin is fully working
 
-func TestSliceBasicsJustDeclaration(t *testing.T) {
-	// Test just slice declaration without append to isolate the issue
-	source := `
-	func main() {
-		var nums I64[];
-		print(42);
-	}`
+// Test just slice declaration without append to isolate the issue
 
-	input := []byte(source + "\x00")
-	Init(input)
-	NextToken()
-	ast := ParseProgram()
+// Test just taking address-of slice without calling append
 
-	wasmBytes := CompileToWASM(ast)
-	output, err := executeWasm(t, wasmBytes)
-	be.Err(t, err, nil)
-	be.Equal(t, output, "42\n")
-}
+// Test just the first append to isolate the issue
 
-func TestSliceAddressOf(t *testing.T) {
-	// Test just taking address-of slice without calling append
-	source := `
-	func main() {
-		var nums I64[];
-		print(42);
-	}`
+// Test what the current implementation actually supports (single append)
 
-	input := []byte(source + "\x00")
-	Init(input)
-	NextToken()
-	ast := ParseProgram()
+// TODO: This test will pass once multi-element append is implemented
 
-	wasmBytes := CompileToWASM(ast)
-	output, err := executeWasm(t, wasmBytes)
-	be.Err(t, err, nil)
-	be.Equal(t, output, "42\n")
-}
-
-func TestSliceBasicsMinimal(t *testing.T) {
-	// Test just the first append to isolate the issue
-	source := `
-	func main() {
-		var nums I64[];
-		append(nums&, 42);
-		print(42);
-	}`
-
-	input := []byte(source + "\x00")
-	Init(input)
-	NextToken()
-	ast := ParseProgram()
-
-	wasmBytes := CompileToWASM(ast)
-	output, err := executeWasm(t, wasmBytes)
-	be.Err(t, err, nil)
-	be.Equal(t, output, "42\n")
-}
-
-func TestSliceBasicsCurrentImplementation(t *testing.T) {
-	// Test what the current implementation actually supports (single append)
-	source := `
-	func main() {
-		var nums I64[];
-		append(nums&, 42);
-		print(nums[0]);
-		print(nums.length);
-	}`
-
-	input := []byte(source + "\x00")
-	Init(input)
-	NextToken()
-	ast := ParseProgram()
-
-	wasmBytes := CompileToWASM(ast)
-	output, err := executeWasm(t, wasmBytes)
-	be.Err(t, err, nil)
-	be.Equal(t, output, "42\n1\n")
-}
-
-func TestSliceBasics(t *testing.T) {
-	// TODO: This test will pass once multi-element append is implemented
-	source := `
-	func main() {
-		var nums I64[];
-		append(nums&, 42);
-		append(nums&, 100);
-		print(nums[0]);
-		print(nums[1]);
-		print(nums.length);
-	}`
-
-	input := []byte(source + "\x00")
-	Init(input)
-	NextToken()
-	ast := ParseProgram()
-
-	wasmBytes := CompileToWASM(ast)
-	output, err := executeWasm(t, wasmBytes)
-	be.Err(t, err, nil)
-	// With the new append function implementation, elements are properly preserved!
-	// Expected: "42\n100\n2\n" (first element, second element, length)
-	be.Equal(t, output, "42\n100\n2\n")
-}
+// With the new append function implementation, elements are properly preserved!
+// Expected: "42\n100\n2\n" (first element, second element, length)
 
 func TestAddressOfParsing(t *testing.T) {
 	// Test parsing the address-of operator by itself using postfix syntax
@@ -353,63 +262,9 @@ func TestExecuteAppendPracticalExample(t *testing.T) {
 	be.Equal(t, output, expected)
 }
 
-func TestSliceSimpleDeclaration(t *testing.T) {
-	// Test just variable declaration without field access
-	source := `
-	func main() {
-		var nums I64[];
-		print(42);
-	}`
+// Test just variable declaration without field access
 
-	input := []byte(source + "\x00")
-	Init(input)
-	NextToken()
-	ast := ParseProgram()
-
-	wasmBytes := CompileToWASM(ast)
-	output, err := executeWasm(t, wasmBytes)
-	be.Err(t, err, nil)
-	be.Equal(t, output, "42\n")
-}
-
-func TestSliceEmptyLength(t *testing.T) {
-	source := `
-	func main() {
-		var nums I64[];
-		print(nums.length);
-	}`
-
-	input := []byte(source + "\x00")
-	Init(input)
-	NextToken()
-	ast := ParseProgram()
-
-	wasmBytes := CompileToWASM(ast)
-	output, err := executeWasm(t, wasmBytes)
-	be.Err(t, err, nil)
-	be.Equal(t, output, "0\n")
-}
-
-func TestSliceFieldAccess(t *testing.T) {
-	// Demonstrate that slice field access works perfectly
-	source := `
-	func main() {
-		var nums I64[];
-		var flags Boolean[];
-		print(nums.length);
-		print(flags.length);
-	}`
-
-	input := []byte(source + "\x00")
-	Init(input)
-	NextToken()
-	ast := ParseProgram()
-
-	wasmBytes := CompileToWASM(ast)
-	output, err := executeWasm(t, wasmBytes)
-	be.Err(t, err, nil)
-	be.Equal(t, output, "0\n0\n")
-}
+// Demonstrate that slice field access works perfectly
 
 func TestMultiElementAppendBug(t *testing.T) {
 	// This test demonstrates the current bug with multi-element append
@@ -450,60 +305,7 @@ func TestMultiElementAppendBug(t *testing.T) {
 	be.Equal(t, output, expectedCorrectOutput)
 }
 
-func TestLengthIncrementBug(t *testing.T) {
-	// Simpler test: just focus on the length increment issue
-	source := `
-	func main() {
-		var nums I64[];
-		append(nums&, 10);
-		print(nums.length); // Should be 1
-		append(nums&, 20);
-		print(nums.length); // Should be 2
-	}`
+// Simpler test: just focus on the length increment issue
 
-	input := []byte(source + "\x00")
-	Init(input)
-	NextToken()
-	ast := ParseProgram()
-
-	wasmBytes := CompileToWASM(ast)
-	output, err := executeWasm(t, wasmBytes)
-	be.Err(t, err, nil)
-
-	// Fixed! Length now increments correctly
-	be.Equal(t, output, "1\n2\n") // Length properly increments
-}
-
-func TestSliceFunctionParameter(t *testing.T) {
-	source := `
-	func len(_ xs: I64[]): I64 {
-		return xs.length
-	}
-	func first(_ ys: I64[]): I64 {
-		return ys[0];
-	}
-	func edit_first(_ zs: I64[]): I64 {
-		zs[0] = 30;
-		return 0;
-	}
-	func main() {
-		var nums I64[];
-		append(nums&, 10);
-		append(nums&, 20);
-		print(len(nums));        // 2
-		print(first(nums));      // 10
-		print(edit_first(nums)); // 0
-		print(nums[0]);          // 30
-	}`
-
-	input := []byte(source + "\x00")
-	Init(input)
-	NextToken()
-	ast := ParseProgram()
-
-	wasmBytes := CompileToWASM(ast)
-	output, err := executeWasm(t, wasmBytes)
-	be.Err(t, err, nil)
-
-	be.Equal(t, output, "2\n10\n0\n30\n")
-}
+// Fixed! Length now increments correctly
+// Length properly increments

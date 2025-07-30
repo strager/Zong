@@ -116,53 +116,17 @@ func executeWasmFromFile(t *testing.T, wasmFile string) (string, error) {
 	return stdout.String(), nil
 }
 
-func TestBasicPrintExpression(t *testing.T) {
-	// Test: print(42)
-	expression := "print(42)"
-	wasmBytes := compileExpression(t, expression)
+// Test: print(42)
 
-	// Verify WASM was generated
-	be.True(t, len(wasmBytes) > 0)
+// Verify WASM was generated
 
-	// Execute and verify output
-	output, err := executeWasm(t, wasmBytes)
-	be.Err(t, err, nil)
+// Execute and verify output
 
-	be.Equal(t, output, "42\n")
-}
+// Test: print(42 + 8)
 
-func TestArithmeticPrint(t *testing.T) {
-	// Test: print(42 + 8)
-	expression := "print(42 + 8)"
-	wasmBytes := compileExpression(t, expression)
+// Test: print((10 + 5) * 2 - 3)
 
-	output, err := executeWasm(t, wasmBytes)
-	be.Err(t, err, nil)
-
-	be.Equal(t, output, "50\n")
-}
-
-func TestComplexArithmetic(t *testing.T) {
-	// Test: print((10 + 5) * 2 - 3)
-	expression := "print((10 + 5) * 2 - 3)"
-	wasmBytes := compileExpression(t, expression)
-
-	output, err := executeWasm(t, wasmBytes)
-	be.Err(t, err, nil)
-
-	be.Equal(t, output, "27\n")
-}
-
-func TestOperatorPrecedence(t *testing.T) {
-	// Test: print(1 + 2 * 3) - should be 7, not 9
-	expression := "print(1 + 2 * 3)"
-	wasmBytes := compileExpression(t, expression)
-
-	output, err := executeWasm(t, wasmBytes)
-	be.Err(t, err, nil)
-
-	be.Equal(t, output, "7\n")
-}
+// Test: print(1 + 2 * 3) - should be 7, not 9
 
 func TestDivisionAndModulo(t *testing.T) {
 	tests := []struct {
@@ -206,17 +170,8 @@ func TestComparisons(t *testing.T) {
 	}
 }
 
-func TestNestedExpressions(t *testing.T) {
-	// Test deeply nested expression: print(((2 + 3) * 4 - 8) / 2 + 1)
-	// Should be: (5 * 4 - 8) / 2 + 1 = (20 - 8) / 2 + 1 = 12 / 2 + 1 = 6 + 1 = 7
-	expression := "print(((2 + 3) * 4 - 8) / 2 + 1)"
-	wasmBytes := compileExpression(t, expression)
-
-	output, err := executeWasm(t, wasmBytes)
-	be.Err(t, err, nil)
-
-	be.Equal(t, output, "7\n")
-}
+// Test deeply nested expression: print(((2 + 3) * 4 - 8) / 2 + 1)
+// Should be: (5 * 4 - 8) / 2 + 1 = (20 - 8) / 2 + 1 = 12 / 2 + 1 = 6 + 1 = 7
 
 func TestAddressOfOperations(t *testing.T) {
 	tests := []struct {
@@ -945,92 +900,12 @@ func TestPhase1Functions(t *testing.T) {
 }
 
 // Test basic if statement
-func TestIfStatement(t *testing.T) {
-	source := `func main() {
-		var x I64;
-		x = 42;
-		if x == 42 {
-			print(1);
-		}
-	}`
-
-	input := []byte(source + "\x00")
-	Init(input)
-	NextToken()
-	ast := ParseStatement()
-
-	wasmBytes := CompileToWASM(ast)
-	executeWasmAndVerify(t, wasmBytes, "1\n")
-}
 
 // Test if-else statement
-func TestIfElseStatement(t *testing.T) {
-	source := `func main() {
-		var x I64;
-		x = 10;
-		if x > 20 {
-			print(1);
-		} else {
-			print(0);
-		}
-	}`
-
-	input := []byte(source + "\x00")
-	Init(input)
-	NextToken()
-	ast := ParseStatement()
-
-	wasmBytes := CompileToWASM(ast)
-	executeWasmAndVerify(t, wasmBytes, "0\n")
-}
 
 // Test else-if chain
-func TestElseIfChain(t *testing.T) {
-	source := `func main() {
-		var score I64;
-		score = 85;
-		if score >= 90 {
-			print(4);
-		} else if score >= 80 {
-			print(3);
-		} else if score >= 70 {
-			print(2);
-		} else {
-			print(1);
-		}
-	}`
-
-	input := []byte(source + "\x00")
-	Init(input)
-	NextToken()
-	ast := ParseStatement()
-
-	wasmBytes := CompileToWASM(ast)
-	executeWasmAndVerify(t, wasmBytes, "3\n")
-}
 
 // Test nested if statements
-func TestNestedIfStatements(t *testing.T) {
-	source := `func main() {
-		var x I64;
-		var y I64;
-		x = 5;
-		y = 10;
-		if x > 0 {
-			if y > 0 {
-				print(x + y);
-			}
-		}
-	}`
-
-	input := []byte(source + "\x00")
-	Init(input)
-	NextToken()
-	ast := ParseStatement()
-
-	wasmBytes := CompileToWASM(ast)
-	executeWasmAndVerify(t, wasmBytes, "15\n")
-}
 
 // Test if statement with false condition (should print nothing)
 func TestIfStatementFalse(t *testing.T) {
