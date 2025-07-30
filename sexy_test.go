@@ -58,6 +58,8 @@ func TestSexyAllTests(t *testing.T) {
 								assertExecutionMatch(t, ast, assertion.Content, tc.InputType)
 							} else if assertion.Type == sexy.AssertionTypeCompileError {
 								assertCompileErrorMatch(t, tc.Input, assertion.Content, tc.InputType)
+							} else if assertion.Type == sexy.AssertionTypeWasmLocals {
+								assertWasmLocalsMatch(t, ast, assertion.ParsedSexy)
 							}
 						})
 					}
@@ -1049,4 +1051,107 @@ func assertCompileErrorMatch(t *testing.T, input string, expectedError string, i
 
 	// If we reach this point, compilation succeeded when it should have failed
 	t.Errorf("Expected compilation error containing %q, but compilation succeeded", expectedError)
+}
+
+// assertWasmLocalsMatch compares collected local variables against expected pattern
+// Pattern format: [(local "name" "type" storage address)]
+func assertWasmLocalsMatch(t *testing.T, ast *ASTNode, expectedPattern *sexy.Node) {
+	t.Helper()
+
+	// Collect actual local variables from the AST
+	actualLocals, _ := collectLocalVariables(ast)
+
+	// Expected pattern should be an array
+	if expectedPattern.Type != sexy.NodeArray {
+		t.Errorf("Expected array for wasm-locals pattern, got %v", expectedPattern.Type)
+		return
+	}
+
+	expectedLocals := expectedPattern.Items
+
+	// Check count matches
+	if len(actualLocals) != len(expectedLocals) {
+		t.Errorf("Expected %d local variables, got %d", len(expectedLocals), len(actualLocals))
+		return
+	}
+
+	// Check each local variable
+	for i, expectedLocal := range expectedLocals {
+		actualLocal := actualLocals[i]
+
+		// Each expected local should be a list: (local "name" "type" storage address)
+		if expectedLocal.Type != sexy.NodeList {
+			t.Errorf("Expected list for local variable %d, got %v", i, expectedLocal.Type)
+			continue
+		}
+
+		if len(expectedLocal.Items) != 5 {
+			t.Errorf("Expected (local \"name\" \"type\" storage address) with 5 items for local %d, got %d", i, len(expectedLocal.Items))
+			continue
+		}
+
+		// Check "local" symbol
+		if expectedLocal.Items[0].Type != sexy.NodeSymbol || expectedLocal.Items[0].Text != "local" {
+			t.Errorf("Expected 'local' symbol for local %d, got %v with text '%s'", i, expectedLocal.Items[0].Type, expectedLocal.Items[0].Text)
+			continue
+		}
+
+		// Check variable name
+		if expectedLocal.Items[1].Type != sexy.NodeString {
+			t.Errorf("Expected string for variable name at local %d, got %v", i, expectedLocal.Items[1].Type)
+			continue
+		}
+		expectedName := expectedLocal.Items[1].Text
+		actualName := actualLocal.Symbol.Name
+		if actualName != expectedName {
+			t.Errorf("Local %d: expected name %s, got %s", i, expectedName, actualName)
+			continue
+		}
+
+		// Check variable type
+		if expectedLocal.Items[2].Type != sexy.NodeString {
+			t.Errorf("Expected string for variable type at local %d, got %v", i, expectedLocal.Items[2].Type)
+			continue
+		}
+		expectedType := expectedLocal.Items[2].Text
+		actualType := TypeToString(actualLocal.Symbol.Type)
+		if actualType != expectedType {
+			t.Errorf("Local %d (%s): expected type %s, got %s", i, actualName, expectedType, actualType)
+			continue
+		}
+
+		// Check storage type
+		if expectedLocal.Items[3].Type != sexy.NodeSymbol {
+			t.Errorf("Expected symbol for storage type at local %d, got %v", i, expectedLocal.Items[3].Type)
+			continue
+		}
+		expectedStorage := expectedLocal.Items[3].Text
+		var actualStorage string
+		switch actualLocal.Storage {
+		case VarStorageLocal:
+			actualStorage = "local"
+		case VarStorageTStack:
+			actualStorage = "tstack"
+		case VarStorageParameterLocal:
+			actualStorage = "local" // Parameter locals are shown as "local"
+		default:
+			actualStorage = "unknown"
+		}
+		if actualStorage != expectedStorage {
+			t.Errorf("Local %d (%s): expected storage %s, got %s", i, actualName, expectedStorage, actualStorage)
+			continue
+		}
+
+		// Check address
+		if expectedLocal.Items[4].Type != sexy.NodeInteger {
+			t.Errorf("Expected integer for address at local %d, got %v", i, expectedLocal.Items[4].Type)
+			continue
+		}
+		expectedAddress := expectedLocal.Items[4].Text
+		actualAddress := intToString(int64(actualLocal.Address))
+		if actualAddress != expectedAddress {
+			t.Errorf("Local %d (%s): expected address %s, got %s", i, actualName, expectedAddress, actualAddress)
+			continue
+		}
+	}
 }

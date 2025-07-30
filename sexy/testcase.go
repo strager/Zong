@@ -27,6 +27,7 @@ const (
 	AssertionTypeTypes        AssertionType = "types"
 	AssertionTypeExecute      AssertionType = "execute"
 	AssertionTypeCompileError AssertionType = "compile-error"
+	AssertionTypeWasmLocals   AssertionType = "wasm-locals"
 )
 
 // Assertion represents a single assertion in a Sexy test
@@ -190,7 +191,8 @@ func isAssertionFence(language string) bool {
 		language == string(AssertionTypeASTSym) ||
 		language == string(AssertionTypeTypes) ||
 		language == string(AssertionTypeExecute) ||
-		language == string(AssertionTypeCompileError)
+		language == string(AssertionTypeCompileError) ||
+		language == string(AssertionTypeWasmLocals)
 }
 
 // validateTestCase ensures a test case has both input and at least one assertion
