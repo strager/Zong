@@ -22,9 +22,10 @@ const (
 type AssertionType string
 
 const (
-	AssertionTypeAST    AssertionType = "ast"
-	AssertionTypeASTSym AssertionType = "ast-sym"
-	AssertionTypeTypes  AssertionType = "types"
+	AssertionTypeAST     AssertionType = "ast"
+	AssertionTypeASTSym  AssertionType = "ast-sym"
+	AssertionTypeTypes   AssertionType = "types"
+	AssertionTypeExecute AssertionType = "execute"
 )
 
 // Assertion represents a single assertion in a Sexy test
@@ -114,17 +115,19 @@ func ExtractTestCases(markdownContent string) ([]TestCase, error) {
 				currentTestCase.Input = content
 				currentTestCase.InputType = InputType(language)
 			} else if isAssertionFence(language) {
-				// Parse the Sexy assertion
-				parsedSexy, parseErr := Parse(content)
-				if parseErr != nil {
-					return ast.WalkStop, fmt.Errorf("line %d: failed to parse Sexy assertion in test '%s': %w", lineNum, currentTestCase.Name, parseErr)
+				assertion := Assertion{
+					Type:    AssertionType(language),
+					Content: content,
 				}
 
-				assertion := Assertion{
-					Type:       AssertionType(language),
-					Content:    content,
-					ParsedSexy: parsedSexy,
+				if assertion.Type != AssertionTypeExecute {
+					parsedSexy, parseErr := Parse(content)
+					if parseErr != nil {
+						return ast.WalkStop, fmt.Errorf("line %d: failed to parse Sexy assertion in test '%s': %w", lineNum, currentTestCase.Name, parseErr)
+					}
+					assertion.ParsedSexy = parsedSexy
 				}
+
 				currentTestCase.Assertions = append(currentTestCase.Assertions, assertion)
 			}
 		}
@@ -184,7 +187,8 @@ func isInputFence(language string) bool {
 func isAssertionFence(language string) bool {
 	return language == string(AssertionTypeAST) ||
 		language == string(AssertionTypeASTSym) ||
-		language == string(AssertionTypeTypes)
+		language == string(AssertionTypeTypes) ||
+		language == string(AssertionTypeExecute)
 }
 
 // validateTestCase ensures a test case has both input and at least one assertion

@@ -48,11 +48,13 @@ func TestSexyAllTests(t *testing.T) {
 						t.Fatalf("Unknown input type: %s", tc.InputType)
 					}
 
-					// For each assertion, match the AST against the Sexy pattern
+					// For each assertion, match the AST against the Sexy pattern or execute the code
 					for i, assertion := range tc.Assertions {
 						t.Run("assertion_"+string(rune('a'+i)), func(t *testing.T) {
 							if assertion.Type == sexy.AssertionTypeAST {
 								assertPatternMatch(t, ast, assertion.ParsedSexy, "root")
+							} else if assertion.Type == sexy.AssertionTypeExecute {
+								assertExecutionMatch(t, ast, assertion.Content, tc.InputType)
 							}
 						})
 					}
@@ -965,5 +967,33 @@ func assertContinueMatch(t *testing.T, zongAST *ASTNode, sexyPattern *sexy.Node,
 	if sexyPattern.Text != "continue" {
 		t.Errorf("At %s: expected 'continue' symbol, got '%s'", path, sexyPattern.Text)
 		return
+	}
+}
+
+// assertExecutionMatch compiles and executes the given AST, comparing output to expected result
+func assertExecutionMatch(t *testing.T, ast *ASTNode, expectedOutput string, inputType sexy.InputType) {
+	t.Helper()
+
+	// Compile the AST to WASM
+	wasmBytes := CompileToWASM(ast)
+	if len(wasmBytes) == 0 {
+		t.Fatal("Failed to compile AST to WASM - no bytes generated")
+	}
+
+	// Execute the WASM and capture output
+	actualOutput, err := executeWasm(t, wasmBytes)
+	if err != nil {
+		t.Fatalf("WASM execution failed: %v", err)
+	}
+
+	// Normalize expected output - add newline if not empty and doesn't already have one
+	normalizedExpected := expectedOutput
+	if normalizedExpected != "" && !strings.HasSuffix(normalizedExpected, "\n") {
+		normalizedExpected += "\n"
+	}
+
+	// Compare actual output with expected output
+	if actualOutput != normalizedExpected {
+		t.Errorf("Execution output mismatch:\n  Expected: %q\n  Actual:   %q", normalizedExpected, actualOutput)
 	}
 }

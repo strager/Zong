@@ -156,6 +156,7 @@ input_code
 
 - **Assertion Types**:
   - `ast`: AST pattern matching using Sexy syntax
+  - `execute`: Execution testing with expected output comparison
 
 ### Running Sexy Tests
 
@@ -178,6 +179,41 @@ Sexy uses S-expression syntax to describe expected AST patterns:
 - **Struct definitions**: `(struct "Name" [(field "x" "I64")])`
 - **Control flow**: `(if condition [then_stmts] nil [else_stmts])`
 - **Arrays/blocks**: `[stmt1 stmt2 ...]`
+
+### Execution Tests
+
+Execution tests compile and run Zong code, comparing the actual output to expected output:
+
+```markdown
+## Test: simple expression execution
+```zong-expr
+print(2 + 3)
+```
+```execute
+5
+```
+
+## Test: full program execution
+```zong-program
+func main() {
+    var x I64 = 10;
+    print(x * 2);
+}
+```
+```execute
+20
+```
+
+## Test: no output expected
+```zong-expr  
+2 + 3
+```
+```execute
+
+```
+```
+
+**Important**: Test code must explicitly call `print()` to generate output. Expressions are not automatically wrapped in print calls.
 
 ### Pattern Matching Features
 
