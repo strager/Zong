@@ -34,11 +34,40 @@ The program identifies these patterns:
    executeWasmAndVerify(t, wasmBytes, "42\n")
    ```
 
+4. **Init/NextToken/ParseProgram sequences**:
+   ```go
+   input := []byte(source + "\x00")
+   Init(input)
+   NextToken()
+   ast := ParseProgram()
+   wasmBytes := CompileToWASM(ast)
+   output, err := executeWasm(t, wasmBytes)
+   be.Equal(t, output, "42\n")
+   ```
+
+5. **Variable-based input patterns**:
+   ```go
+   source := `func main() { print(42); }`
+   input := []byte(source + "\x00")
+   // ... parsing and execution
+   ```
+
 ### Features
 
 - **AST-based parsing**: Uses `go/ast` for accurate Go code parsing
-- **Input type detection**: Determines `zong-expr` vs `zong-program` based on parsing calls
-- **String literal extraction**: Properly handles Go string literals and backticks
+- **Enhanced input detection**: 
+  - Determines `zong-expr` vs `zong-program` based on parsing calls
+  - Supports `Init()` call pattern detection
+  - Handles `[]byte(variable + "\x00")` patterns
+  - Resolves variable references across assignment chains
+- **String literal extraction**: 
+  - Properly handles Go string literals and backticks
+  - Supports multiline raw string literals (backticks)
+  - Resolves binary string concatenation expressions
+- **Enhanced output detection**:
+  - Detects `executeWasm()` followed by `be.Equal()` patterns
+  - Supports expected output variable references
+  - Handles various output verification patterns
 - **Output cleaning**: Removes Go-specific formatting like `\x00` terminators
 - **Deduplication**: Avoids generating duplicate test cases
 - **Error filtering**: Skips tests that expect compilation/runtime errors
@@ -61,7 +90,7 @@ func main() {
 
 ### Statistics
 
-From the current Zong test suite, the extractor found **82 unique execution test cases** covering:
+The enhanced extractor now finds significantly more test cases from the Zong test suite, including previously missed patterns like `TestWASMExecutionBaseline` and `TestMultiElementAppendBug`. The extracted tests cover:
 
 - Boolean operations and comparisons
 - Arithmetic expressions and operator precedence  

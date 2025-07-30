@@ -88,7 +88,12 @@ func (e *Extractor) extractFromFunction(fn *ast.FuncDecl, sourceFile string) {
 		if assign, ok := n.(*ast.AssignStmt); ok {
 			if len(assign.Lhs) == 1 && len(assign.Rhs) == 1 {
 				if ident, ok := assign.Lhs[0].(*ast.Ident); ok {
+					// Handle direct string literals
 					if val, ok := e.resolveStringLiteral(assign.Rhs[0]); ok {
+						variables[ident.Name] = val
+					}
+					// Handle []byte(variable + "\x00") patterns
+					if val, ok := e.resolveByteSliceCall(assign.Rhs[0], variables); ok {
 						variables[ident.Name] = val
 					}
 				}
@@ -97,14 +102,27 @@ func (e *Extractor) extractFromFunction(fn *ast.FuncDecl, sourceFile string) {
 		return true
 	})
 
-	// Second pass: look for parsing calls to determine input type and source
+	// Second pass: look for parsing calls to determine input type and detect Init calls
+	var initCalled = false
+	var inputVarFromInit = ""
 	ast.Inspect(fn, func(n ast.Node) bool {
 		if call, ok := n.(*ast.CallExpr); ok {
 			if ident, ok := call.Fun.(*ast.Ident); ok {
 				switch ident.Name {
+				case "Init":
+					initCalled = true
+					// Get the input variable from Init(input)
+					if len(call.Args) >= 1 {
+						if ident, ok := call.Args[0].(*ast.Ident); ok {
+							inputVarFromInit = ident.Name
+						}
+					}
 				case "ParseExpression":
 					inputType = "zong-expr"
 				case "ParseProgram":
+					inputType = "zong-program"
+				case "ParseStatement":
+					// ParseStatement is typically used for single statements
 					inputType = "zong-program"
 				case "compileExpression":
 					inputType = "zong-expr"
@@ -120,25 +138,68 @@ func (e *Extractor) extractFromFunction(fn *ast.FuncDecl, sourceFile string) {
 		return true
 	})
 
-	// If input not found from compileExpression, look in variables
+	// If Init was called and we have the input variable, use it
+	if initCalled && inputVarFromInit != "" && input == "" {
+		if val, exists := variables[inputVarFromInit]; exists {
+			input = val
+		}
+	}
+
+	// If input still not found, look in variables with common names
 	if input == "" {
 		for varName, varValue := range variables {
-			if strings.Contains(varName, "program") || strings.Contains(varName, "source") || strings.Contains(varName, "expression") {
+			if strings.Contains(varName, "program") || strings.Contains(varName, "source") || strings.Contains(varName, "expression") || strings.Contains(varName, "input") || strings.Contains(varName, "testCode") {
 				input = varValue
 				break
 			}
 		}
 	}
 
-	// Third pass: look for expected output
+	// Third pass: look for expected output patterns
+	var expectedVariables = make(map[string]string) // Track expected output variables
+	var usesToSExpr = false                         // Flag to detect ToSExpr usage
+	var hasWasmExecution = false                    // Flag to detect WASM execution
 	ast.Inspect(fn, func(n ast.Node) bool {
+		// Check for ToSExpr calls - these are AST tests, not execution tests
+		if call, ok := n.(*ast.CallExpr); ok {
+			if ident, ok := call.Fun.(*ast.Ident); ok {
+				switch ident.Name {
+				case "ToSExpr":
+					usesToSExpr = true
+				case "CompileToWASM", "executeWasm", "executeWasmAndVerify":
+					hasWasmExecution = true
+				}
+			}
+		}
+		// Collect expected output variable assignments
+		if assign, ok := n.(*ast.AssignStmt); ok {
+			if len(assign.Lhs) == 1 && len(assign.Rhs) == 1 {
+				if ident, ok := assign.Lhs[0].(*ast.Ident); ok {
+					varName := ident.Name
+					// Look for variables that might contain expected output
+					if strings.Contains(varName, "expected") || strings.Contains(varName, "Expected") ||
+						strings.Contains(varName, "output") || strings.Contains(varName, "Output") {
+						if val, ok := e.resolveStringLiteral(assign.Rhs[0]); ok {
+							expectedVariables[varName] = val
+						}
+					}
+				}
+			}
+		}
+
 		if call, ok := n.(*ast.CallExpr); ok {
 			// Look for be.Equal calls
 			if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
 				if ident, ok := sel.X.(*ast.Ident); ok && ident.Name == "be" && sel.Sel.Name == "Equal" {
 					if len(call.Args) >= 3 {
+						// Try to resolve the expected value (third argument)
 						if val, ok := e.resolveStringLiteral(call.Args[2]); ok {
 							expected = val
+						} else if ident, ok := call.Args[2].(*ast.Ident); ok {
+							// Check if it's a variable reference
+							if val, exists := expectedVariables[ident.Name]; exists {
+								expected = val
+							}
 						}
 					}
 				}
@@ -148,6 +209,11 @@ func (e *Extractor) extractFromFunction(fn *ast.FuncDecl, sourceFile string) {
 				if len(call.Args) >= 3 {
 					if val, ok := e.resolveStringLiteral(call.Args[2]); ok {
 						expected = val
+					} else if ident, ok := call.Args[2].(*ast.Ident); ok {
+						// Check if it's a variable reference
+						if val, exists := expectedVariables[ident.Name]; exists {
+							expected = val
+						}
 					}
 				}
 			}
@@ -156,8 +222,9 @@ func (e *Extractor) extractFromFunction(fn *ast.FuncDecl, sourceFile string) {
 	})
 
 	// Only create test case if we have meaningful input and expected output
-	// Skip tests that expect errors for now
-	if input != "" && expected != "" && !strings.Contains(expected, "error:") {
+	// Skip tests that expect errors, use ToSExpr, have S-expression output, or don't execute WASM
+	isSExprOutput := strings.HasPrefix(expected, "(") && strings.HasSuffix(expected, ")")
+	if input != "" && expected != "" && !strings.Contains(expected, "error:") && !usesToSExpr && !isSExprOutput && hasWasmExecution {
 		testCase := TestCase{
 			Name:       e.generateTestName(fn.Name.Name),
 			InputType:  inputType,
@@ -230,9 +297,14 @@ func (e *Extractor) resolveStringLiteral(expr ast.Expr) (string, bool) {
 	switch e := expr.(type) {
 	case *ast.BasicLit:
 		if e.Kind == token.STRING {
-			// Parse the Go string literal
+			// Parse the Go string literal (including backtick strings)
 			if val, err := strconv.Unquote(e.Value); err == nil {
 				return val, true
+			}
+			// Handle raw string literals (backticks)
+			if strings.HasPrefix(e.Value, "`") && strings.HasSuffix(e.Value, "`") {
+				// Remove backticks and return content
+				return e.Value[1 : len(e.Value)-1], true
 			}
 		}
 	}
@@ -273,6 +345,14 @@ func (e *Extractor) generateSexyMarkdown() string {
 	}
 
 	return sb.String()
+}
+
+func (e *Extractor) countFunctionsToDelete() int {
+	count := 0
+	for _, functionNames := range e.functionsToDelete {
+		count += len(functionNames)
+	}
+	return count
 }
 
 func (e *Extractor) deleteExtractedFunctions() error {
@@ -410,6 +490,12 @@ func (e *Extractor) isEssentialImport(importName string) bool {
 }
 
 func main() {
+	// Check for dry-run flag
+	dryRun := false
+	if len(os.Args) > 1 && os.Args[1] == "--dry-run" {
+		dryRun = true
+	}
+
 	extractor := NewExtractor()
 
 	// Extract from test files
@@ -422,9 +508,76 @@ func main() {
 	output := extractor.generateSexyMarkdown()
 	fmt.Print(output)
 
-	// Delete the original functions from source files
-	if err := extractor.deleteExtractedFunctions(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error deleting functions: %v\n", err)
-		os.Exit(1)
+	// Delete the original functions from source files (unless dry-run)
+	if !dryRun {
+		if err := extractor.deleteExtractedFunctions(); err != nil {
+			fmt.Fprintf(os.Stderr, "Error deleting functions: %v\n", err)
+			os.Exit(1)
+		}
+	} else {
+		fmt.Fprintf(os.Stderr, "Dry-run mode: %d functions would be deleted\n", extractor.countFunctionsToDelete())
 	}
+}
+
+// resolveByteSliceCall handles patterns like []byte(variable + "\x00") or []byte("string" + "\x00")
+func (extractor *Extractor) resolveByteSliceCall(expr ast.Expr, variables map[string]string) (string, bool) {
+	// Look for []byte(...) call
+	if call, ok := expr.(*ast.CallExpr); ok {
+		// Check if it's []byte call
+		if arrayType, ok := call.Fun.(*ast.ArrayType); ok {
+			if ident, ok := arrayType.Elt.(*ast.Ident); ok && ident.Name == "byte" {
+				if len(call.Args) == 1 {
+					// Resolve the argument inside []byte(...)
+					return extractor.resolveBinaryStringExpression(call.Args[0], variables)
+				}
+			}
+		}
+	}
+	return "", false
+}
+
+// resolveBinaryStringExpression handles expressions like variable + "\x00" or "string" + "\x00"
+func (extractor *Extractor) resolveBinaryStringExpression(expr ast.Expr, variables map[string]string) (string, bool) {
+	switch e := expr.(type) {
+	case *ast.BinaryExpr:
+		if e.Op == token.ADD {
+			// Handle left side
+			left := ""
+			if ident, ok := e.X.(*ast.Ident); ok {
+				// Variable reference
+				if val, exists := variables[ident.Name]; exists {
+					left = val
+				}
+			} else if val, ok := extractor.resolveStringLiteral(e.X); ok {
+				// Direct string literal
+				left = val
+			}
+
+			// Handle right side
+			right := ""
+			if val, ok := extractor.resolveStringLiteral(e.Y); ok {
+				right = val
+			}
+
+			// Combine and clean
+			if left != "" {
+				result := left + right
+				// Remove null terminator if present
+				result = strings.TrimSuffix(result, "\x00")
+				return result, true
+			}
+		}
+	case *ast.Ident:
+		// Direct variable reference
+		if val, exists := variables[e.Name]; exists {
+			return strings.TrimSuffix(val, "\x00"), true
+		}
+	}
+
+	// Fall back to direct string literal
+	if val, ok := extractor.resolveStringLiteral(expr); ok {
+		return strings.TrimSuffix(val, "\x00"), true
+	}
+
+	return "", false
 }
