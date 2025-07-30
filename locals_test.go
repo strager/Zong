@@ -9,7 +9,7 @@ import (
 )
 
 func TestCollectSingleLocalVariable(t *testing.T) {
-	input := []byte("var x I64;\x00")
+	input := []byte("func main() { var x I64; }\x00")
 	Init(input)
 	NextToken()
 	ast := ParseStatement()
@@ -24,7 +24,7 @@ func TestCollectSingleLocalVariable(t *testing.T) {
 }
 
 func TestCollectMultipleLocalVariables(t *testing.T) {
-	input := []byte("{ var x I64; var y I64; }\x00")
+	input := []byte("func main() { var x I64; var y I64; }\x00")
 	Init(input)
 	NextToken()
 	ast := ParseStatement()
@@ -40,7 +40,7 @@ func TestCollectMultipleLocalVariables(t *testing.T) {
 }
 
 func TestCollectNestedBlockVariables(t *testing.T) {
-	input := []byte("{ var a I64; { var b I64; } }\x00")
+	input := []byte("func main() { var a I64; { var b I64; } }\x00")
 	Init(input)
 	NextToken()
 	ast := ParseStatement()
@@ -56,7 +56,7 @@ func TestCollectNestedBlockVariables(t *testing.T) {
 }
 
 func TestNoVariables(t *testing.T) {
-	input := []byte("print(42);\x00")
+	input := []byte("func main() { print(42); }\x00")
 	Init(input)
 	NextToken()
 	ast := ParseStatement()
@@ -78,7 +78,7 @@ func TestNoVariables(t *testing.T) {
 }
 
 func TestUndefinedVariableReference(t *testing.T) {
-	input := []byte("print(undefined_var);\x00")
+	input := []byte("func main() { print(undefined_var); }\x00")
 	Init(input)
 	NextToken()
 	ast := ParseStatement()
@@ -105,7 +105,7 @@ func TestUndefinedVariableReference(t *testing.T) {
 }
 
 func TestCollectSinglePointerVariable(t *testing.T) {
-	input := []byte("var ptr I64*;\x00")
+	input := []byte("func main() { var ptr I64*; }\x00")
 	Init(input)
 	NextToken()
 	ast := ParseStatement()
@@ -120,7 +120,7 @@ func TestCollectSinglePointerVariable(t *testing.T) {
 }
 
 func TestCollectMixedPointerAndRegularVariables(t *testing.T) {
-	input := []byte("{ var x I64; var ptr I64*; var y I64; }\x00")
+	input := []byte("func main() { var x I64; var ptr I64*; var y I64; }\x00")
 	Init(input)
 	NextToken()
 	ast := ParseStatement()
@@ -137,7 +137,7 @@ func TestCollectMixedPointerAndRegularVariables(t *testing.T) {
 }
 
 func TestCollectMultiplePointerVariables(t *testing.T) {
-	input := []byte("{ var ptr1 I64*; var ptr2 I64*; }\x00")
+	input := []byte("func main() { var ptr1 I64*; var ptr2 I64*; }\x00")
 	Init(input)
 	NextToken()
 	ast := ParseStatement()
@@ -153,7 +153,7 @@ func TestCollectMultiplePointerVariables(t *testing.T) {
 }
 
 func TestCollectNestedBlockPointerVariables(t *testing.T) {
-	input := []byte("{ var a I64; { var ptr I64*; } var b I64*; }\x00")
+	input := []byte("func main() { var a I64; { var ptr I64*; } var b I64*; }\x00")
 	Init(input)
 	NextToken()
 	ast := ParseStatement()
@@ -170,7 +170,7 @@ func TestCollectNestedBlockPointerVariables(t *testing.T) {
 }
 
 func TestPointerVariablesInWASMCodeSection(t *testing.T) {
-	input := []byte("{ var x I64; var ptr I64*; x = 42; print(x); }\x00")
+	input := []byte("func main() { var x I64; var ptr I64*; x = 42; print(x); }\x00")
 	Init(input)
 	NextToken()
 	ast := ParseStatement()
@@ -191,7 +191,7 @@ func TestPointerVariablesInWASMCodeSection(t *testing.T) {
 }
 
 func TestAddressedSingleVariable(t *testing.T) {
-	input := []byte("{ var x I64; print(x&); }\x00")
+	input := []byte("func main() { var x I64; print(x&); }\x00")
 	Init(input)
 	NextToken()
 	ast := ParseStatement()
@@ -206,7 +206,7 @@ func TestAddressedSingleVariable(t *testing.T) {
 }
 
 func TestAddressedMultipleVariables(t *testing.T) {
-	input := []byte("{ var x I64; var y I64; print(x&); print(y&); }\x00")
+	input := []byte("func main() { var x I64; var y I64; print(x&); print(y&); }\x00")
 	Init(input)
 	NextToken()
 	ast := ParseStatement()
@@ -222,7 +222,7 @@ func TestAddressedMultipleVariables(t *testing.T) {
 }
 
 func TestMixedAddressedAndNonAddressedVariables(t *testing.T) {
-	input := []byte("{ var a I64; var b I64; var c I64; print(b&); }\x00")
+	input := []byte("func main() { var a I64; var b I64; var c I64; print(b&); }\x00")
 	Init(input)
 	NextToken()
 	ast := ParseStatement()
@@ -239,7 +239,7 @@ func TestMixedAddressedAndNonAddressedVariables(t *testing.T) {
 }
 
 func TestAddressedVariableFrameOffsetCalculation(t *testing.T) {
-	input := []byte("{ var a I64; var b I64; var c I64; var d I64; print(a&); print(c&); print(d&); }\x00")
+	input := []byte("func main() { var a I64; var b I64; var c I64; var d I64; print(a&); print(c&); print(d&); }\x00")
 	Init(input)
 	NextToken()
 	ast := ParseStatement()
@@ -257,7 +257,7 @@ func TestAddressedVariableFrameOffsetCalculation(t *testing.T) {
 }
 
 func TestAddressOfRvalue(t *testing.T) {
-	input := []byte("{ var x I64; print((x + 1)&); }\x00")
+	input := []byte("func main() { var x I64; print((x + 1)&); }\x00")
 	Init(input)
 	NextToken()
 	ast := ParseStatement()
@@ -270,30 +270,4 @@ func TestAddressOfRvalue(t *testing.T) {
 	}
 
 	be.Equal(t, expected, locals)
-}
-
-func TestCollectLocalVariables(t *testing.T) {
-
-	t.Run("collects variable with valid TypeAST", func(t *testing.T) {
-		// Create a NodeVar with valid TypeAST
-		node := &ASTNode{
-			Kind: NodeVar,
-			Children: []*ASTNode{
-				{Kind: NodeIdent, String: "x"},
-			},
-			TypeAST: &TypeNode{
-				Kind:   TypeBuiltin,
-				String: "I64",
-			},
-		}
-
-		locals, _ := collectLocalVariables(node)
-
-		// Verify that the variable was collected
-		if len(locals) != 1 {
-			t.Errorf("Expected 1 variable collected, got %d", len(locals))
-		} else if locals[0].Symbol.Name != "x" {
-			t.Errorf("Expected variable name 'x', got '%s'", locals[0].Symbol.Name)
-		}
-	})
 }
