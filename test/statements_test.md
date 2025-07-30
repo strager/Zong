@@ -113,3 +113,17 @@ var data I64[];
 ```ast
 [(var-decl "data" "I64[]")]
 ```
+
+## Test: if statement with false condition execution
+```zong-program
+func main() {
+    var x I64;
+    x = 420;
+    if x == 42 {
+        print(1);
+    }
+}
+```
+```execute
+
+```

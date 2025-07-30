@@ -23,3 +23,14 @@
 0
 ```
 
+### Test: stack variable address access
+```zong-program
+{ var a I64; var b I64; a = 0; b = 0; print(a&); print(b&); print(a); print(b); }
+```
+```execute
+0
+8
+0
+0
+```
+
