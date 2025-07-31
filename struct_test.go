@@ -6,16 +6,6 @@ import (
 	"github.com/nalgeon/be"
 )
 
-// TestStructDeclarationParsing removed - duplicates test/structs_test.md
-
-// TestStructTypeInVariableDeclaration removed - duplicates test/structs_test.md
-
-// TestFieldAccessParsing removed - duplicates test/structs_test.md
-
-// TestFieldAssignmentParsing removed - duplicates test/structs_test.md
-
-// TestComplexStructExpression removed - duplicates test/structs_test.md
-
 func TestStructSymbolTable(t *testing.T) {
 	input := []byte(`struct Point { var x I64; var y I64; }
 	var p Point;
@@ -77,5 +67,3 @@ func TestStructTypeSize(t *testing.T) {
 	size := GetTypeSize(structType)
 	be.Equal(t, size, 16) // 8 bytes for x + 8 bytes for y
 }
-
-// TestStructTypeChecking removed - now covered by test/structs_test.md

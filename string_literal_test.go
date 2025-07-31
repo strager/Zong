@@ -7,8 +7,6 @@ import (
 	"github.com/nalgeon/be"
 )
 
-// Test 1: String literal parsing - converted to test/strings_execution_test.md
-
 // Test 2: String literal type checking
 func TestStringLiteralTypeChecking(t *testing.T) {
 	input := []byte(`var s U8[] = "hello";` + "\x00")
@@ -170,5 +168,3 @@ func TestEmptyString(t *testing.T) {
 	be.True(t, exists)
 	be.Equal(t, address, uint32(0)) // Empty string should be at address 0
 }
-
-// Test 10: Non-ASCII characters are rejected - converted to test/compile_error_test.md
