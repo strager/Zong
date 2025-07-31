@@ -1,3 +1,8 @@
+// Cross-cutting integration tests via Sexy framework
+//
+// Tests end-to-end compiler behavior using declarative S-expression patterns.
+// Runs tests from test/*.md files covering AST validation, execution, and error testing.
+
 package main
 
 import (

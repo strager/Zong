@@ -1,3 +1,8 @@
+// Frontend compiler phase tests
+//
+// Tests lexing (source text → tokens) and parsing (tokens → AST).
+// Covers token recognition, syntax parsing, and type annotation during parsing.
+
 package main
 
 import (
@@ -6,6 +11,10 @@ import (
 
 	"github.com/nalgeon/be"
 )
+
+// =============================================================================
+// LEXING TESTS
+// =============================================================================
 
 func lexInput(inputStr string) {
 	input := []byte(inputStr + "\x00") // trailing null byte
@@ -444,7 +453,6 @@ func TestIntToString(t *testing.T) {
 	}
 }
 
-// Tests for NextToken edge cases
 func TestNextTokenIllegalCharacter(t *testing.T) {
 	// Test handling of illegal/unknown characters
 	input := []byte("@#$\x00") // Special characters not handled by lexer
@@ -453,4 +461,85 @@ func TestNextTokenIllegalCharacter(t *testing.T) {
 
 	be.Equal(t, ILLEGAL, CurrTokenType)
 	be.Equal(t, "@", CurrLiteral)
+}
+
+// =============================================================================
+// PARSING TESTS
+// =============================================================================
+
+func TestVarTypeAST(t *testing.T) {
+	tests := []struct {
+		input        string
+		expectedType *TypeNode
+	}{
+		{
+			input:        "var x I64;\x00",
+			expectedType: TypeI64,
+		},
+		{
+			input:        "var flag Boolean;\x00",
+			expectedType: TypeBool,
+		},
+		{
+			input:        "var ptr I64*;\x00",
+			expectedType: &TypeNode{Kind: TypePointer, Child: TypeI64},
+		},
+		{
+			input:        "var ptrPtr I64**;\x00",
+			expectedType: &TypeNode{Kind: TypePointer, Child: &TypeNode{Kind: TypePointer, Child: TypeI64}},
+		},
+		{
+			input:        "var boolPtr Boolean*;\x00",
+			expectedType: &TypeNode{Kind: TypePointer, Child: TypeBool},
+		},
+	}
+
+	for _, test := range tests {
+		Init([]byte(test.input))
+		NextToken()
+		result := ParseStatement()
+
+		be.Equal(t, NodeVar, result.Kind)
+		if result.Kind != NodeVar {
+			continue
+		}
+
+		be.True(t, result.TypeAST != nil)
+		if result.TypeAST == nil {
+			continue
+		}
+
+		be.True(t, TypesEqual(result.TypeAST, test.expectedType))
+	}
+}
+
+func TestSliceTypeParsing(t *testing.T) {
+	// Test basic slice type parsing directly
+	input := []byte("var nums I64[];\x00")
+	Init(input)
+	NextToken()
+
+	stmt := ParseStatement()
+	be.Equal(t, stmt.Kind, NodeVar)
+
+	expectedType := &TypeNode{
+		Kind:  TypeSlice,
+		Child: TypeI64,
+	}
+	be.True(t, TypesEqual(stmt.TypeAST, expectedType))
+}
+
+func TestSliceBasicDeclaration(t *testing.T) {
+	// Test basic slice variable declaration
+	input := []byte("var nums I64[];\x00")
+	Init(input)
+	NextToken()
+
+	stmt := ParseStatement()
+	be.Equal(t, stmt.Kind, NodeVar)
+
+	// Verify type is slice
+	be.Equal(t, stmt.TypeAST.Kind, TypeSlice)
+	be.Equal(t, stmt.TypeAST.Child.Kind, TypeBuiltin)
+	be.Equal(t, stmt.TypeAST.Child.String, "I64")
 }

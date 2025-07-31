@@ -8,16 +8,6 @@ Zong is an experimental programming language implemented in Go that compiles to 
 
 ## Common Commands
 
-### Running Tests
-```bash
-go test
-```
-
-### Running Single Tests
-```bash
-go test -run TestFunctionName
-```
-
 ### Building Rust WASM Runtime (if needed)
 ```bash
 cd wasmruntime
@@ -205,7 +195,7 @@ func main() {
 ```
 
 ## Test: no output expected
-```zong-expr  
+```zong-expr
 2 + 3
 ```
 ```execute
@@ -222,19 +212,43 @@ func main() {
 - Support for all Zong AST node types
 - Automatic test discovery and execution
 
-### Test Files
+## Test Structure
 
-Test files are organized by feature:
-- `expressions_test.md`: Basic expression parsing
-- `functions_test.md`: Function declarations and calls
-- `structs_test.md`: Struct definitions and field access
-- `statements_test.md`: Variable declarations and control flow
-- `binary_expr_test.md`: Binary operations and precedence
-- And more...
+The Zong compiler has a comprehensive test suite organized by compiler phases:
+
+### Unit Test Files
+
+1. **`parsing_test.go`** - Lexing and parsing (`source text → tokens → AST`)
+2. **`sema_test.go`** - Semantic analysis: symbol tables and type checking (`AST → symbolified + typed AST`)
+3. **`wasm_test.go`** - WASM code generation (`typed AST → executable WASM`)
+4. **`sexy_test.go`** - End-to-end tests via Sexy framework (`source → execution`)
+
+### Sexy Framework Test Files
+
+Integration tests are written in Markdown files in `test/*.md` using the Sexy framework:
+- `test/expressions_test.md`: Expression parsing and evaluation
+- `test/functions_test.md`: Function declarations and calls
+- `test/structs_test.md`: Struct definitions and field access
+- `test/statements_test.md`: Variable declarations and control flow
+- `test/binary_expr_test.md`: Binary operations and precedence
+- And 20+ other feature-specific test files
+
+### Running Tests
+
+```bash
+# Run all tests (unit + integration)
+go test
+
+# Run specific compiler phase
+go test -run TestLexer          # parsing_test.go lexer tests
+go test -run TestSymbolTable    # sema_test.go symbol tests
+go test -run TestWASM           # wasm_test.go WASM tests
+go test -run TestSexyAllTests   # sexy_test.go Sexy framework
+```
 
 ## Development Notes
 
 - Input must be null-terminated (`\x00`)
 - Uses Go 1.23.5, requires Rust for runtime
-- Test files: `*_test.go` with comprehensive end-to-end testing, plus Sexy tests in `test/*.md`
+- Test coverage: ~100 unit tests + 200+ Sexy integration tests
 - WASM debugging tools: `wasm2wat`, `wasm-objdump` (optional)
