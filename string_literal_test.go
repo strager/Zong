@@ -7,26 +7,7 @@ import (
 	"github.com/nalgeon/be"
 )
 
-// Test 1: String literal parsing - verify AST generation
-func TestStringLiteralParsing(t *testing.T) {
-	input := []byte(`var s U8[] = "hello";` + "\x00")
-	Init(input)
-	NextToken()
-	ast := ParseProgram()
-
-	// Verify AST structure
-	be.Equal(t, ast.Kind, NodeBlock)
-	be.True(t, len(ast.Children) >= 1)
-
-	varDecl := ast.Children[0]
-	be.Equal(t, varDecl.Kind, NodeVar)
-	be.True(t, len(varDecl.Children) >= 2)
-
-	// Check that string literal is parsed correctly
-	stringLiteral := varDecl.Children[1]
-	be.Equal(t, stringLiteral.Kind, NodeString)
-	be.Equal(t, stringLiteral.String, "hello")
-}
+// Test 1: String literal parsing - converted to test/strings_execution_test.md
 
 // Test 2: String literal type checking
 func TestStringLiteralTypeChecking(t *testing.T) {
@@ -190,22 +171,4 @@ func TestEmptyString(t *testing.T) {
 	be.Equal(t, address, uint32(0)) // Empty string should be at address 0
 }
 
-// Test 10: Non-ASCII characters are rejected (as per plan)
-func TestNonASCIIRejection(t *testing.T) {
-	// This test verifies that non-ASCII characters cause issues
-	// According to the plan, we should "fail on non-ASCII"
-	input := []byte(`func main() { var s U8[] = "héllo"; }` + "\x00")
-	Init(input)
-
-	// This should either fail during parsing or compilation
-	// For now, let's just ensure it doesn't crash
-	defer func() {
-		recover() // Catch any panic - non-ASCII might cause issues
-	}()
-
-	ast := ParseProgram()
-	CompileToWASM(ast)
-
-	// If we get here, the non-ASCII was accepted (might need fixing)
-	// The test is mainly to document current behavior
-}
+// Test 10: Non-ASCII characters are rejected - converted to test/compile_error_test.md

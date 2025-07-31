@@ -211,3 +211,11 @@ func main() {
 ```compile-error
 undefined symbol 'undefinedVar'
 ```
+
+## Test: non-ASCII characters in string literals should be rejected
+```zong-program
+func main() { var s U8[] = "héllo"; }
+```
+```compile-error
+error: non-ASCII characters are not supported in string literals
+```

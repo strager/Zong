@@ -127,3 +127,51 @@ func main() {
 ```execute
 
 ```
+
+## Test: return statement void
+```zong-program
+return;
+```
+```ast
+[(return)]
+```
+
+## Test: return statement with integer
+```zong-program
+return 42;
+```
+```ast
+[(return 42)]
+```
+
+## Test: return statement with binary expression
+```zong-program
+return x + y;
+```
+```ast
+[(return (binary "+" (var "x") (var "y")))]
+```
+
+## Test: return statement with equality
+```zong-program
+return foo == bar;
+```
+```ast
+[(return (binary "==" (var "foo") (var "bar")))]
+```
+
+## Test: break statement
+```zong-program
+break;
+```
+```ast
+[break]
+```
+
+## Test: continue statement
+```zong-program
+continue;
+```
+```ast
+[continue]
+```

@@ -16,77 +16,11 @@ import (
 
 // TestParseBlockStatement removed - now covered by test/parsing_comprehensive_test.md
 
-func TestParseReturnStatement(t *testing.T) {
-	tests := []struct {
-		input    string
-		expected string
-	}{
-		{
-			input:    "return;\x00",
-			expected: "(return)",
-		},
-		{
-			input:    "return 42;\x00",
-			expected: "(return (integer 42))",
-		},
-		{
-			input:    "return x + y;\x00",
-			expected: "(return (binary \"+\" (ident \"x\") (ident \"y\")))",
-		},
-		{
-			input:    "return foo == bar;\x00",
-			expected: "(return (binary \"==\" (ident \"foo\") (ident \"bar\")))",
-		},
-	}
+// TestParseReturnStatement removed - ported to test/statements_test.md
 
-	for _, test := range tests {
-		Init([]byte(test.input))
-		NextToken()
-		result := ParseStatement()
-		actual := ToSExpr(result)
-		be.Equal(t, actual, test.expected)
-	}
-}
+// TestParseBreakStatement removed - ported to test/statements_test.md
 
-func TestParseBreakStatement(t *testing.T) {
-	tests := []struct {
-		input    string
-		expected string
-	}{
-		{
-			input:    "break;\x00",
-			expected: "(break)",
-		},
-	}
-
-	for _, test := range tests {
-		Init([]byte(test.input))
-		NextToken()
-		result := ParseStatement()
-		actual := ToSExpr(result)
-		be.Equal(t, actual, test.expected)
-	}
-}
-
-func TestParseContinueStatement(t *testing.T) {
-	tests := []struct {
-		input    string
-		expected string
-	}{
-		{
-			input:    "continue;\x00",
-			expected: "(continue)",
-		},
-	}
-
-	for _, test := range tests {
-		Init([]byte(test.input))
-		NextToken()
-		result := ParseStatement()
-		actual := ToSExpr(result)
-		be.Equal(t, actual, test.expected)
-	}
-}
+// TestParseContinueStatement removed - ported to test/statements_test.md
 
 // TestParseExpressionStatement removed - now covered by test/parsing_comprehensive_test.md
 

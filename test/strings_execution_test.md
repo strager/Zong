@@ -16,3 +16,12 @@ s = "hello";
 ```ast
 [(var-decl "s" "U8[]") (binary "=" (var "s") (string "hello"))]
 ```
+
+## Test: string variable declaration with initialization
+```zong-program
+var s U8[] = "hello";
+```
+```ast
+[(var-decl "s" "U8[]" (string "hello"))]
+```
+

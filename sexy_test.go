@@ -34,19 +34,30 @@ func TestSexyAllTests(t *testing.T) {
 			// Generate a subtest for each test case
 			for _, tc := range testCases {
 				t.Run(tc.Name, func(t *testing.T) {
-					// Parse the Zong input based on input type
-					input := tc.Input + "\x00" // Null-terminate as required by Zong parser
-					Init([]byte(input))
-					NextToken()
-
+					// Parse the Zong input based on input type, but skip for compile-error tests
+					// since they handle their own parsing with error recovery
 					var ast *ASTNode
-					switch tc.InputType {
-					case sexy.InputTypeZongExpr:
-						ast = ParseExpression()
-					case sexy.InputTypeZongProgram:
-						ast = ParseProgram()
-					default:
-						t.Fatalf("Unknown input type: %s", tc.InputType)
+					hasCompileErrorAssertion := false
+					for _, assertion := range tc.Assertions {
+						if assertion.Type == sexy.AssertionTypeCompileError {
+							hasCompileErrorAssertion = true
+							break
+						}
+					}
+
+					if !hasCompileErrorAssertion {
+						input := tc.Input + "\x00" // Null-terminate as required by Zong parser
+						Init([]byte(input))
+						NextToken()
+
+						switch tc.InputType {
+						case sexy.InputTypeZongExpr:
+							ast = ParseExpression()
+						case sexy.InputTypeZongProgram:
+							ast = ParseProgram()
+						default:
+							t.Fatalf("Unknown input type: %s", tc.InputType)
+						}
 					}
 
 					// For each assertion, match the AST against the Sexy pattern or execute the code
