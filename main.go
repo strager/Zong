@@ -215,11 +215,15 @@ var globalFunctionMap map[string]int
 var globalSliceTypes map[string]*TypeNode
 var generatedAppendFunctions []*ASTNode
 
+// Global cache for synthesized slice struct types to ensure symbol consistency
+var synthesizedSliceStructs map[string]*TypeNode
+
 func initTypeRegistry() {
 	globalTypeRegistry = []FunctionType{}
 	globalTypeMap = make(map[string]int)
 	globalSliceTypes = make(map[string]*TypeNode)
 	generatedAppendFunctions = []*ASTNode{}
+	synthesizedSliceStructs = make(map[string]*TypeNode)
 
 	// Type 0: print function (i64) -> ()
 	printType := FunctionType{
@@ -926,20 +930,6 @@ func getStructTypeFromBase(baseType *TypeNode) *TypeNode {
 	}
 }
 
-func getFieldOffset(baseType *TypeNode, fieldName string) uint32 {
-	// Get the struct type
-	structType := getStructTypeFromBase(baseType)
-
-	// Find the field offset
-	for _, field := range structType.Fields {
-		if field.Name == fieldName {
-			return field.Offset
-		}
-	}
-
-	panic("Field not found in struct: " + fieldName)
-}
-
 func EmitExpression(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 	// Handle assignment specially, then delegate to EmitExpressionR for other cases
 	if node.Kind == NodeBinary && node.Op == "=" {
@@ -1103,20 +1093,18 @@ func EmitExpressionL(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 
 		EmitExpressionL(buf, baseExpr, localCtx)
 
-		// Calculate and add field offset
-		// Use resolved field symbol if available (new symbol-based approach)
+		// Calculate and add field offset using symbol-based approach
 		var fieldOffset uint32
-		if node.FieldSymbol != nil {
-			// Get offset from the symbol table entry
-			for _, field := range getStructTypeFromBase(baseExpr.TypeAST).Fields {
-				if field.Symbol == node.FieldSymbol {
-					fieldOffset = field.Offset
-					break
-				}
+		if node.FieldSymbol == nil {
+			panic("Field symbol not found for field access: " + fieldName + " (FieldSymbol should always be populated during semantic analysis)")
+		}
+
+		// Get offset from the symbol table entry
+		for _, field := range getStructTypeFromBase(baseExpr.TypeAST).Fields {
+			if field.Symbol == node.FieldSymbol {
+				fieldOffset = field.Offset
+				break
 			}
-		} else {
-			// Fallback to the old field name lookup approach
-			fieldOffset = getFieldOffset(baseExpr.TypeAST, fieldName)
 		}
 		if fieldOffset > 0 {
 			writeByte(buf, I32_CONST)
@@ -1663,6 +1651,11 @@ func isComparisonOp(op string) bool {
 }
 
 func CompileToWASM(ast *ASTNode) []byte {
+	// Initialize globals for slice type collection and synthesis before any processing
+	globalSliceTypes = make(map[string]*TypeNode)
+	generatedAppendFunctions = []*ASTNode{}
+	synthesizedSliceStructs = make(map[string]*TypeNode)
+
 	// Build symbol table
 	symbolTable := BuildSymbolTable(ast)
 
@@ -1674,10 +1667,6 @@ func CompileToWASM(ast *ASTNode) []byte {
 	if err != nil {
 		panic(err.Error())
 	}
-
-	// Initialize globals for slice type collection before transformation
-	globalSliceTypes = make(map[string]*TypeNode)
-	generatedAppendFunctions = []*ASTNode{}
 
 	// Collect slice types before transformation (when they're still slice types)
 	collectSliceTypes(ast)
@@ -3165,51 +3154,50 @@ func synthesizeSliceStruct(sliceType *TypeNode) *TypeNode {
 	elementType := sliceType.Child
 	sliceName := TypeToString(sliceType)
 
-	// Create the internal struct: { var items ElementType*; var length I64; }
-	fields := []Parameter{
-		{
-			Name:   "items",
-			Type:   &TypeNode{Kind: TypePointer, Child: elementType},
-			Offset: 0,
-		},
-		{
-			Name:   "length",
-			Type:   TypeI64,
-			Offset: 8, // pointer is 8 bytes
-		},
+	// Check if we already have a synthesized struct for this slice type
+	if cachedStruct, exists := synthesizedSliceStructs[sliceName]; exists {
+		return cachedStruct
 	}
 
-	return &TypeNode{
+	// Create the internal struct with symbols
+	fields := createSliceFieldsWithSymbols(elementType, nil)
+
+	synthesized := &TypeNode{
 		Kind:   TypeStruct,
 		String: sliceName,
 		Fields: fields,
 	}
+
+	// Cache the synthesized struct to ensure symbol consistency
+	synthesizedSliceStructs[sliceName] = synthesized
+
+	return synthesized
 }
 
 // transformSlicesToStructs converts all slice types to struct types throughout the AST and symbol table
 func transformSlicesToStructs(ast *ASTNode, symbolTable *SymbolTable) {
 	// Transform types in symbol table
 	for _, symbol := range symbolTable.GetAllVariables() {
-		transformTypeNodeSlices(symbol.Type)
+		transformTypeNodeSlices(symbol.Type, symbolTable)
 	}
 	for _, structDef := range symbolTable.GetAllStructs() {
 		for i := range structDef.Fields {
-			transformTypeNodeSlices(structDef.Fields[i].Type)
+			transformTypeNodeSlices(structDef.Fields[i].Type, symbolTable)
 		}
 	}
 	for _, funcDef := range symbolTable.GetAllFunctions() {
-		transformTypeNodeSlices(funcDef.ReturnType)
+		transformTypeNodeSlices(funcDef.ReturnType, symbolTable)
 		for i := range funcDef.Parameters {
-			transformTypeNodeSlices(funcDef.Parameters[i].Type)
+			transformTypeNodeSlices(funcDef.Parameters[i].Type, symbolTable)
 		}
 	}
 
 	// Transform TypeAST nodes in the AST
-	transformASTSlices(ast)
+	transformASTSlices(ast, symbolTable)
 }
 
 // transformTypeNodeSlices recursively converts slice types to struct types in a TypeNode tree
-func transformTypeNodeSlices(typeNode *TypeNode) {
+func transformTypeNodeSlices(typeNode *TypeNode, symbolTable *SymbolTable) {
 	if typeNode == nil {
 		return
 	}
@@ -3217,54 +3205,70 @@ func transformTypeNodeSlices(typeNode *TypeNode) {
 	switch typeNode.Kind {
 	case TypeSlice:
 		// First, recursively transform the child type
-		transformTypeNodeSlices(typeNode.Child)
+		transformTypeNodeSlices(typeNode.Child, symbolTable)
 
-		// Convert slice to its synthesized struct representation
-		elementType := typeNode.Child
-		sliceName := TypeToString(typeNode)
+		// Use synthesizeSliceStruct to convert slice to struct
+		synthesizedStruct := synthesizeSliceStruct(typeNode)
 
-		// Create the internal struct: { var items ElementType*; var length I64; }
-		fields := []Parameter{
-			{
-				Name:   "items",
-				Type:   &TypeNode{Kind: TypePointer, Child: elementType},
-				Offset: 0,
-			},
-			{
-				Name:   "length",
-				Type:   TypeI64,
-				Offset: 8, // pointer is 8 bytes
-			},
-		}
-
-		// Update the typeNode in-place to become a struct
-		typeNode.Kind = TypeStruct
-		typeNode.String = sliceName
-		typeNode.Fields = fields
-		typeNode.Child = nil // Clear the Child since it's now a struct
+		// Copy the synthesized struct into the current type node
+		*typeNode = *synthesizedStruct
 	case TypePointer:
-		transformTypeNodeSlices(typeNode.Child)
+		transformTypeNodeSlices(typeNode.Child, symbolTable)
 	case TypeStruct:
 		for i := range typeNode.Fields {
-			transformTypeNodeSlices(typeNode.Fields[i].Type)
+			transformTypeNodeSlices(typeNode.Fields[i].Type, symbolTable)
 		}
 	}
 }
 
+// createSliceFieldsWithSymbols creates slice struct fields with proper symbol table entries
+func createSliceFieldsWithSymbols(elementType *TypeNode, symbolTable *SymbolTable) []Parameter {
+	// Create symbols for the slice fields (not added to symbol table, just standalone symbols)
+	itemsSymbol := &SymbolInfo{
+		Name:     "items",
+		Type:     &TypeNode{Kind: TypePointer, Child: elementType},
+		Assigned: true,
+	}
+
+	lengthSymbol := &SymbolInfo{
+		Name:     "length",
+		Type:     TypeI64,
+		Assigned: true,
+	}
+
+	// Create the field parameters with symbols
+	fields := []Parameter{
+		{
+			Name:   "items",
+			Type:   &TypeNode{Kind: TypePointer, Child: elementType},
+			Offset: 0,
+			Symbol: itemsSymbol,
+		},
+		{
+			Name:   "length",
+			Type:   TypeI64,
+			Offset: 8, // pointer is 8 bytes
+			Symbol: lengthSymbol,
+		},
+	}
+
+	return fields
+}
+
 // transformASTSlices recursively converts slice types to struct types in TypeAST fields
-func transformASTSlices(node *ASTNode) {
+func transformASTSlices(node *ASTNode, symbolTable *SymbolTable) {
 	if node == nil {
 		return
 	}
 
 	// Transform TypeAST if present
 	if node.TypeAST != nil {
-		transformTypeNodeSlices(node.TypeAST)
+		transformTypeNodeSlices(node.TypeAST, symbolTable)
 	}
 
 	// Recursively transform children
 	for _, child := range node.Children {
-		transformASTSlices(child)
+		transformASTSlices(child, symbolTable)
 	}
 }
 
