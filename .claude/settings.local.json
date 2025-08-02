@@ -22,7 +22,9 @@
       "Bash(timeout 10 go test -run TestU8SliceWithAppend)",
       "Bash(sl log:*)",
       "Bash(target/release/wasmruntime:*)",
-      "Bash(wasmruntime/target/release/wasmruntime test.wasm)"
+      "Bash(wasmruntime/target/release/wasmruntime test.wasm)",
+      "Bash(sl diff:*)",
+      "Bash(sl show:*)"
     ],
     "deny": []
   }

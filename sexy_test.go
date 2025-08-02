@@ -864,8 +864,8 @@ func assertStructMatch(t *testing.T, zongAST *ASTNode, sexyPattern *sexy.Node, p
 	// Match fields
 	expectedFields := fieldsPattern.Items
 
-	// For NodeStruct, fields are stored as NodeVar children
-	actualFieldDecls := zongAST.Children
+	// For NodeStruct, fields are now stored in StructFields metadata (no longer as Children)
+	actualFieldDecls := zongAST.StructFields
 
 	if len(expectedFields) != len(actualFieldDecls) {
 		t.Errorf("At %s: expected %d fields, got %d", path, len(expectedFields), len(actualFieldDecls))
@@ -898,18 +898,8 @@ func assertStructMatch(t *testing.T, zongAST *ASTNode, sexyPattern *sexy.Node, p
 			continue
 		}
 
-		// actualFieldDecl should be a NodeVar with field name in its first child
-		if actualFieldDecl.Kind != NodeVar {
-			t.Errorf("At %s.field%d: expected NodeVar for field declaration, got %v", path, i, actualFieldDecl.Kind)
-			continue
-		}
-
-		if len(actualFieldDecl.Children) == 0 {
-			t.Errorf("At %s.field%d: field declaration missing name child", path, i)
-			continue
-		}
-
-		actualFieldName := actualFieldDecl.Children[0].String
+		// actualFieldDecl is now a Parameter struct (not AST node)
+		actualFieldName := actualFieldDecl.Name
 		if actualFieldName != expectedField.Items[1].Text {
 			t.Errorf("At %s.field%d: field name mismatch, expected %s, got %s", path, i, expectedField.Items[1].Text, actualFieldName)
 			continue
@@ -921,12 +911,12 @@ func assertStructMatch(t *testing.T, zongAST *ASTNode, sexyPattern *sexy.Node, p
 			continue
 		}
 
-		if actualFieldDecl.TypeAST == nil {
-			t.Errorf("At %s.field%d: field declaration missing TypeAST", path, i)
+		if actualFieldDecl.Type == nil {
+			t.Errorf("At %s.field%d: field declaration missing Type", path, i)
 			continue
 		}
 
-		actualTypeName := TypeToString(actualFieldDecl.TypeAST)
+		actualTypeName := TypeToString(actualFieldDecl.Type)
 		if actualTypeName != expectedField.Items[2].Text {
 			t.Errorf("At %s.field%d: field type mismatch, expected %s, got %s", path, i, expectedField.Items[2].Text, actualTypeName)
 			continue

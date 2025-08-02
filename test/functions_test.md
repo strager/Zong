@@ -119,7 +119,7 @@ func getPointer(): I64* {
 func test(_ testP: Point): I64 { return 42; }
 ```
 ```ast
-[(func "test" [(param "testP" "Point*" positional)] "I64" [(return 42)])]
+[(func "test" [(param "testP" "Point" positional)] "I64" [(return 42)])]
 ```
 
 ## Function Call Tests (from expressions_test.md)

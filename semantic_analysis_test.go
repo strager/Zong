@@ -250,7 +250,7 @@ func TestStructTypeSize(t *testing.T) {
 	structType := &TypeNode{
 		Kind:   TypeStruct,
 		String: "Point",
-		Fields: []StructField{
+		Fields: []Parameter{
 			{Name: "x", Type: TypeI64, Offset: 0},
 			{Name: "y", Type: TypeI64, Offset: 8},
 		},
@@ -619,6 +619,18 @@ func TestStructSymbolTable(t *testing.T) {
 	be.True(t, qVar != nil)
 	be.Equal(t, qVar.Type.Kind, TypeStruct)
 	be.Equal(t, qVar.Type.String, "Point")
+
+	// NEW: Check that struct fields now have symbol table entries
+	xField := pointStruct.Fields[0]
+	yField := pointStruct.Fields[1]
+	be.True(t, xField.Symbol != nil)
+	be.True(t, yField.Symbol != nil)
+	be.Equal(t, xField.Symbol.Name, "x")
+	be.Equal(t, yField.Symbol.Name, "y")
+	be.Equal(t, xField.Symbol.Type, TypeI64)
+	be.Equal(t, yField.Symbol.Type, TypeI64)
+	be.Equal(t, xField.Symbol.Assigned, true) // Fields are always "assigned"
+	be.Equal(t, yField.Symbol.Assigned, true)
 }
 
 // =============================================================================

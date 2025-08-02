@@ -911,20 +911,24 @@ func getFinalFieldType(node *ASTNode) *TypeNode {
 }
 
 // getFieldOffset returns the byte offset of a field within a struct
-func getFieldOffset(baseType *TypeNode, fieldName string) uint32 {
-	// Get the struct type
-	var structType *TypeNode
+// getStructTypeFromBase extracts the struct type from a base type (handles both direct struct and pointer-to-struct)
+func getStructTypeFromBase(baseType *TypeNode) *TypeNode {
 	if baseType == nil {
 		panic("Base expression has no type information")
 	}
 
 	if baseType.Kind == TypeStruct {
-		structType = baseType
+		return baseType
 	} else if baseType.Kind == TypePointer && baseType.Child.Kind == TypeStruct {
-		structType = baseType.Child
+		return baseType.Child
 	} else {
 		panic("Field access on non-struct type: " + TypeToString(baseType))
 	}
+}
+
+func getFieldOffset(baseType *TypeNode, fieldName string) uint32 {
+	// Get the struct type
+	structType := getStructTypeFromBase(baseType)
 
 	// Find the field offset
 	for _, field := range structType.Fields {
@@ -1064,8 +1068,7 @@ func EmitExpressionL(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 		}
 
 		if targetLocal.Storage == VarStorageParameterLocal &&
-			targetLocal.Symbol.Type.Kind == TypePointer &&
-			targetLocal.Symbol.Type.Child.Kind == TypeStruct {
+			targetLocal.Symbol.Type.Kind == TypeStruct {
 			// Struct parameter - it's stored as a pointer, so just load the pointer and add offset
 			writeByte(buf, LOCAL_GET)
 			writeLEB128(buf, targetLocal.Address)
@@ -1101,7 +1104,20 @@ func EmitExpressionL(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 		EmitExpressionL(buf, baseExpr, localCtx)
 
 		// Calculate and add field offset
-		fieldOffset := getFieldOffset(baseExpr.TypeAST, fieldName)
+		// Use resolved field symbol if available (new symbol-based approach)
+		var fieldOffset uint32
+		if node.FieldSymbol != nil {
+			// Get offset from the symbol table entry
+			for _, field := range getStructTypeFromBase(baseExpr.TypeAST).Fields {
+				if field.Symbol == node.FieldSymbol {
+					fieldOffset = field.Offset
+					break
+				}
+			}
+		} else {
+			// Fallback to the old field name lookup approach
+			fieldOffset = getFieldOffset(baseExpr.TypeAST, fieldName)
+		}
 		if fieldOffset > 0 {
 			writeByte(buf, I32_CONST)
 			writeLEB128Signed(buf, int64(fieldOffset))
@@ -2373,11 +2389,14 @@ type ASTNode struct {
 	// NodeIdent (variable references):
 	Symbol *SymbolInfo // Direct reference to symbol in symbol table
 	// NodeDot:
-	FieldName string // Field name for field access (s.field)
+	FieldName   string      // Field name for field access (s.field)
+	FieldSymbol *SymbolInfo // Resolved field symbol (populated during type checking)
 	// NodeFunc:
-	FunctionName string              // Function name
-	Parameters   []FunctionParameter // Function parameters
-	ReturnType   *TypeNode           // Return type (nil for void)
+	FunctionName string      // Function name
+	Parameters   []Parameter // Function parameters (unified with struct fields)
+	ReturnType   *TypeNode   // Return type (nil for void)
+	// NodeStruct:
+	StructFields []Parameter // Struct field parameters (parsed, no AST children needed)
 }
 
 // TypeKind represents different kinds of types
@@ -2402,14 +2421,7 @@ type TypeNode struct {
 	Child *TypeNode
 
 	// For TypeStruct
-	Fields []StructField // Field definitions (only for struct declarations)
-}
-
-// StructField represents a field in a struct
-type StructField struct {
-	Name   string
-	Type   *TypeNode
-	Offset uint32 // Byte offset in struct layout
+	Fields []Parameter // Field definitions (only for struct declarations)
 }
 
 // Built-in types
@@ -2632,17 +2644,19 @@ type SymbolInfo struct {
 // FunctionInfo represents information about a declared function
 type FunctionInfo struct {
 	Name       string
-	Parameters []FunctionParameter
-	ReturnType *TypeNode // nil for void functions
-	WasmIndex  uint32    // WASM function index
+	Parameters []Parameter // Unified with struct fields
+	ReturnType *TypeNode   // nil for void functions
+	WasmIndex  uint32      // WASM function index
 }
 
-// FunctionParameter represents a function parameter
-type FunctionParameter struct {
+// Parameter represents a unified parameter/field that can be used for both
+// function parameters and struct fields, enabling shared validation logic
+type Parameter struct {
 	Name    string
 	Type    *TypeNode
-	IsNamed bool        // true for named parameters, false for positional
-	Symbol  *SymbolInfo // Link to symbol table entry for this parameter
+	IsNamed bool        // true for named parameters, false for positional (function params only)
+	Offset  uint32      // byte offset in struct layout (struct fields only)
+	Symbol  *SymbolInfo // link to symbol table entry for both function params and struct fields
 }
 
 // UnresolvedReference represents a reference to a symbol that hasn't been declared yet
@@ -2701,7 +2715,7 @@ func NewSymbolTable() *SymbolTable {
 	// print function (WASM index 0)
 	printFunc := FunctionInfo{
 		Name:       "print",
-		Parameters: []FunctionParameter{{Name: "value", Type: TypeI64, IsNamed: false}},
+		Parameters: []Parameter{{Name: "value", Type: TypeI64, IsNamed: false}},
 		ReturnType: nil, // void
 		WasmIndex:  0,
 	}
@@ -2716,7 +2730,7 @@ func NewSymbolTable() *SymbolTable {
 	// print_bytes function (WASM index 1)
 	printBytesFunc := FunctionInfo{
 		Name:       "print_bytes",
-		Parameters: []FunctionParameter{{Name: "slice", Type: &TypeNode{Kind: TypeSlice, Child: TypeU8}, IsNamed: false}},
+		Parameters: []Parameter{{Name: "slice", Type: &TypeNode{Kind: TypeSlice, Child: TypeU8}, IsNamed: false}},
 		ReturnType: nil, // void
 		WasmIndex:  1,
 	}
@@ -2731,7 +2745,7 @@ func NewSymbolTable() *SymbolTable {
 	// append function (generic builtin)
 	appendFunc := FunctionInfo{
 		Name: "append",
-		Parameters: []FunctionParameter{
+		Parameters: []Parameter{
 			{Name: "slice_ptr", Type: nil, IsNamed: false}, // Generic type
 			{Name: "value", Type: nil, IsNamed: false},     // Generic type
 		},
@@ -2803,13 +2817,127 @@ func (st *SymbolTable) LookupVariable(name string) *SymbolInfo {
 	return nil
 }
 
+// checkDuplicateDeclaration checks if a symbol name already exists in the current scope
+// Returns an error if the symbol is already declared
+func (st *SymbolTable) checkDuplicateDeclaration(name string, symbolType string) error {
+	if _, exists := st.currentScope.symbols[name]; exists {
+		return fmt.Errorf("%s '%s' already declared", symbolType, name)
+	}
+	return nil
+}
+
+// validateParameterList checks for duplicate parameter names in a parameter list
+// Can be used for both function parameters and struct fields
+func validateParameterList(parameters []Parameter, contextName string) error {
+	seen := make(map[string]bool)
+	for _, param := range parameters {
+		if seen[param.Name] {
+			return fmt.Errorf("duplicate parameter '%s' in %s", param.Name, contextName)
+		}
+		seen[param.Name] = true
+	}
+	return nil
+}
+
+// validateCallArguments validates arguments against a parameter list for both function calls and struct initialization
+// Common validation logic for parameter count, names, duplicates, and types
+func validateCallArguments(
+	argValues []*ASTNode, // argument expressions
+	argNames []string, // parameter names (empty string for positional)
+	expectedParams []Parameter, // expected parameters/fields
+	callType string, // "function call" or "struct initialization"
+	tc *TypeChecker, // for type checking individual arguments
+) error {
+	// Check for duplicate argument names first (for better error messages) - use appropriate terminology
+	duplicateWord := "parameter"
+	if callType == "struct initialization" {
+		duplicateWord = "field"
+	}
+	providedNames := make(map[string]bool)
+	for _, argName := range argNames {
+		if argName != "" { // Skip positional arguments
+			if providedNames[argName] {
+				return fmt.Errorf("error: %s has duplicate %s '%s'", callType, duplicateWord, argName)
+			}
+			providedNames[argName] = true
+		}
+	}
+
+	// Check parameter count - use appropriate terminology
+	paramWord := "arguments"
+	if callType == "struct initialization" {
+		paramWord = "fields"
+	}
+	if len(argValues) != len(expectedParams) {
+		return fmt.Errorf("error: %s expects %d %s, got %d", callType, len(expectedParams), paramWord, len(argValues))
+	}
+
+	// Validate each argument
+	for i, argValue := range argValues {
+		var expectedParam *Parameter = nil
+		argName := ""
+		if i < len(argNames) {
+			argName = argNames[i]
+		}
+
+		if argName != "" {
+			// Named parameter - find matching expected parameter
+			for j := range expectedParams {
+				if expectedParams[j].Name == argName {
+					expectedParam = &expectedParams[j]
+					break
+				}
+			}
+			if expectedParam == nil {
+				unknownWord := "parameter"
+				if callType == "struct initialization" {
+					unknownWord = "field"
+				}
+				return fmt.Errorf("error: %s has unknown %s '%s'", callType, unknownWord, argName)
+			}
+		} else {
+			// Positional parameter
+			if i >= len(expectedParams) {
+				return fmt.Errorf("error: too many arguments for %s", callType)
+			}
+			expectedParam = &expectedParams[i]
+		}
+
+		// Type-check the argument
+		err := CheckExpression(argValue, tc)
+		if err != nil {
+			return fmt.Errorf("error: %s argument '%s' %v", callType, expectedParam.Name, err)
+		}
+
+		// Check that argument type matches expected parameter type
+		valueType := argValue.TypeAST
+		if valueType.Kind == TypeInteger {
+			// Resolve Integer type based on expected parameter type
+			err := ResolveIntegerType(argValue, expectedParam.Type)
+			if err != nil {
+				return fmt.Errorf("error: %s field '%s' %v", callType, expectedParam.Name, err)
+			}
+		} else if !TypesEqual(valueType, expectedParam.Type) {
+			return fmt.Errorf("error: %s field '%s' expects type %s, got %s",
+				callType, expectedParam.Name, TypeToString(expectedParam.Type), TypeToString(valueType))
+		}
+	}
+
+	return nil
+}
+
 // DeclareStruct adds a struct declaration to the symbol table
 func (st *SymbolTable) DeclareStruct(structType *TypeNode) error {
 	name := structType.String
 
-	// Check for duplicate declaration in current scope only
-	if _, exists := st.currentScope.symbols[name]; exists {
-		return fmt.Errorf("error: struct '%s' already declared", name)
+	// Check for duplicate declaration
+	if err := st.checkDuplicateDeclaration(name, "struct"); err != nil {
+		return fmt.Errorf("error: %v", err)
+	}
+
+	// Validate struct fields for duplicates
+	if err := validateParameterList(structType.Fields, "struct "+name); err != nil {
+		return fmt.Errorf("error: %v", err)
 	}
 
 	// Create new symbol for struct
@@ -2843,10 +2971,15 @@ func (st *SymbolTable) LookupStruct(name string) *TypeNode {
 }
 
 // DeclareFunction adds a function declaration to the symbol table
-func (st *SymbolTable) DeclareFunction(name string, parameters []FunctionParameter, returnType *TypeNode) error {
-	// Check for duplicate declaration in current scope only
-	if _, exists := st.currentScope.symbols[name]; exists {
-		return fmt.Errorf("function '%s' already declared", name)
+func (st *SymbolTable) DeclareFunction(name string, parameters []Parameter, returnType *TypeNode) error {
+	// Check for duplicate declaration
+	if err := st.checkDuplicateDeclaration(name, "function"); err != nil {
+		return err
+	}
+
+	// Validate function parameters for duplicates
+	if err := validateParameterList(parameters, "function "+name); err != nil {
+		return err
 	}
 
 	// Assign WASM index (builtin functions like print start at 0, user functions follow)
@@ -2998,23 +3131,19 @@ func ConvertStructASTToType(structAST *ASTNode) *TypeNode {
 	}
 
 	structName := structAST.String
-	var fields []StructField
+	var fields []Parameter
 	var currentOffset uint32 = 0
 
-	// Process field declarations
-	for _, fieldAST := range structAST.Children {
-		if fieldAST.Kind != NodeVar {
-			continue // skip non-field declarations
-		}
+	// Use parsed field information directly from AST metadata (no AST children processing needed)
+	for _, field := range structAST.StructFields {
+		fieldSize := GetTypeSize(field.Type)
 
-		fieldName := fieldAST.Children[0].String
-		fieldType := fieldAST.TypeAST
-		fieldSize := GetTypeSize(fieldType)
-
-		fields = append(fields, StructField{
-			Name:   fieldName,
-			Type:   fieldType,
-			Offset: currentOffset,
+		fields = append(fields, Parameter{
+			Name:    field.Name,
+			Type:    field.Type,
+			IsNamed: false, // Struct fields don't have named/positional distinction
+			Offset:  currentOffset,
+			Symbol:  nil, // Will be populated during symbol table building
 		})
 
 		currentOffset += uint32(fieldSize)
@@ -3037,7 +3166,7 @@ func synthesizeSliceStruct(sliceType *TypeNode) *TypeNode {
 	sliceName := TypeToString(sliceType)
 
 	// Create the internal struct: { var items ElementType*; var length I64; }
-	fields := []StructField{
+	fields := []Parameter{
 		{
 			Name:   "items",
 			Type:   &TypeNode{Kind: TypePointer, Child: elementType},
@@ -3095,7 +3224,7 @@ func transformTypeNodeSlices(typeNode *TypeNode) {
 		sliceName := TypeToString(typeNode)
 
 		// Create the internal struct: { var items ElementType*; var length I64; }
-		fields := []StructField{
+		fields := []Parameter{
 			{
 				Name:   "items",
 				Type:   &TypeNode{Kind: TypePointer, Child: elementType},
@@ -3260,7 +3389,7 @@ func generateAppendFunction(sliceType *TypeNode) *ASTNode {
 	functionName := "append_" + sanitizeTypeName(TypeToString(elementType))
 
 	// Function signature: func append_T(slice_ptr: T[]*, value: T): void
-	parameters := []FunctionParameter{
+	parameters := []Parameter{
 		{
 			Name: "slice_ptr",
 			Type: &TypeNode{Kind: TypePointer, Child: sliceType},
@@ -3319,6 +3448,22 @@ func BuildSymbolTable(ast *ASTNode) *SymbolTable {
 		case NodeStruct:
 			// Convert struct AST to TypeNode and declare it
 			structType := ConvertStructASTToType(node)
+
+			// Create symbol table entries for struct fields (similar to function parameters)
+			st.PushScope() // Create a scope for struct fields
+			for i, field := range structType.Fields {
+				symbol, err := st.DeclareVariable(field.Name, field.Type)
+				if err != nil {
+					panic(err.Error()) // Field names should not conflict within a struct
+				}
+				// Mark field as assigned (struct fields are always accessible)
+				symbol.Assigned = true
+
+				// Populate the Symbol field in the Parameter using the returned symbol
+				structType.Fields[i].Symbol = symbol
+			}
+			st.PopScope() // Close struct field scope
+
 			err := st.DeclareStruct(structType)
 			if err != nil {
 				panic(err.Error())
@@ -3340,6 +3485,13 @@ func BuildSymbolTable(ast *ASTNode) *SymbolTable {
 						}
 						// Update the AST node with resolved type
 						node.Parameters[i].Type = resolvedType
+					}
+				}
+				// For struct parameters, resolve the struct type
+				if resolvedType.Kind == TypeStruct {
+					structDef := st.LookupStruct(resolvedType.String)
+					if structDef != nil {
+						node.Parameters[i].Type = structDef
 					}
 				}
 			}
@@ -3423,7 +3575,7 @@ func BuildSymbolTable(ast *ASTNode) *SymbolTable {
 				// Mark parameter as assigned (since it gets its value from the call)
 				symbol.Assigned = true
 
-				// Populate the Symbol field in the FunctionParameter using the returned symbol
+				// Populate the Symbol field in the Parameter using the returned symbol
 				node.Parameters[i].Symbol = symbol
 			}
 
@@ -3916,64 +4068,25 @@ func CheckExpression(expr *ASTNode, tc *TypeChecker) error {
 			// This is struct initialization
 			structType := expr.ResolvedStruct
 
-			// First, validate that all parameters are named and check for duplicates
-			providedFields := make(map[string]bool)
+			// First, validate that all parameters are named (struct initialization requirement)
 			for _, paramName := range expr.ParameterNames {
 				if paramName == "" {
 					return fmt.Errorf("error: struct initialization requires named parameters for all fields")
 				}
+			}
 
-				// Check for duplicates
-				if providedFields[paramName] {
-					return fmt.Errorf("error: struct initialization has duplicate field '%s'", paramName)
-				}
+			// Use shared validation logic for arguments
+			argValues := expr.Children[1:] // Skip struct name
+			err := validateCallArguments(argValues, expr.ParameterNames, structType.Fields, "struct initialization", tc)
+			if err != nil {
+				return err
+			}
+
+			// Additional validation: ensure all struct fields are provided (struct initialization requirement)
+			providedFields := make(map[string]bool)
+			for _, paramName := range expr.ParameterNames {
 				providedFields[paramName] = true
 			}
-
-			// Validate that all struct fields are provided
-			expectedFieldCount := len(structType.Fields)
-			providedFieldCount := len(expr.Children) - 1 // Subtract 1 for the struct name
-
-			if providedFieldCount != expectedFieldCount {
-				return fmt.Errorf("error: struct initialization expects %d fields, got %d", expectedFieldCount, providedFieldCount)
-			}
-
-			// Validate that all parameter names match struct field names
-			for i, paramName := range expr.ParameterNames {
-
-				// Check that field exists in struct
-				fieldFound := false
-				for _, field := range structType.Fields {
-					if field.Name == paramName {
-						fieldFound = true
-						// Type-check the field value
-						err := CheckExpression(expr.Children[i+1], tc)
-						if err != nil {
-							return err
-						}
-
-						// Check that field type matches provided value type
-						valueType := expr.Children[i+1].TypeAST
-						if valueType.Kind == TypeInteger {
-							// Resolve Integer type based on field type
-							err := ResolveIntegerType(expr.Children[i+1], field.Type)
-							if err != nil {
-								return fmt.Errorf("error: struct initialization field '%s' %v", paramName, err)
-							}
-						} else if !TypesEqual(valueType, field.Type) {
-							return fmt.Errorf("error: struct initialization field '%s' expects type %s, got %s",
-								paramName, TypeToString(field.Type), TypeToString(valueType))
-						}
-						break
-					}
-				}
-
-				if !fieldFound {
-					return fmt.Errorf("error: struct initialization has unknown field '%s'", paramName)
-				}
-			}
-
-			// Ensure all required fields are provided
 			for _, field := range structType.Fields {
 				if !providedFields[field.Name] {
 					return fmt.Errorf("error: struct initialization missing required field '%s'", field.Name)
@@ -4073,11 +4186,15 @@ func CheckExpression(expr *ASTNode, tc *TypeChecker) error {
 				return fmt.Errorf("error: unknown function '%s'", funcName)
 			}
 
-			// Validate and match parameters
-			err := validateFunctionCall(expr, function, tc)
+			// Use shared validation logic for function call arguments
+			argValues := expr.Children[1:] // Skip function name
+			err := validateCallArguments(argValues, expr.ParameterNames, function.Parameters, "function call", tc)
 			if err != nil {
 				return err
 			}
+
+			// Reorder arguments to match function signature (if named parameters are used)
+			reorderCallArguments(expr, function.Parameters)
 
 			// Return function's return type (or void)
 			if function.ReturnType != nil {
@@ -4126,6 +4243,7 @@ func CheckExpression(expr *ASTNode, tc *TypeChecker) error {
 		for _, field := range structType.Fields {
 			if field.Name == fieldName {
 				expr.TypeAST = field.Type
+				expr.FieldSymbol = field.Symbol // Store resolved field symbol
 				return nil
 			}
 		}
@@ -4229,158 +4347,8 @@ func CheckExpression(expr *ASTNode, tc *TypeChecker) error {
 	}
 }
 
-// validateFunctionCall validates a function call and reorders parameters if necessary
-func validateFunctionCall(callExpr *ASTNode, function *FunctionInfo, tc *TypeChecker) error {
-	args := callExpr.Children[1:] // Skip function name
-	paramNames := callExpr.ParameterNames
-
-	// Check parameter count
-	if len(args) != len(function.Parameters) {
-		return fmt.Errorf("error: function '%s' expects %d arguments, got %d",
-			function.Name, len(function.Parameters), len(args))
-	}
-
-	// Separate positional and named parameters
-	var positionalArgs []*ASTNode
-	var namedArgs []*ASTNode
-	var namedArgNames []string
-
-	for i, arg := range args {
-		if i < len(paramNames) && paramNames[i] != "" {
-			// Named parameter
-			namedArgs = append(namedArgs, arg)
-			namedArgNames = append(namedArgNames, paramNames[i])
-		} else {
-			// Positional parameter
-			positionalArgs = append(positionalArgs, arg)
-		}
-	}
-
-	// Validate that positional parameters come before named parameters
-	if len(positionalArgs) > 0 && len(namedArgs) > 0 {
-		// Find the first named parameter position
-		firstNamedPos := -1
-		for i, name := range paramNames {
-			if name != "" {
-				firstNamedPos = i
-				break
-			}
-		}
-		// Check that all positional args come before first named arg
-		if firstNamedPos >= 0 && len(positionalArgs) > firstNamedPos {
-			return fmt.Errorf("error: positional arguments must come before named arguments")
-		}
-	}
-
-	// Validate positional parameters match function signature
-	for i, arg := range positionalArgs {
-		if i >= len(function.Parameters) {
-			return fmt.Errorf("error: too many positional arguments")
-		}
-		if function.Parameters[i].IsNamed {
-			return fmt.Errorf("error: cannot pass positional argument to named parameter '%s'",
-				function.Parameters[i].Name)
-		}
-
-		// Type check the argument
-		err := CheckExpression(arg, tc)
-		if err != nil {
-			return err
-		}
-	}
-
-	// Validate named parameters
-	usedParams := make(map[string]bool)
-	for i, argName := range namedArgNames {
-		// Check for duplicate parameter names
-		if usedParams[argName] {
-			return fmt.Errorf("error: duplicate parameter name '%s'", argName)
-		}
-		usedParams[argName] = true
-
-		// Find the parameter in function signature
-		paramIndex := -1
-		for j, param := range function.Parameters {
-			if param.Name == argName {
-				paramIndex = j
-				break
-			}
-		}
-
-		if paramIndex == -1 {
-			return fmt.Errorf("error: unknown parameter name '%s' for function '%s'",
-				argName, function.Name)
-		}
-
-		if !function.Parameters[paramIndex].IsNamed {
-			return fmt.Errorf("error: parameter '%s' is positional, not named", argName)
-		}
-
-		// Type check the argument
-		err := CheckExpression(namedArgs[i], tc)
-		if err != nil {
-			return err
-		}
-	}
-
-	// Check that all required parameters are provided
-	providedPositional := len(positionalArgs)
-	for i, param := range function.Parameters {
-		if i < providedPositional {
-			continue // Already handled by positional args
-		}
-
-		// Check if this named parameter was provided
-		found := false
-		for _, argName := range namedArgNames {
-			if argName == param.Name {
-				found = true
-				break
-			}
-		}
-
-		if !found {
-			return fmt.Errorf("error: missing required parameter '%s' for function '%s'",
-				param.Name, function.Name)
-		}
-	}
-
-	// Reorder arguments to match function signature
-	reorderFunctionCallArguments(callExpr, function)
-
-	// Type check arguments after reordering
-	args = callExpr.Children[1:] // Get the reordered arguments
-	for i, arg := range args {
-		expectedType := function.Parameters[i].Type
-		actualType := arg.TypeAST
-
-		if actualType.Kind == TypeInteger {
-			err := ResolveIntegerType(arg, expectedType)
-			if err != nil {
-				return fmt.Errorf("error: argument %d: %v", i+1, err)
-			}
-		} else if !TypesEqual(actualType, expectedType) {
-			// Special case: allow struct argument for struct pointer parameter (copy semantics)
-			if expectedType.Kind == TypePointer && expectedType.Child.Kind == TypeStruct &&
-				actualType.Kind == TypeStruct &&
-				TypesEqual(actualType, expectedType.Child) {
-				// This is allowed: passing struct S to parameter S* (copy semantics)
-			} else if expectedType.Kind == TypePointer && expectedType.Child.Kind == TypeSlice &&
-				actualType.Kind == TypeSlice &&
-				TypesEqual(actualType, expectedType.Child) {
-				// This is allowed: passing slice T[] to parameter T[]* (copy semantics)
-			} else {
-				return fmt.Errorf("error: argument %d type mismatch: expected %s, got %s",
-					i+1, TypeToString(expectedType), TypeToString(actualType))
-			}
-		}
-	}
-
-	return nil
-}
-
-// reorderFunctionCallArguments reorders the arguments in a function call to match the function signature
-func reorderFunctionCallArguments(callExpr *ASTNode, function *FunctionInfo) {
+// reorderCallArguments reorders the arguments in a function call to match the function signature
+func reorderCallArguments(callExpr *ASTNode, expectedParams []Parameter) {
 	if len(callExpr.ParameterNames) == 0 {
 		// No named parameters, no reordering needed
 		return
@@ -4388,14 +4356,12 @@ func reorderFunctionCallArguments(callExpr *ASTNode, function *FunctionInfo) {
 
 	args := callExpr.Children[1:] // Skip function name
 	paramNames := callExpr.ParameterNames
-	newArgs := make([]*ASTNode, len(function.Parameters))
+	newArgs := make([]*ASTNode, len(expectedParams))
 
 	// First, place positional arguments
-	positionalCount := 0
 	for i, name := range paramNames {
 		if name == "" {
 			newArgs[i] = args[i]
-			positionalCount++
 		}
 	}
 
@@ -4403,7 +4369,7 @@ func reorderFunctionCallArguments(callExpr *ASTNode, function *FunctionInfo) {
 	for i, name := range paramNames {
 		if name != "" {
 			// Find the parameter index in function signature
-			for j, param := range function.Parameters {
+			for j, param := range expectedParams {
 				if param.Name == name {
 					newArgs[j] = args[i]
 					break
@@ -4974,11 +4940,14 @@ func ToSExpr(node *ASTNode) string {
 		operand := ToSExpr(node.Children[0])
 		return "(unary \"" + node.Op + "\" " + operand + ")"
 	case NodeStruct:
-		result := "(struct \"" + node.String + "\""
-		for _, child := range node.Children {
-			result += " " + ToSExpr(child)
+		result := "(struct \"" + node.String + "\" ["
+		for i, field := range node.StructFields {
+			if i > 0 {
+				result += " "
+			}
+			result += "(field \"" + field.Name + "\" \"" + TypeToString(field.Type) + "\")"
 		}
-		result += ")"
+		result += "])"
 		return result
 	case NodeDot:
 		base := ToSExpr(node.Children[0])
@@ -5309,6 +5278,69 @@ func parsePrimary() *ASTNode {
 	}
 }
 
+// parseParameterList parses a parameter list in parentheses and returns a slice of Parameters
+// Used by both function parameter parsing and struct field parsing for consistency
+// Parameters:
+//   - endToken: the token that ends the parameter list (RPAREN for both cases)
+//   - allowPositional: whether to allow positional parameters with "_" prefix (true for functions, false for structs)
+func parseParameterList(endToken TokenType, allowPositional bool) []Parameter {
+	var parameters []Parameter
+
+	for CurrTokenType != endToken && CurrTokenType != EOF {
+		// Parse parameter: _ name: Type (positional) or name: Type (named)
+		isPositional := false
+		var paramName string
+
+		if allowPositional && CurrTokenType == IDENT && CurrLiteral == "_" {
+			// Positional parameter: _ name: Type (functions only)
+			isPositional = true
+			SkipToken(IDENT) // skip the "_"
+			if CurrTokenType != IDENT {
+				// Return empty slice on error - caller should check
+				return []Parameter{}
+			}
+			paramName = CurrLiteral
+			SkipToken(IDENT)
+		} else if CurrTokenType == IDENT {
+			// Named parameter: name: Type
+			paramName = CurrLiteral
+			SkipToken(IDENT)
+		} else {
+			// Return empty slice on error - caller should check
+			return []Parameter{}
+		}
+
+		// Parse colon
+		if CurrTokenType != COLON {
+			// Return empty slice on error - caller should check
+			return []Parameter{}
+		}
+		SkipToken(COLON)
+
+		// Parse parameter type
+		paramType := parseTypeExpression()
+		if paramType == nil {
+			// Return empty slice on error - caller should check
+			return []Parameter{}
+		}
+
+		parameters = append(parameters, Parameter{
+			Name:    paramName,
+			Type:    paramType,
+			IsNamed: !isPositional,
+			Offset:  0,   // Will be set later for struct fields
+			Symbol:  nil, // Will be set later for function parameters
+		})
+
+		// Skip optional comma
+		if CurrTokenType == COMMA {
+			SkipToken(COMMA)
+		}
+	}
+
+	return parameters
+}
+
 // parseTypeExpression parses a type expression and returns a TypeNode
 func parseTypeExpression() *TypeNode {
 	if CurrTokenType != IDENT {
@@ -5398,41 +5430,10 @@ func ParseStatement() *ASTNode {
 		}
 		SkipToken(LPAREN)
 
-		var fields []*ASTNode
-		for CurrTokenType != RPAREN && CurrTokenType != EOF {
-			// Parse field declaration: fieldName: Type
-			if CurrTokenType != IDENT {
-				break // error
-			}
-			fieldName := &ASTNode{
-				Kind:   NodeIdent,
-				String: CurrLiteral,
-			}
-			SkipToken(IDENT)
-
-			if CurrTokenType != COLON {
-				return &ASTNode{} // error - expecting colon
-			}
-			SkipToken(COLON)
-
-			// Parse type using new TypeNode system
-			fieldName.TypeAST = parseTypeExpression()
-			if fieldName.TypeAST == nil {
-				return &ASTNode{} // error - invalid type
-			}
-
-			// Create field declaration node
-			fieldDecl := &ASTNode{
-				Kind:     NodeVar,
-				Children: []*ASTNode{fieldName},
-				TypeAST:  fieldName.TypeAST,
-			}
-			fields = append(fields, fieldDecl)
-
-			// Skip optional comma
-			if CurrTokenType == COMMA {
-				SkipToken(COMMA)
-			}
+		// Use shared parameter parsing logic for struct fields
+		parameters := parseParameterList(RPAREN, false) // no positional params
+		if len(parameters) == 0 && CurrTokenType != RPAREN {
+			return &ASTNode{} // error in parsing
 		}
 
 		if CurrTokenType == RPAREN {
@@ -5443,10 +5444,12 @@ func ParseStatement() *ASTNode {
 			SkipToken(SEMICOLON)
 		}
 
+		// Store field information directly in AST node metadata, no children needed
 		return &ASTNode{
-			Kind:     NodeStruct,
-			String:   structName,
-			Children: fields,
+			Kind:         NodeStruct,
+			String:       structName,
+			StructFields: parameters, // Store parsed field parameters directly
+			Children:     nil,        // No AST children needed for struct fields
 		}
 
 	case IF:
@@ -5630,63 +5633,14 @@ func parseFunctionDeclaration() *ASTNode {
 	}
 	SkipToken(LPAREN)
 
-	var parameters []FunctionParameter
-	for CurrTokenType != RPAREN && CurrTokenType != EOF {
-		// Parse parameter: _ name: Type (positional) or name: Type (named)
-		isPositional := false
-		var paramName string
-
-		if CurrTokenType == IDENT && CurrLiteral == "_" {
-			// Positional parameter: _ name: Type
-			isPositional = true
-			SkipToken(IDENT) // skip the "_"
-			if CurrTokenType != IDENT {
-				panic("Expected parameter name after '_'")
-			}
-			paramName = CurrLiteral
-			SkipToken(IDENT)
-		} else if CurrTokenType == IDENT {
-			// Named parameter: name: Type
-			paramName = CurrLiteral
-			SkipToken(IDENT)
-		} else {
-			panic("Expected parameter name")
-		}
-
-		// Parse colon
-		if CurrTokenType != COLON {
-			panic("Expected ':' after parameter name")
-		}
-		SkipToken(COLON)
-
-		// Parse parameter type
-		paramType := parseTypeExpression()
-		if paramType == nil {
-			panic("Expected parameter type")
-		}
-
-		// Convert struct and slice parameters to pointer types (per Phase 3 spec)
-		finalParamType := paramType
-		if paramType.Kind == TypeStruct || paramType.Kind == TypeSlice {
-			finalParamType = &TypeNode{
-				Kind:  TypePointer,
-				Child: paramType,
-			}
-		}
-
-		parameters = append(parameters, FunctionParameter{
-			Name:    paramName,
-			Type:    finalParamType,
-			IsNamed: !isPositional,
-		})
-
-		// Check for comma or end of parameters
-		if CurrTokenType == COMMA {
-			SkipToken(COMMA)
-		} else if CurrTokenType != RPAREN {
-			panic("Expected ',' or ')' in parameter list")
-		}
+	// Use shared parameter parsing logic for function parameters
+	paramList := parseParameterList(RPAREN, true) // allow positional params
+	if len(paramList) == 0 && CurrTokenType != RPAREN {
+		panic("Error parsing function parameters")
 	}
+
+	// Use parsed parameters directly (now unified with struct fields)
+	parameters := paramList
 
 	if CurrTokenType != RPAREN {
 		panic("Expected ')' after parameter list")
