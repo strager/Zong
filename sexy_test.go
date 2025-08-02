@@ -7,6 +7,7 @@ package main
 
 import (
 	"fmt"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1015,7 +1016,9 @@ func assertExecutionMatch(t *testing.T, ast *ASTNode, expectedOutput string, inp
 
 	// Compare actual output with expected output
 	if actualOutput != normalizedExpected {
-		t.Errorf("Execution output mismatch:\n  Expected: %q\n  Actual:   %q", normalizedExpected, actualOutput)
+		// Dump WASM for debugging when execution fails
+		watOutput := dumpWasmForDebugging(t, wasmBytes)
+		t.Errorf("Execution output mismatch:\n  Expected: %q\n  Actual:   %q\n\nGenerated WASM:\n%s", normalizedExpected, actualOutput, watOutput)
 	}
 }
 
@@ -1170,4 +1173,31 @@ func assertWasmLocalsMatch(t *testing.T, ast *ASTNode, expectedPattern *sexy.Nod
 			continue
 		}
 	}
+}
+
+// dumpWasmForDebugging writes WASM bytes to a temporary file and converts to WAT format for debugging
+func dumpWasmForDebugging(t *testing.T, wasmBytes []byte) string {
+	t.Helper()
+
+	// Write WASM to temporary file
+	tmpFile, err := ioutil.TempFile("", "debug_*.wasm")
+	if err != nil {
+		return fmt.Sprintf("Failed to create temp file for WASM dump: %v", err)
+	}
+	defer os.Remove(tmpFile.Name())
+	defer tmpFile.Close()
+
+	_, err = tmpFile.Write(wasmBytes)
+	if err != nil {
+		return fmt.Sprintf("Failed to write WASM to temp file: %v", err)
+	}
+	tmpFile.Close()
+
+	// Convert to WAT format
+	watOutput, err := convertWasmToWat(wasmBytes, tmpFile.Name())
+	if err != nil {
+		return fmt.Sprintf("Failed to convert WASM to WAT: %v\nRaw WASM bytes (%d): %x", err, len(wasmBytes), wasmBytes)
+	}
+
+	return watOutput
 }
