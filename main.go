@@ -38,6 +38,10 @@ type LocalContext struct {
 	TempI32Count  uint32 // Count of I32 temporaries needed for function calls
 	TempBaseIndex uint32 // Starting WASM local index for temporaries
 
+	// Current temporary indices for code generation (to avoid collisions in nested calls)
+	CurrentTempI32Index uint32 // Next available I32 temporary
+	CurrentTempI64Index uint32 // Next available I64 temporary
+
 	// Loop context
 	ControlDepth int   // Track nesting depth of control structures (if, etc.) for branch calculation
 	LoopStack    []int // Stack of control depths at each loop entry (for break/continue targeting)
@@ -1429,167 +1433,109 @@ func EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 				panic("Missing resolved function for: " + functionName)
 			}
 
-			// Check if we need reordering (only if there are named parameters)
-			needsReordering := false
-			for _, paramName := range node.ParameterNames {
-				if paramName != "" {
-					needsReordering = true
-					break
+			// Phase 1: Evaluate arguments in source order and store in temporaries
+			tempIndices := make([]uint32, len(args))
+			tempI32Index := localCtx.CurrentTempI32Index
+			tempI64Index := localCtx.CurrentTempI64Index
+
+			for i, arg := range args {
+				if arg.TypeAST.Kind == TypeStruct {
+					// Struct arguments use tstack storage, not locals
+					// We'll handle these differently - no temporary needed
+					tempIndices[i] = 0 // Mark as tstack
+				} else if isWASMI64Type(arg.TypeAST) {
+					// Evaluate argument and store in i64 temporary
+					EmitExpressionR(buf, arg, localCtx)
+					writeByte(buf, LOCAL_SET)
+					writeLEB128(buf, tempI64Index)
+					tempIndices[i] = tempI64Index
+					tempI64Index++
+				} else if isWASMI32Type(arg.TypeAST) {
+					// Evaluate argument and store in i32 temporary
+					EmitExpressionR(buf, arg, localCtx)
+					writeByte(buf, LOCAL_SET)
+					writeLEB128(buf, tempI32Index)
+					tempIndices[i] = tempI32Index
+					tempI32Index++
 				}
 			}
 
-			if needsReordering {
-				// Phase 1: Evaluate arguments in source order and store in temporaries
-				tempIndices := make([]uint32, len(args))
-				tempI32Index := localCtx.TempBaseIndex
-				// I64 temporaries start after: I32 temps + frame pointer (if any) + I64 body locals
-				tempI64BaseOffset := localCtx.TempI32Count
-				if localCtx.FrameSize > 0 {
-					tempI64BaseOffset++ // Add frame pointer
-				}
-				tempI64BaseOffset += localCtx.countBodyLocalsByType("I64")
-				tempI64Index := localCtx.TempBaseIndex + tempI64BaseOffset
+			// Update current indices after allocating temporaries
+			localCtx.CurrentTempI32Index = tempI32Index
+			localCtx.CurrentTempI64Index = tempI64Index
 
-				for i, arg := range args {
-					if arg.TypeAST.Kind == TypeStruct {
-						// Struct arguments use tstack storage, not locals
-						// We'll handle these differently - no temporary needed
-						tempIndices[i] = 0 // Mark as tstack
-					} else if isWASMI64Type(arg.TypeAST) {
-						// Evaluate argument and store in i64 temporary
-						EmitExpressionR(buf, arg, localCtx)
-						writeByte(buf, LOCAL_SET)
-						writeLEB128(buf, tempI64Index)
-						tempIndices[i] = tempI64Index
-						tempI64Index++
-					} else if isWASMI32Type(arg.TypeAST) {
-						// Evaluate argument and store in i32 temporary
-						EmitExpressionR(buf, arg, localCtx)
-						writeByte(buf, LOCAL_SET)
-						writeLEB128(buf, tempI32Index)
-						tempIndices[i] = tempI32Index
-						tempI32Index++
-					}
-				}
-
-				// Phase 2: Build parameter mapping and emit arguments in parameter order
-				paramMapping := make([]int, len(args))
-				for i, paramName := range node.ParameterNames {
-					if paramName == "" {
-						// Positional argument
-						paramMapping[i] = i
-					} else {
-						// Named argument - find parameter index
-						found := false
-						for j, param := range function.Parameters {
-							if param.Name == paramName {
-								paramMapping[i] = j
-								found = true
-								break
-							}
-						}
-						if !found {
-							panic("Parameter not found: " + paramName)
+			// Phase 2: Build parameter mapping and emit arguments in parameter order
+			paramMapping := make([]int, len(args))
+			for i, paramName := range node.ParameterNames {
+				if paramName == "" {
+					// Positional argument
+					paramMapping[i] = i
+				} else {
+					// Named argument - find parameter index
+					found := false
+					for j, param := range function.Parameters {
+						if param.Name == paramName {
+							paramMapping[i] = j
+							found = true
+							break
 						}
 					}
-				}
-
-				// Create parameter-ordered array for function call
-				orderedArgs := make([]*ASTNode, len(args))
-				orderedTempIndices := make([]uint32, len(args))
-				for i := 0; i < len(args); i++ {
-					paramIndex := paramMapping[i]
-					orderedArgs[paramIndex] = args[i]
-					orderedTempIndices[paramIndex] = tempIndices[i]
-				}
-
-				// Emit arguments in parameter order using temporaries
-				for i, arg := range orderedArgs {
-					if arg.TypeAST.Kind == TypeStruct {
-						// Struct argument - evaluate again for tstack copy
-						structSize := uint32(GetTypeSize(arg.TypeAST))
-
-						// Allocate space on tstack for the struct copy
-						writeByte(buf, GLOBAL_GET)
-						writeLEB128(buf, 0) // tstack global index
-
-						// Save the current tstack pointer (destination address)
-						writeByte(buf, GLOBAL_GET)
-						writeLEB128(buf, 0) // tstack global index
-
-						// Get source address (the struct we're copying)
-						EmitExpressionR(buf, arg, localCtx)
-
-						// Push size for memory.copy
-						writeByte(buf, I32_CONST)
-						writeLEB128(buf, structSize)
-
-						// Emit memory.copy instruction to copy struct to tstack
-						writeByte(buf, 0xFC) // Multi-byte instruction prefix
-						writeLEB128(buf, 10) // memory.copy opcode
-						writeByte(buf, 0x00) // dst memory index (0)
-						writeByte(buf, 0x00) // src memory index (0)
-
-						// Update tstack pointer
-						writeByte(buf, GLOBAL_GET)
-						writeLEB128(buf, 0) // tstack global index
-						writeByte(buf, I32_CONST)
-						writeLEB128(buf, structSize)
-						writeByte(buf, I32_ADD)
-						writeByte(buf, GLOBAL_SET)
-						writeLEB128(buf, 0) // tstack global index
-
-						// Push the copy address as the function argument
-						// (we saved it earlier before the memory.copy)
-					} else {
-						// Load from temporary local
-						writeByte(buf, LOCAL_GET)
-						writeLEB128(buf, orderedTempIndices[i])
+					if !found {
+						panic("Parameter not found: " + paramName)
 					}
 				}
-			} else {
-				// No reordering needed - emit arguments in source order (old logic)
-				for _, arg := range args {
-					if arg.TypeAST.Kind == TypeStruct {
-						// Struct argument - need to copy to a temporary location
-						structSize := uint32(GetTypeSize(arg.TypeAST))
+			}
 
-						// Allocate space on tstack for the struct copy
-						writeByte(buf, GLOBAL_GET)
-						writeLEB128(buf, 0) // tstack global index
+			// Create parameter-ordered array for function call
+			orderedArgs := make([]*ASTNode, len(args))
+			orderedTempIndices := make([]uint32, len(args))
+			for i := 0; i < len(args); i++ {
+				paramIndex := paramMapping[i]
+				orderedArgs[paramIndex] = args[i]
+				orderedTempIndices[paramIndex] = tempIndices[i]
+			}
+			// Emit arguments in parameter order using temporaries
+			for i, arg := range orderedArgs {
+				if arg.TypeAST.Kind == TypeStruct {
+					// Struct argument - evaluate again for tstack copy
+					structSize := uint32(GetTypeSize(arg.TypeAST))
 
-						// Save the current tstack pointer (destination address)
-						writeByte(buf, GLOBAL_GET)
-						writeLEB128(buf, 0) // tstack global index
+					// Allocate space on tstack for the struct copy
+					writeByte(buf, GLOBAL_GET)
+					writeLEB128(buf, 0) // tstack global index
 
-						// Get source address (the struct we're copying)
-						EmitExpressionR(buf, arg, localCtx)
+					// Save the current tstack pointer (destination address)
+					writeByte(buf, GLOBAL_GET)
+					writeLEB128(buf, 0) // tstack global index
 
-						// Push size for memory.copy
-						writeByte(buf, I32_CONST)
-						writeLEB128(buf, structSize)
+					// Get source address (the struct we're copying)
+					EmitExpressionR(buf, arg, localCtx)
 
-						// Emit memory.copy instruction to copy struct to tstack
-						writeByte(buf, 0xFC) // Multi-byte instruction prefix
-						writeLEB128(buf, 10) // memory.copy opcode
-						writeByte(buf, 0x00) // dst memory index (0)
-						writeByte(buf, 0x00) // src memory index (0)
+					// Push size for memory.copy
+					writeByte(buf, I32_CONST)
+					writeLEB128(buf, structSize)
 
-						// Update tstack pointer
-						writeByte(buf, GLOBAL_GET)
-						writeLEB128(buf, 0) // tstack global index
-						writeByte(buf, I32_CONST)
-						writeLEB128(buf, structSize)
-						writeByte(buf, I32_ADD)
-						writeByte(buf, GLOBAL_SET)
-						writeLEB128(buf, 0) // tstack global index
+					// Emit memory.copy instruction to copy struct to tstack
+					writeByte(buf, 0xFC) // Multi-byte instruction prefix
+					writeLEB128(buf, 10) // memory.copy opcode
+					writeByte(buf, 0x00) // dst memory index (0)
+					writeByte(buf, 0x00) // src memory index (0)
 
-						// Push the copy address as the function argument
-						// (we saved it earlier before the memory.copy)
-					} else {
-						// Non-struct argument
-						EmitExpressionR(buf, arg, localCtx)
-					}
+					// Update tstack pointer
+					writeByte(buf, GLOBAL_GET)
+					writeLEB128(buf, 0) // tstack global index
+					writeByte(buf, I32_CONST)
+					writeLEB128(buf, structSize)
+					writeByte(buf, I32_ADD)
+					writeByte(buf, GLOBAL_SET)
+					writeLEB128(buf, 0) // tstack global index
+
+					// Push the copy address as the function argument
+					// (we saved it earlier before the memory.copy)
+				} else {
+					// Load from temporary local
+					writeByte(buf, LOCAL_GET)
+					writeLEB128(buf, orderedTempIndices[i])
 				}
 			}
 
@@ -1945,6 +1891,16 @@ func BuildLocalContext(ast *ASTNode, fnNode *ASTNode) *LocalContext {
 	// Phase 4: Assign final WASM indices
 	ctx.assignWASMIndices()
 
+	// Phase 5: Initialize current temporary indices for code generation
+	ctx.CurrentTempI32Index = ctx.TempBaseIndex
+	// Calculate I64 temp base (after I32 temps + frame pointer + I64 body locals)
+	tempI64BaseOffset := ctx.TempI32Count
+	if ctx.FrameSize > 0 {
+		tempI64BaseOffset++ // Add frame pointer
+	}
+	tempI64BaseOffset += ctx.countBodyLocalsByType("I64")
+	ctx.CurrentTempI64Index = ctx.TempBaseIndex + tempI64BaseOffset
+
 	return ctx
 }
 
@@ -2069,24 +2025,6 @@ func (ctx *LocalContext) analyzeFunctionCallTemporaries(node *ASTNode) {
 
 	// Skip struct initialization calls - they use different logic
 	if node.ResolvedStruct != nil {
-		return
-	}
-
-	// Only need temporaries if there are named parameters that could be reordered
-	if len(node.ParameterNames) == 0 {
-		return
-	}
-
-	// Check if any parameters are named (indicating potential reordering)
-	hasNamedParams := false
-	for _, paramName := range node.ParameterNames {
-		if paramName != "" {
-			hasNamedParams = true
-			break
-		}
-	}
-
-	if !hasNamedParams {
 		return
 	}
 
