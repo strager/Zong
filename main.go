@@ -1295,20 +1295,22 @@ func EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 			writeByte(buf, GLOBAL_GET)
 			writeLEB128(buf, 0) // tstack global index
 
-			// For each field, store the provided value at the correct offset
-			for _, field := range structType.Fields {
-				// Find the parameter value for this field
-				var fieldValueNode *ASTNode
-				for i, paramName := range node.ParameterNames {
-					if paramName == field.Name {
-						fieldValueNode = node.Children[i+1]
+			// For each argument in source order, store the provided value at the correct field offset
+			for i, paramName := range node.ParameterNames {
+				// Find the field for this parameter
+				var field *Parameter
+				for j := range structType.Fields {
+					if structType.Fields[j].Name == paramName {
+						field = &structType.Fields[j]
 						break
 					}
 				}
 
-				if fieldValueNode == nil {
-					panic("Missing field value for " + field.Name + " in struct initialization")
+				if field == nil {
+					panic("Missing field for parameter " + paramName + " in struct initialization")
 				}
+
+				fieldValueNode := node.Children[i+1]
 
 				// Duplicate struct address on stack for this store operation
 				writeByte(buf, GLOBAL_GET)

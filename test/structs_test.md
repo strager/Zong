@@ -265,6 +265,26 @@ func main() {
 3
 ```
 
+## Test: struct initializer executes arguments in source code order
+```zong-program
+func print_and_return(_ x: I64): I64 {
+	print(x);
+	return x;
+}
+func main() {
+	struct Point(x: I64, y: I64);
+	var p Point = Point(y: print_and_return(3), x: print_and_return(2));
+	print(p.x);
+	print(p.y);
+}
+```
+```execute
+3
+2
+2
+3
+```
+
 ## Test: struct function-style initialization with different field types
 ```zong-program
 {
