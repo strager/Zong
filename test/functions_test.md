@@ -382,6 +382,28 @@ func main() {
 30
 ```
 
+## Test: function arguments execute in source code order
+```zong-program
+func print_and_return(_ x: I64): I64 {
+	print(x);
+	return x;
+}
+func greet(greetName: I64, greetAge: I64) {
+	print(greetName);
+	print(greetAge);
+}
+
+func main() {
+	greet(greetAge: print_and_return(30), greetName: print_and_return(50));
+}
+```
+```execute
+30
+50
+50
+30
+```
+
 ## Test: nested function calls
 ```zong-program
 func add(_ addA4: I64, _ addB4: I64): I64 {
