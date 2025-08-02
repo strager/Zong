@@ -1276,11 +1276,65 @@ func EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 		}
 
 	case NodeCall:
-		// Function call
+		// Function call or struct initialization
 		if len(node.Children) == 0 {
 			panic("Invalid function call - missing function name")
 		}
 		functionName := node.Children[0].String
+
+		// Check if this is struct initialization
+		if node.ResolvedStruct != nil {
+			// This is struct initialization
+			structType := node.ResolvedStruct
+
+			// Save current tstack pointer as the struct address (this will be returned)
+			writeByte(buf, GLOBAL_GET)
+			writeLEB128(buf, 0) // tstack global index
+
+			// For each field, store the provided value at the correct offset
+			for _, field := range structType.Fields {
+				// Find the parameter value for this field
+				var fieldValueNode *ASTNode
+				for i, paramName := range node.ParameterNames {
+					if paramName == field.Name {
+						fieldValueNode = node.Children[i+1]
+						break
+					}
+				}
+
+				if fieldValueNode == nil {
+					panic("Missing field value for " + field.Name + " in struct initialization")
+				}
+
+				// Duplicate struct address on stack for this store operation
+				writeByte(buf, GLOBAL_GET)
+				writeLEB128(buf, 0) // tstack global index
+				if field.Offset > 0 {
+					writeByte(buf, I32_CONST)
+					writeLEB128(buf, field.Offset)
+					writeByte(buf, I32_ADD)
+				}
+
+				// Emit the field value
+				EmitExpressionR(buf, fieldValueNode, localCtx)
+
+				// Store the value at the memory address (address + offset already computed)
+				emitValueStoreToMemory(buf, field.Type)
+			}
+
+			// Update tstack to point past the allocated struct
+			structSize := GetTypeSize(structType)
+			writeByte(buf, GLOBAL_GET)
+			writeLEB128(buf, 0) // tstack global index
+			writeByte(buf, I32_CONST)
+			writeLEB128(buf, uint32(structSize))
+			writeByte(buf, I32_ADD)
+			writeByte(buf, GLOBAL_SET)
+			writeLEB128(buf, 0) // tstack global index
+
+			// The struct address is already on the stack from the first GLOBAL_GET
+			return
+		}
 
 		if functionName == "print" {
 			// Built-in print function
@@ -2313,6 +2367,7 @@ type ASTNode struct {
 	// NodeCall:
 	ParameterNames   []string
 	ResolvedFunction *FunctionInfo // Resolved function information (populated during BuildSymbolTable)
+	ResolvedStruct   *TypeNode     // Resolved struct type for struct initialization (populated during BuildSymbolTable)
 	// NodeVar:
 	TypeAST *TypeNode // Type information for variable declarations
 	// NodeIdent (variable references):
@@ -3440,6 +3495,7 @@ func BuildSymbolTable(ast *ASTNode) *SymbolTable {
 					// Update the symbol's type as well
 					if node.Children[0].Symbol != nil {
 						node.Children[0].Symbol.Type = structDef
+						node.Children[0].TypeAST = structDef
 					}
 				}
 			}
@@ -3457,6 +3513,7 @@ func BuildSymbolTable(ast *ASTNode) *SymbolTable {
 					// Update the symbol's type as well
 					if node.Children[0].Symbol != nil {
 						node.Children[0].Symbol.Type = resolvedSliceType
+						node.Children[0].TypeAST = resolvedSliceType
 					}
 				}
 			}
@@ -3498,7 +3555,7 @@ func BuildSymbolTable(ast *ASTNode) *SymbolTable {
 		}
 	}
 
-	// Pass 3: resolve function calls and populate ResolvedFunction field
+	// Pass 3: resolve function calls and struct initialization calls
 	var resolveFunctionCalls func(*ASTNode)
 	resolveFunctionCalls = func(node *ASTNode) {
 		if node.Kind == NodeCall {
@@ -3506,13 +3563,20 @@ func BuildSymbolTable(ast *ASTNode) *SymbolTable {
 			if len(node.Children) > 0 && node.Children[0].Kind == NodeIdent {
 				funcName := node.Children[0].String
 
-				// Look up function in symbol table
+				// First, try to look up as a function
 				function := st.LookupFunction(funcName)
 				if function != nil {
 					// Store resolved function in AST node
 					node.ResolvedFunction = function
+				} else {
+					// If not a function, try to look up as a struct type
+					structType := st.LookupStruct(funcName)
+					if structType != nil {
+						// Store resolved struct type in AST node for struct initialization
+						node.ResolvedStruct = structType
+					}
 				}
-				// Note: We don't panic on missing functions here since that's handled during type checking
+				// Note: We don't panic on missing functions/structs here since that's handled during type checking
 			}
 		}
 
@@ -3841,11 +3905,85 @@ func CheckExpression(expr *ASTNode, tc *TypeChecker) error {
 		}
 
 	case NodeCall:
-		// Function call validation
+		// Function call or struct initialization validation
 		if len(expr.Children) == 0 || expr.Children[0].Kind != NodeIdent {
 			return fmt.Errorf("error: invalid function call")
 		}
 		funcName := expr.Children[0].String
+
+		// Check if this is struct initialization
+		if expr.ResolvedStruct != nil {
+			// This is struct initialization
+			structType := expr.ResolvedStruct
+
+			// First, validate that all parameters are named and check for duplicates
+			providedFields := make(map[string]bool)
+			for _, paramName := range expr.ParameterNames {
+				if paramName == "" {
+					return fmt.Errorf("error: struct initialization requires named parameters for all fields")
+				}
+
+				// Check for duplicates
+				if providedFields[paramName] {
+					return fmt.Errorf("error: struct initialization has duplicate field '%s'", paramName)
+				}
+				providedFields[paramName] = true
+			}
+
+			// Validate that all struct fields are provided
+			expectedFieldCount := len(structType.Fields)
+			providedFieldCount := len(expr.Children) - 1 // Subtract 1 for the struct name
+
+			if providedFieldCount != expectedFieldCount {
+				return fmt.Errorf("error: struct initialization expects %d fields, got %d", expectedFieldCount, providedFieldCount)
+			}
+
+			// Validate that all parameter names match struct field names
+			for i, paramName := range expr.ParameterNames {
+
+				// Check that field exists in struct
+				fieldFound := false
+				for _, field := range structType.Fields {
+					if field.Name == paramName {
+						fieldFound = true
+						// Type-check the field value
+						err := CheckExpression(expr.Children[i+1], tc)
+						if err != nil {
+							return err
+						}
+
+						// Check that field type matches provided value type
+						valueType := expr.Children[i+1].TypeAST
+						if valueType.Kind == TypeInteger {
+							// Resolve Integer type based on field type
+							err := ResolveIntegerType(expr.Children[i+1], field.Type)
+							if err != nil {
+								return fmt.Errorf("error: struct initialization field '%s' %v", paramName, err)
+							}
+						} else if !TypesEqual(valueType, field.Type) {
+							return fmt.Errorf("error: struct initialization field '%s' expects type %s, got %s",
+								paramName, TypeToString(field.Type), TypeToString(valueType))
+						}
+						break
+					}
+				}
+
+				if !fieldFound {
+					return fmt.Errorf("error: struct initialization has unknown field '%s'", paramName)
+				}
+			}
+
+			// Ensure all required fields are provided
+			for _, field := range structType.Fields {
+				if !providedFields[field.Name] {
+					return fmt.Errorf("error: struct initialization missing required field '%s'", field.Name)
+				}
+			}
+
+			// Set the expression type to the struct type
+			expr.TypeAST = structType
+			return nil
+		}
 
 		if funcName == "print" {
 			// Built-in print function

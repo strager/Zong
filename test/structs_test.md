@@ -237,6 +237,97 @@ func main() {
 0
 ```
 
+## Test: struct function-style initialization
+```zong-program
+{
+		struct Point { var x I64; var y I64; }
+		var p Point = Point(x: 2, y: 3);
+		print(p.x);
+		print(p.y);
+	}
+```
+```execute
+2
+3
+```
+
+## Test: struct function-style initialization field order doesn't matter
+```zong-program
+{
+		struct Point { var x I64; var y I64; }
+		var p Point = Point(y: 3, x: 2);
+		print(p.x);
+		print(p.y);
+	}
+```
+```execute
+2
+3
+```
+
+## Test: struct function-style initialization with different field types
+```zong-program
+{
+		struct Mixed { var flag Boolean; var count I64; }
+		var m Mixed = Mixed(flag: true, count: 42);
+		print(m.flag);
+		print(m.count);
+	}
+```
+```execute
+1
+42
+```
+
+## Test: struct function-style initialization with nested expressions
+```zong-program
+{
+		struct Point { var x I64; var y I64; }
+		var p Point = Point(x: 1 + 1, y: 3 * 4);
+		print(p.x);
+		print(p.y);
+	}
+```
+```execute
+2
+12
+```
+
+## Test: struct function-style initialization in expressions
+```zong-program
+{
+		struct Point { var x I64; var y I64; }
+		var sum I64 = Point(x: 1, y: 2).x + Point(x: 3, y: 4).y;
+		print(sum);
+	}
+```
+```execute
+5
+```
+
+## Test: struct function-style initialization as function argument
+```zong-program
+{
+		struct Point { var x I64; var y I64; }
+		print(Point(x: 5, y: 6).x);
+	}
+```
+```execute
+5
+```
+
+## Test: single field struct initialization
+```zong-program
+{
+		struct Single { var value I64; }
+		var s Single = Single(value: 42);
+		print(s.value);
+	}
+```
+```execute
+42
+```
+
 ## Nested Struct Tests (from extracted_execution_test.md)
 
 ## Test: nested struct initialization
@@ -296,6 +387,95 @@ func main() {
 42
 12345
 25
+```
+
+## Struct Function-Style Initialization Error Tests
+
+## Test: struct initialization missing required field
+```zong-program
+{
+		struct Point { var x I64; var y I64; }
+		var p Point = Point(x: 2);
+	}
+```
+```compile-error
+error: struct initialization expects 2 fields, got 1
+```
+
+## Test: struct initialization missing all fields
+```zong-program
+{
+		struct Point { var x I64; var y I64; }
+		var p Point = Point();
+	}
+```
+```compile-error
+error: struct initialization expects 2 fields, got 0
+```
+
+## Test: struct initialization with unknown field
+```zong-program
+{
+		struct Point { var x I64; var y I64; }
+		var p Point = Point(x: 1, y: 2, z: 3);
+	}
+```
+```compile-error
+error: struct initialization expects 2 fields, got 3
+```
+
+## Test: struct initialization with duplicate field
+```zong-program
+{
+		struct Point { var x I64; var y I64; }
+		var p Point = Point(x: 1, y: 2, x: 3);
+	}
+```
+```compile-error
+error: struct initialization has duplicate field 'x'
+```
+
+## Test: struct initialization with wrong field type
+```zong-program
+{
+		struct Point { var x I64; var y I64; }
+		var p Point = Point(x: true, y: 2);
+	}
+```
+```compile-error
+error: struct initialization field 'x' expects type I64, got Boolean
+```
+
+## Test: struct initialization with unknown field name
+```zong-program
+{
+		struct Point { var x I64; var y I64; }
+		var p Point = Point(x: 1, z: 2);
+	}
+```
+```compile-error
+error: struct initialization has unknown field 'z'
+```
+
+## Test: struct initialization with non-existent struct
+```zong-program
+{
+		var p FakeStruct = FakeStruct(a: 1);
+	}
+```
+```compile-error
+undefined symbol 'FakeStruct'
+```
+
+## Test: struct initialization without named parameters
+```zong-program
+{
+		struct Point { var x I64; var y I64; }
+		var p Point = Point(1, 2);
+	}
+```
+```compile-error
+error: struct initialization requires named parameters for all fields
 ```
 
 ## Struct Compile Error Tests (from compile_error_test.md)

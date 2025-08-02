@@ -20,7 +20,9 @@
       "Bash(timeout 10s go test -run TestBasicLoop)",
       "Bash(./wasmruntime/target/release/wasmruntime:*)",
       "Bash(timeout 10 go test -run TestU8SliceWithAppend)",
-      "Bash(sl log:*)"
+      "Bash(sl log:*)",
+      "Bash(target/release/wasmruntime:*)",
+      "Bash(wasmruntime/target/release/wasmruntime test.wasm)"
     ],
     "deny": []
   }
