@@ -2371,18 +2371,24 @@ func EmitAddressOf(buf *bytes.Buffer, operand *ASTNode, localCtx *LocalContext) 
 	}
 }
 
-// Global lexer input state
-var (
+// Lexer holds the state for tokenizing input
+type Lexer struct {
 	input []byte
 	pos   int // current reading position in input
-)
 
-// Global “current token” state
-var (
+	// Current token state
 	CurrTokenType TokenType
 	CurrLiteral   string
 	CurrIntValue  int64 // only meaningful when CurrTokenType == INT
-)
+}
+
+// NewLexer creates a new lexer with the given input (must end with a 0 byte).
+func NewLexer(input []byte) *Lexer {
+	return &Lexer{
+		input: input,
+		pos:   0,
+	}
+}
 
 // TokenType is the type of token (identifier, operator, literal, etc.).
 type TokenType string
@@ -4578,386 +4584,407 @@ func CheckAssignmentExpression(lhs, rhs *ASTNode, tc *TypeChecker) error {
 	return nil
 }
 
-// Init initializes the lexer with the given input (must end with a 0 byte).
-func Init(in []byte) {
-	input = in
-	pos = 0
-}
+// NextToken scans the next token and stores it in the lexer's state.
+// Call repeatedly until l.CurrTokenType == EOF.
+func (l *Lexer) NextToken() {
+	l.skipWhitespace()
 
-// NextToken scans the next token and stores it in the globals.
-// Call repeatedly until CurrTokenType == EOF.
-func NextToken() {
-	skipWhitespace()
-
-	c := input[pos]
-	CurrIntValue = 0 // reset for non-INT tokens
+	c := l.input[l.pos]
+	l.CurrIntValue = 0 // reset for non-INT tokens
 
 	if c == '=' {
-		if input[pos+1] == '=' {
-			CurrTokenType = EQ
-			CurrLiteral = string(input[pos : pos+2])
-			pos += 2
+		if l.input[l.pos+1] == '=' {
+			l.CurrTokenType = EQ
+			l.CurrLiteral = string(l.input[l.pos : l.pos+2])
+			l.pos += 2
 		} else {
-			CurrTokenType = ASSIGN
-			CurrLiteral = string(c)
-			pos++ // inlined advance()
+			l.CurrTokenType = ASSIGN
+			l.CurrLiteral = string(c)
+			l.pos++ // inlined advance()
 		}
 
 	} else if c == '+' {
-		if input[pos+1] == '+' {
-			CurrTokenType = PLUS_PLUS
-			CurrLiteral = "++"
-			pos += 2
+		if l.input[l.pos+1] == '+' {
+			l.CurrTokenType = PLUS_PLUS
+			l.CurrLiteral = "++"
+			l.pos += 2
 		} else {
-			CurrTokenType = PLUS
-			CurrLiteral = string(c)
-			pos++
+			l.CurrTokenType = PLUS
+			l.CurrLiteral = string(c)
+			l.pos++
 		}
 
 	} else if c == '-' {
-		nxt := input[pos+1]
+		nxt := l.input[l.pos+1]
 		if nxt == '-' {
-			CurrTokenType = MINUS_MINUS
-			CurrLiteral = "--"
-			pos += 2
+			l.CurrTokenType = MINUS_MINUS
+			l.CurrLiteral = "--"
+			l.pos += 2
 		} else {
-			CurrTokenType = MINUS
-			CurrLiteral = string(c)
-			pos++
+			l.CurrTokenType = MINUS
+			l.CurrLiteral = string(c)
+			l.pos++
 		}
 
 	} else if c == '!' {
-		if input[pos+1] == '=' {
-			CurrTokenType = NOT_EQ
-			CurrLiteral = string(input[pos : pos+2])
-			pos += 2
+		if l.input[l.pos+1] == '=' {
+			l.CurrTokenType = NOT_EQ
+			l.CurrLiteral = string(l.input[l.pos : l.pos+2])
+			l.pos += 2
 		} else {
-			CurrTokenType = BANG
-			CurrLiteral = string(c)
-			pos++
+			l.CurrTokenType = BANG
+			l.CurrLiteral = string(c)
+			l.pos++
 		}
 
 	} else if c == '/' {
-		nxt := input[pos+1]
+		nxt := l.input[l.pos+1]
 		if nxt == '/' {
-			skipLineComment()
-			NextToken()
+			l.skipLineComment()
+			l.NextToken()
 			return
 		} else if nxt == '*' {
-			skipBlockComment()
-			NextToken()
+			l.skipBlockComment()
+			l.NextToken()
 			return
 		} else {
-			CurrTokenType = SLASH
-			CurrLiteral = string(c)
-			pos++
+			l.CurrTokenType = SLASH
+			l.CurrLiteral = string(c)
+			l.pos++
 		}
 
 	} else if c == '*' {
-		CurrTokenType = ASTERISK
-		CurrLiteral = string(c)
-		pos++
+		l.CurrTokenType = ASTERISK
+		l.CurrLiteral = string(c)
+		l.pos++
 
 	} else if c == '%' {
-		CurrTokenType = PERCENT
-		CurrLiteral = string(c)
-		pos++
+		l.CurrTokenType = PERCENT
+		l.CurrLiteral = string(c)
+		l.pos++
 
 	} else if c == '<' {
-		if input[pos+1] == '=' {
-			CurrTokenType = LE
-			CurrLiteral = "<="
-			pos += 2
-		} else if input[pos+1] == '<' {
-			CurrTokenType = SHL
-			CurrLiteral = "<<"
-			pos += 2
+		if l.input[l.pos+1] == '=' {
+			l.CurrTokenType = LE
+			l.CurrLiteral = "<="
+			l.pos += 2
+		} else if l.input[l.pos+1] == '<' {
+			l.CurrTokenType = SHL
+			l.CurrLiteral = "<<"
+			l.pos += 2
 		} else {
-			CurrTokenType = LT
-			CurrLiteral = string(c)
-			pos++
+			l.CurrTokenType = LT
+			l.CurrLiteral = string(c)
+			l.pos++
 		}
 
 	} else if c == '>' {
-		if input[pos+1] == '=' {
-			CurrTokenType = GE
-			CurrLiteral = ">="
-			pos += 2
-		} else if input[pos+1] == '>' {
-			CurrTokenType = SHR
-			CurrLiteral = ">>"
-			pos += 2
+		if l.input[l.pos+1] == '=' {
+			l.CurrTokenType = GE
+			l.CurrLiteral = ">="
+			l.pos += 2
+		} else if l.input[l.pos+1] == '>' {
+			l.CurrTokenType = SHR
+			l.CurrLiteral = ">>"
+			l.pos += 2
 		} else {
-			CurrTokenType = GT
-			CurrLiteral = string(c)
-			pos++
+			l.CurrTokenType = GT
+			l.CurrLiteral = string(c)
+			l.pos++
 		}
 
 	} else if c == '&' {
-		nxt := input[pos+1]
+		nxt := l.input[l.pos+1]
 		if nxt == '&' {
-			CurrTokenType = AND
-			CurrLiteral = "&&"
-			pos += 2
+			l.CurrTokenType = AND
+			l.CurrLiteral = "&&"
+			l.pos += 2
 		} else if nxt == '^' {
-			CurrTokenType = AND_NOT
-			CurrLiteral = "&^"
-			pos += 2
+			l.CurrTokenType = AND_NOT
+			l.CurrLiteral = "&^"
+			l.pos += 2
 		} else {
-			CurrTokenType = BIT_AND
-			CurrLiteral = string(c)
-			pos++
+			l.CurrTokenType = BIT_AND
+			l.CurrLiteral = string(c)
+			l.pos++
 		}
 
 	} else if c == '|' {
-		if input[pos+1] == '|' {
-			CurrTokenType = OR
-			CurrLiteral = "||"
-			pos += 2
+		if l.input[l.pos+1] == '|' {
+			l.CurrTokenType = OR
+			l.CurrLiteral = "||"
+			l.pos += 2
 		} else {
-			CurrTokenType = BIT_OR
-			CurrLiteral = string(c)
-			pos++
+			l.CurrTokenType = BIT_OR
+			l.CurrLiteral = string(c)
+			l.pos++
 		}
 
 	} else if c == '^' {
-		CurrTokenType = XOR
-		CurrLiteral = string(c)
-		pos++
+		l.CurrTokenType = XOR
+		l.CurrLiteral = string(c)
+		l.pos++
 
 	} else if c == ',' {
-		CurrTokenType = COMMA
-		CurrLiteral = string(c)
-		pos++
+		l.CurrTokenType = COMMA
+		l.CurrLiteral = string(c)
+		l.pos++
 
 	} else if c == ';' {
-		CurrTokenType = SEMICOLON
-		CurrLiteral = string(c)
-		pos++
+		l.CurrTokenType = SEMICOLON
+		l.CurrLiteral = string(c)
+		l.pos++
 
 	} else if c == ':' {
-		if input[pos+1] == '=' {
-			CurrTokenType = DECLARE
-			CurrLiteral = ":="
-			pos += 2
+		if l.input[l.pos+1] == '=' {
+			l.CurrTokenType = DECLARE
+			l.CurrLiteral = ":="
+			l.pos += 2
 		} else {
-			CurrTokenType = COLON
-			CurrLiteral = string(c)
-			pos++
+			l.CurrTokenType = COLON
+			l.CurrLiteral = string(c)
+			l.pos++
 		}
 
 	} else if c == '(' {
-		CurrTokenType = LPAREN
-		CurrLiteral = string(c)
-		pos++
+		l.CurrTokenType = LPAREN
+		l.CurrLiteral = string(c)
+		l.pos++
 
 	} else if c == ')' {
-		CurrTokenType = RPAREN
-		CurrLiteral = string(c)
-		pos++
+		l.CurrTokenType = RPAREN
+		l.CurrLiteral = string(c)
+		l.pos++
 
 	} else if c == '{' {
-		CurrTokenType = LBRACE
-		CurrLiteral = string(c)
-		pos++
+		l.CurrTokenType = LBRACE
+		l.CurrLiteral = string(c)
+		l.pos++
 
 	} else if c == '}' {
-		CurrTokenType = RBRACE
-		CurrLiteral = string(c)
-		pos++
+		l.CurrTokenType = RBRACE
+		l.CurrLiteral = string(c)
+		l.pos++
 
 	} else if c == '[' {
-		CurrTokenType = LBRACKET
-		CurrLiteral = string(c)
-		pos++
+		l.CurrTokenType = LBRACKET
+		l.CurrLiteral = string(c)
+		l.pos++
 
 	} else if c == ']' {
-		CurrTokenType = RBRACKET
-		CurrLiteral = string(c)
-		pos++
+		l.CurrTokenType = RBRACKET
+		l.CurrLiteral = string(c)
+		l.pos++
 
 	} else if c == '.' {
-		if input[pos+1] == '.' && input[pos+2] == '.' {
-			CurrTokenType = ELLIPSIS
-			CurrLiteral = "..."
-			pos += 3
+		if l.input[l.pos+1] == '.' && l.input[l.pos+2] == '.' {
+			l.CurrTokenType = ELLIPSIS
+			l.CurrLiteral = "..."
+			l.pos += 3
 		} else {
-			CurrTokenType = DOT
-			CurrLiteral = string(c)
-			pos++
+			l.CurrTokenType = DOT
+			l.CurrLiteral = string(c)
+			l.pos++
 		}
 
 	} else if c == '"' {
-		CurrTokenType = STRING
-		CurrLiteral = readString()
+		l.CurrTokenType = STRING
+		l.CurrLiteral = l.readString()
 
 	} else if c == '\'' {
-		CurrTokenType = CHAR
-		CurrLiteral = readCharLiteral()
+		l.CurrTokenType = CHAR
+		l.CurrLiteral = l.readCharLiteral()
 
 	} else if c == 0 {
-		CurrTokenType = EOF
-		CurrLiteral = ""
+		l.CurrTokenType = EOF
+		l.CurrLiteral = ""
 
 	} else {
 		if isLetter(c) {
-			lit := readIdentifier()
+			lit := l.readIdentifier()
 			// keyword check
 			if lit == "break" {
-				CurrTokenType = BREAK
+				l.CurrTokenType = BREAK
 			} else if lit == "default" {
-				CurrTokenType = DEFAULT
+				l.CurrTokenType = DEFAULT
 			} else if lit == "func" {
-				CurrTokenType = FUNC
+				l.CurrTokenType = FUNC
 			} else if lit == "interface" {
-				CurrTokenType = INTERFACE
+				l.CurrTokenType = INTERFACE
 			} else if lit == "select" {
-				CurrTokenType = SELECT
+				l.CurrTokenType = SELECT
 			} else if lit == "case" {
-				CurrTokenType = CASE
+				l.CurrTokenType = CASE
 			} else if lit == "defer" {
-				CurrTokenType = DEFER
+				l.CurrTokenType = DEFER
 			} else if lit == "go" {
-				CurrTokenType = GO
+				l.CurrTokenType = GO
 			} else if lit == "map" {
-				CurrTokenType = MAP
+				l.CurrTokenType = MAP
 			} else if lit == "struct" {
-				CurrTokenType = STRUCT
+				l.CurrTokenType = STRUCT
 			} else if lit == "chan" {
-				CurrTokenType = CHAN
+				l.CurrTokenType = CHAN
 			} else if lit == "else" {
-				CurrTokenType = ELSE
+				l.CurrTokenType = ELSE
 			} else if lit == "goto" {
-				CurrTokenType = GOTO
+				l.CurrTokenType = GOTO
 			} else if lit == "package" {
-				CurrTokenType = PACKAGE
+				l.CurrTokenType = PACKAGE
 			} else if lit == "switch" {
-				CurrTokenType = SWITCH
+				l.CurrTokenType = SWITCH
 			} else if lit == "const" {
-				CurrTokenType = CONST
+				l.CurrTokenType = CONST
 			} else if lit == "fallthrough" {
-				CurrTokenType = FALLTHROUGH
+				l.CurrTokenType = FALLTHROUGH
 			} else if lit == "if" {
-				CurrTokenType = IF
+				l.CurrTokenType = IF
 			} else if lit == "range" {
-				CurrTokenType = RANGE
+				l.CurrTokenType = RANGE
 			} else if lit == "type" {
-				CurrTokenType = TYPE
+				l.CurrTokenType = TYPE
 			} else if lit == "continue" {
-				CurrTokenType = CONTINUE
+				l.CurrTokenType = CONTINUE
 			} else if lit == "for" {
-				CurrTokenType = FOR
+				l.CurrTokenType = FOR
 			} else if lit == "import" {
-				CurrTokenType = IMPORT
+				l.CurrTokenType = IMPORT
 			} else if lit == "return" {
-				CurrTokenType = RETURN
+				l.CurrTokenType = RETURN
 			} else if lit == "var" {
-				CurrTokenType = VAR
+				l.CurrTokenType = VAR
 			} else if lit == "loop" {
-				CurrTokenType = LOOP
+				l.CurrTokenType = LOOP
 			} else if lit == "true" {
-				CurrTokenType = TRUE
+				l.CurrTokenType = TRUE
 			} else if lit == "false" {
-				CurrTokenType = FALSE
+				l.CurrTokenType = FALSE
 			} else {
-				CurrTokenType = IDENT
+				l.CurrTokenType = IDENT
 			}
-			CurrLiteral = lit
+			l.CurrLiteral = lit
 
 		} else if isDigit(c) {
-			lit, val := readNumber()
-			CurrTokenType = INT
-			CurrLiteral = lit
-			CurrIntValue = val
+			lit, val := l.readNumber()
+			l.CurrTokenType = INT
+			l.CurrLiteral = lit
+			l.CurrIntValue = val
 
 		} else {
-			CurrTokenType = ILLEGAL
-			CurrLiteral = string(c)
-			pos++
+			l.CurrTokenType = ILLEGAL
+			l.CurrLiteral = string(c)
+			l.pos++
 		}
 	}
 }
 
-func skipWhitespace() {
+func (l *Lexer) skipWhitespace() {
 	for {
-		c := input[pos]
+		c := l.input[l.pos]
 		if c != ' ' && c != '\t' && c != '\n' && c != '\r' {
 			return
 		}
-		pos++
+		l.pos++
 	}
 }
 
-func skipLineComment() {
-	for input[pos] != '\n' && input[pos] != 0 {
-		pos++
+func (l *Lexer) skipLineComment() {
+	for l.input[l.pos] != '\n' && l.input[l.pos] != 0 {
+		l.pos++
 	}
-	if input[pos] == '\n' {
-		pos++
+	if l.input[l.pos] == '\n' {
+		l.pos++
 	}
 }
 
-func skipBlockComment() {
-	pos += 2 // skip /*
-	for input[pos] != 0 && !(input[pos] == '*' && input[pos+1] == '/') {
-		pos++
+func (l *Lexer) skipBlockComment() {
+	l.pos += 2 // skip /*
+	for l.input[l.pos] != 0 && !(l.input[l.pos] == '*' && l.input[l.pos+1] == '/') {
+		l.pos++
 	}
-	if input[pos] == '*' && input[pos+1] == '/' {
-		pos += 2 // skip */
+	if l.input[l.pos] == '*' && l.input[l.pos+1] == '/' {
+		l.pos += 2 // skip */
 	}
+}
+
+func (l *Lexer) readIdentifier() string {
+	start := l.pos
+	for isLetter(l.input[l.pos]) || isDigit(l.input[l.pos]) {
+		l.pos++
+	}
+	return string(l.input[start:l.pos])
+}
+
+func (l *Lexer) readNumber() (string, int64) {
+	start := l.pos
+	var val int64
+	for isDigit(l.input[l.pos]) {
+		val = val*10 + int64(l.input[l.pos]-'0')
+		l.pos++
+	}
+	return string(l.input[start:l.pos]), val
+}
+
+func (l *Lexer) readString() string {
+	l.pos++ // skip opening "
+	start := l.pos
+	for l.input[l.pos] != '"' {
+		// Validate ASCII characters only
+		if l.input[l.pos] > 127 {
+			panic("error: non-ASCII characters are not supported in string literals")
+		}
+		l.pos++
+	}
+	lit := string(l.input[start:l.pos])
+	l.pos++
+	return lit
+}
+
+func (l *Lexer) readCharLiteral() string {
+	start := l.pos
+	l.pos++ // Skip first '.
+	if l.input[l.pos] == '\\' {
+		l.pos++
+	}
+	l.pos++ // Skip the character.
+	l.pos++ // Skip last '.
+	lit := string(l.input[start:l.pos])
+	return lit
+}
+
+// SkipToken advances past the current token, asserting it matches the expected type.
+func (l *Lexer) SkipToken(expectedType TokenType) {
+	if l.CurrTokenType != expectedType {
+		panic("Expected token " + string(expectedType) + " but got " + string(l.CurrTokenType))
+	}
+	l.NextToken()
+}
+
+// PeekToken returns the next token type without advancing the lexer.
+func (l *Lexer) PeekToken() TokenType {
+	savedPos := l.pos
+	savedTokenType := l.CurrTokenType
+	savedLiteral := l.CurrLiteral
+	savedIntValue := l.CurrIntValue
+
+	l.NextToken()
+	nextType := l.CurrTokenType
+
+	// Restore state
+	l.pos = savedPos
+	l.CurrTokenType = savedTokenType
+	l.CurrLiteral = savedLiteral
+	l.CurrIntValue = savedIntValue
+
+	return nextType
 }
 
 func isLetter(c byte) bool {
 	return ('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z') || c == '_'
 }
 
-func readIdentifier() string {
-	start := pos
-	for isLetter(input[pos]) || isDigit(input[pos]) {
-		pos++
-	}
-	return string(input[start:pos])
-}
-
 func isDigit(c byte) bool {
 	return '0' <= c && c <= '9'
-}
-
-func readNumber() (string, int64) {
-	start := pos
-	var val int64
-	for isDigit(input[pos]) {
-		val = val*10 + int64(input[pos]-'0')
-		pos++
-	}
-	return string(input[start:pos]), val
-}
-
-func readString() string {
-	pos++ // skip opening "
-	start := pos
-	for input[pos] != '"' {
-		// Validate ASCII characters only
-		if input[pos] > 127 {
-			panic("error: non-ASCII characters are not supported in string literals")
-		}
-		pos++
-	}
-	lit := string(input[start:pos])
-	pos++
-	return lit
-}
-
-func readCharLiteral() string {
-	start := pos
-	pos++ // Skip first '.
-	if input[pos] == '\\' {
-		pos++
-	}
-	pos++ // Skip the character.
-	pos++ // Skip last '.
-	lit := string(input[start:pos])
-	return lit
 }
 
 // ToSExpr converts an AST node to s-expression string representation
@@ -5110,36 +5137,6 @@ func intToString(n int64) string {
 	return result
 }
 
-// PeekToken returns the next token type without advancing the lexer.
-// Useful for lookahead parsing decisions.
-func PeekToken() TokenType {
-	savedPos := pos
-	savedTokenType := CurrTokenType
-	savedLiteral := CurrLiteral
-	savedIntValue := CurrIntValue
-
-	NextToken()
-	nextType := CurrTokenType
-
-	// Restore state
-	pos = savedPos
-	CurrTokenType = savedTokenType
-	CurrLiteral = savedLiteral
-	CurrIntValue = savedIntValue
-
-	return nextType
-}
-
-// SkipToken advances past the current token, asserting it matches the expected type.
-//
-// Panics if the current token doesn't match the expected type.
-func SkipToken(expectedType TokenType) {
-	if CurrTokenType != expectedType {
-		panic("Expected token " + string(expectedType) + " but got " + string(CurrTokenType))
-	}
-	NextToken()
-}
-
 // precedence returns the precedence level for a given token type
 func precedence(tokenType TokenType) int {
 	switch tokenType {
@@ -5168,62 +5165,62 @@ func isOperator(tokenType TokenType) bool {
 }
 
 // ParseExpression parses an expression and returns an AST node
-func ParseExpression() *ASTNode {
-	return parseExpressionWithPrecedence(0)
+func ParseExpression(l *Lexer) *ASTNode {
+	return parseExpressionWithPrecedence(l, 0)
 }
 
 // parseExpressionWithPrecedence implements precedence climbing
-func parseExpressionWithPrecedence(minPrec int) *ASTNode {
+func parseExpressionWithPrecedence(l *Lexer, minPrec int) *ASTNode {
 	var left *ASTNode
 
 	// Handle unary operators first
-	if CurrTokenType == BANG {
-		SkipToken(BANG)                             // consume '!'
-		operand := parseExpressionWithPrecedence(3) // Same as multiplication, less than postfix
+	if l.CurrTokenType == BANG {
+		l.SkipToken(BANG)                              // consume '!'
+		operand := parseExpressionWithPrecedence(l, 3) // Same as multiplication, less than postfix
 		left = &ASTNode{
 			Kind:     NodeUnary,
 			Op:       "!",
 			Children: []*ASTNode{operand},
 		}
 	} else {
-		left = parsePrimary()
+		left = parsePrimary(l)
 	}
 
 	for {
-		if !isOperator(CurrTokenType) || precedence(CurrTokenType) < minPrec {
+		if !isOperator(l.CurrTokenType) || precedence(l.CurrTokenType) < minPrec {
 			break
 		}
 
-		if CurrTokenType == LBRACKET {
+		if l.CurrTokenType == LBRACKET {
 			// Handle subscript operator
-			SkipToken(LBRACKET)
-			index := parseExpressionWithPrecedence(0)
-			if CurrTokenType == RBRACKET {
-				SkipToken(RBRACKET)
+			l.SkipToken(LBRACKET)
+			index := parseExpressionWithPrecedence(l, 0)
+			if l.CurrTokenType == RBRACKET {
+				l.SkipToken(RBRACKET)
 			}
 			left = &ASTNode{
 				Kind:     NodeIndex,
 				Children: []*ASTNode{left, index},
 			}
-		} else if CurrTokenType == LPAREN {
+		} else if l.CurrTokenType == LPAREN {
 			// Handle function call operator
-			SkipToken(LPAREN)
+			l.SkipToken(LPAREN)
 
 			var args []*ASTNode
 			var paramNames []string
 
-			for CurrTokenType != RPAREN && CurrTokenType != EOF {
+			for l.CurrTokenType != RPAREN && l.CurrTokenType != EOF {
 				var paramName string
 
 				// Check for named parameter (identifier followed by colon)
-				if CurrTokenType == IDENT {
+				if l.CurrTokenType == IDENT {
 					// Look ahead to see if there's a colon after the identifier
-					identName := CurrLiteral
-					if PeekToken() == COLON {
+					identName := l.CurrLiteral
+					if l.PeekToken() == COLON {
 						// This is a named parameter: name: value
 						paramName = identName
-						SkipToken(IDENT)
-						SkipToken(COLON)
+						l.SkipToken(IDENT)
+						l.SkipToken(COLON)
 					} else {
 						paramName = ""
 					}
@@ -5232,18 +5229,18 @@ func parseExpressionWithPrecedence(minPrec int) *ASTNode {
 				}
 
 				paramNames = append(paramNames, paramName)
-				expr := parseExpressionWithPrecedence(0)
+				expr := parseExpressionWithPrecedence(l, 0)
 				args = append(args, expr)
 
-				if CurrTokenType == COMMA {
-					SkipToken(COMMA)
-				} else if CurrTokenType != RPAREN {
+				if l.CurrTokenType == COMMA {
+					l.SkipToken(COMMA)
+				} else if l.CurrTokenType != RPAREN {
 					break
 				}
 			}
 
-			if CurrTokenType == RPAREN {
-				SkipToken(RPAREN)
+			if l.CurrTokenType == RPAREN {
+				l.SkipToken(RPAREN)
 			}
 
 			left = &ASTNode{
@@ -5251,16 +5248,16 @@ func parseExpressionWithPrecedence(minPrec int) *ASTNode {
 				Children:       append([]*ASTNode{left}, args...),
 				ParameterNames: paramNames,
 			}
-		} else if CurrTokenType == ASTERISK && minPrec <= 5 {
+		} else if l.CurrTokenType == ASTERISK && minPrec <= 5 {
 			// Handle postfix dereference operator: expr*
 			// Check if next token suggests this should be binary instead
-			nextToken := PeekToken()
+			nextToken := l.PeekToken()
 			if nextToken == IDENT || nextToken == INT || nextToken == LPAREN || nextToken == LBRACKET {
 				// Treat as binary multiplication - fall through to binary operator handling
-				op := CurrLiteral
-				prec := precedence(CurrTokenType)
-				NextToken()
-				right := parseExpressionWithPrecedence(prec + 1) // left-associative
+				op := l.CurrLiteral
+				prec := precedence(l.CurrTokenType)
+				l.NextToken()
+				right := parseExpressionWithPrecedence(l, prec+1) // left-associative
 				left = &ASTNode{
 					Kind:     NodeBinary,
 					Op:       op,
@@ -5268,29 +5265,29 @@ func parseExpressionWithPrecedence(minPrec int) *ASTNode {
 				}
 			} else {
 				// Treat as postfix dereference
-				SkipToken(ASTERISK)
+				l.SkipToken(ASTERISK)
 				left = &ASTNode{
 					Kind:     NodeUnary,
 					Op:       "*",
 					Children: []*ASTNode{left},
 				}
 			}
-		} else if CurrTokenType == BIT_AND {
+		} else if l.CurrTokenType == BIT_AND {
 			// Handle postfix address-of operator: expr&
-			SkipToken(BIT_AND)
+			l.SkipToken(BIT_AND)
 			left = &ASTNode{
 				Kind:     NodeUnary,
 				Op:       "&",
 				Children: []*ASTNode{left},
 			}
-		} else if CurrTokenType == DOT {
+		} else if l.CurrTokenType == DOT {
 			// Handle field access operator: expr.field
-			SkipToken(DOT)
-			if CurrTokenType != IDENT {
+			l.SkipToken(DOT)
+			if l.CurrTokenType != IDENT {
 				break // error - expecting field name
 			}
-			fieldName := CurrLiteral
-			SkipToken(IDENT)
+			fieldName := l.CurrLiteral
+			l.SkipToken(IDENT)
 			left = &ASTNode{
 				Kind:      NodeDot,
 				FieldName: fieldName,
@@ -5298,17 +5295,17 @@ func parseExpressionWithPrecedence(minPrec int) *ASTNode {
 			}
 		} else {
 			// Handle binary operators
-			op := CurrLiteral
-			prec := precedence(CurrTokenType)
-			NextToken()
+			op := l.CurrLiteral
+			prec := precedence(l.CurrTokenType)
+			l.NextToken()
 
 			// For assignment (right-associative), use prec instead of prec + 1
 			// For other operators (left-associative), use prec + 1
 			var right *ASTNode
 			if op == "=" {
-				right = parseExpressionWithPrecedence(prec) // right-associative
+				right = parseExpressionWithPrecedence(l, prec) // right-associative
 			} else {
-				right = parseExpressionWithPrecedence(prec + 1) // left-associative
+				right = parseExpressionWithPrecedence(l, prec+1) // left-associative
 			}
 
 			left = &ASTNode{
@@ -5323,14 +5320,14 @@ func parseExpressionWithPrecedence(minPrec int) *ASTNode {
 }
 
 // parsePrimary handles primary expressions (literals, identifiers, parentheses)
-func parsePrimary() *ASTNode {
-	switch CurrTokenType {
+func parsePrimary(l *Lexer) *ASTNode {
+	switch l.CurrTokenType {
 	case INT:
 		node := &ASTNode{
 			Kind:    NodeInteger,
-			Integer: CurrIntValue,
+			Integer: l.CurrIntValue,
 		}
-		SkipToken(INT)
+		l.SkipToken(INT)
 		return node
 
 	case TRUE:
@@ -5338,7 +5335,7 @@ func parsePrimary() *ASTNode {
 			Kind:    NodeBoolean,
 			Boolean: true,
 		}
-		SkipToken(TRUE)
+		l.SkipToken(TRUE)
 		return node
 
 	case FALSE:
@@ -5346,30 +5343,30 @@ func parsePrimary() *ASTNode {
 			Kind:    NodeBoolean,
 			Boolean: false,
 		}
-		SkipToken(FALSE)
+		l.SkipToken(FALSE)
 		return node
 
 	case STRING:
 		node := &ASTNode{
 			Kind:   NodeString,
-			String: CurrLiteral,
+			String: l.CurrLiteral,
 		}
-		SkipToken(STRING)
+		l.SkipToken(STRING)
 		return node
 
 	case IDENT:
 		node := &ASTNode{
 			Kind:   NodeIdent,
-			String: CurrLiteral,
+			String: l.CurrLiteral,
 		}
-		SkipToken(IDENT)
+		l.SkipToken(IDENT)
 		return node
 
 	case LPAREN:
-		SkipToken(LPAREN) // consume '('
-		expr := parseExpressionWithPrecedence(0)
-		if CurrTokenType == RPAREN {
-			SkipToken(RPAREN)
+		l.SkipToken(LPAREN) // consume '('
+		expr := parseExpressionWithPrecedence(l, 0)
+		if l.CurrTokenType == RPAREN {
+			l.SkipToken(RPAREN)
 		}
 		return expr
 
@@ -5384,42 +5381,42 @@ func parsePrimary() *ASTNode {
 // Parameters:
 //   - endToken: the token that ends the parameter list (RPAREN for both cases)
 //   - allowPositional: whether to allow positional parameters with "_" prefix (true for functions, false for structs)
-func parseParameterList(endToken TokenType, allowPositional bool) []Parameter {
+func parseParameterList(l *Lexer, endToken TokenType, allowPositional bool) []Parameter {
 	var parameters []Parameter
 
-	for CurrTokenType != endToken && CurrTokenType != EOF {
+	for l.CurrTokenType != endToken && l.CurrTokenType != EOF {
 		// Parse parameter: _ name: Type (positional) or name: Type (named)
 		isPositional := false
 		var paramName string
 
-		if allowPositional && CurrTokenType == IDENT && CurrLiteral == "_" {
+		if allowPositional && l.CurrTokenType == IDENT && l.CurrLiteral == "_" {
 			// Positional parameter: _ name: Type (functions only)
 			isPositional = true
-			SkipToken(IDENT) // skip the "_"
-			if CurrTokenType != IDENT {
+			l.SkipToken(IDENT) // skip the "_"
+			if l.CurrTokenType != IDENT {
 				// Return empty slice on error - caller should check
 				return []Parameter{}
 			}
-			paramName = CurrLiteral
-			SkipToken(IDENT)
-		} else if CurrTokenType == IDENT {
+			paramName = l.CurrLiteral
+			l.SkipToken(IDENT)
+		} else if l.CurrTokenType == IDENT {
 			// Named parameter: name: Type
-			paramName = CurrLiteral
-			SkipToken(IDENT)
+			paramName = l.CurrLiteral
+			l.SkipToken(IDENT)
 		} else {
 			// Return empty slice on error - caller should check
 			return []Parameter{}
 		}
 
 		// Parse colon
-		if CurrTokenType != COLON {
+		if l.CurrTokenType != COLON {
 			// Return empty slice on error - caller should check
 			return []Parameter{}
 		}
-		SkipToken(COLON)
+		l.SkipToken(COLON)
 
 		// Parse parameter type
-		paramType := parseTypeExpression()
+		paramType := parseTypeExpression(l)
 		if paramType == nil {
 			// Return empty slice on error - caller should check
 			return []Parameter{}
@@ -5434,8 +5431,8 @@ func parseParameterList(endToken TokenType, allowPositional bool) []Parameter {
 		})
 
 		// Skip optional comma
-		if CurrTokenType == COMMA {
-			SkipToken(COMMA)
+		if l.CurrTokenType == COMMA {
+			l.SkipToken(COMMA)
 		}
 	}
 
@@ -5443,14 +5440,14 @@ func parseParameterList(endToken TokenType, allowPositional bool) []Parameter {
 }
 
 // parseTypeExpression parses a type expression and returns a TypeNode
-func parseTypeExpression() *TypeNode {
-	if CurrTokenType != IDENT {
+func parseTypeExpression(l *Lexer) *TypeNode {
+	if l.CurrTokenType != IDENT {
 		return nil
 	}
 
 	// Parse base type
-	baseTypeName := CurrLiteral
-	SkipToken(IDENT)
+	baseTypeName := l.CurrLiteral
+	l.SkipToken(IDENT)
 
 	baseType := getBuiltinType(baseTypeName)
 	if baseType == nil {
@@ -5467,10 +5464,10 @@ func parseTypeExpression() *TypeNode {
 	resultType := baseType
 
 	// Handle slice suffix: Type[]
-	if CurrTokenType == LBRACKET {
-		SkipToken(LBRACKET)
-		if CurrTokenType == RBRACKET {
-			SkipToken(RBRACKET)
+	if l.CurrTokenType == LBRACKET {
+		l.SkipToken(LBRACKET)
+		if l.CurrTokenType == RBRACKET {
+			l.SkipToken(RBRACKET)
 			resultType = &TypeNode{
 				Kind:  TypeSlice,
 				Child: resultType,
@@ -5482,8 +5479,8 @@ func parseTypeExpression() *TypeNode {
 	}
 
 	// Handle pointer suffixes: Type*
-	for CurrTokenType == ASTERISK {
-		SkipToken(ASTERISK)
+	for l.CurrTokenType == ASTERISK {
+		l.SkipToken(ASTERISK)
 		resultType = &TypeNode{
 			Kind:  TypePointer,
 			Child: resultType,
@@ -5494,20 +5491,20 @@ func parseTypeExpression() *TypeNode {
 }
 
 // parseBlockStatements parses a block of statements between braces and returns a Block AST node
-func parseBlockStatements() *ASTNode {
-	if CurrTokenType != LBRACE {
+func parseBlockStatements(l *Lexer) *ASTNode {
+	if l.CurrTokenType != LBRACE {
 		return &ASTNode{} // error
 	}
-	SkipToken(LBRACE)
+	l.SkipToken(LBRACE)
 
 	var statements []*ASTNode
-	for CurrTokenType != RBRACE && CurrTokenType != EOF {
-		stmt := ParseStatement()
+	for l.CurrTokenType != RBRACE && l.CurrTokenType != EOF {
+		stmt := ParseStatement(l)
 		statements = append(statements, stmt)
 	}
 
-	if CurrTokenType == RBRACE {
-		SkipToken(RBRACE)
+	if l.CurrTokenType == RBRACE {
+		l.SkipToken(RBRACE)
 	}
 
 	return &ASTNode{
@@ -5517,32 +5514,32 @@ func parseBlockStatements() *ASTNode {
 }
 
 // ParseStatement parses a statement and returns an AST node
-func ParseStatement() *ASTNode {
-	switch CurrTokenType {
+func ParseStatement(l *Lexer) *ASTNode {
+	switch l.CurrTokenType {
 	case STRUCT:
-		SkipToken(STRUCT)
-		if CurrTokenType != IDENT {
+		l.SkipToken(STRUCT)
+		if l.CurrTokenType != IDENT {
 			return &ASTNode{} // error
 		}
-		structName := CurrLiteral
-		SkipToken(IDENT)
-		if CurrTokenType != LPAREN {
+		structName := l.CurrLiteral
+		l.SkipToken(IDENT)
+		if l.CurrTokenType != LPAREN {
 			return &ASTNode{} // error
 		}
-		SkipToken(LPAREN)
+		l.SkipToken(LPAREN)
 
 		// Use shared parameter parsing logic for struct fields
-		parameters := parseParameterList(RPAREN, false) // no positional params
-		if len(parameters) == 0 && CurrTokenType != RPAREN {
+		parameters := parseParameterList(l, RPAREN, false) // no positional params
+		if len(parameters) == 0 && l.CurrTokenType != RPAREN {
 			return &ASTNode{} // error in parsing
 		}
 
-		if CurrTokenType == RPAREN {
-			SkipToken(RPAREN)
+		if l.CurrTokenType == RPAREN {
+			l.SkipToken(RPAREN)
 		}
 
-		if CurrTokenType == SEMICOLON {
-			SkipToken(SEMICOLON)
+		if l.CurrTokenType == SEMICOLON {
+			l.SkipToken(SEMICOLON)
 		}
 
 		// Store field information directly in AST node metadata, no children needed
@@ -5554,27 +5551,27 @@ func ParseStatement() *ASTNode {
 		}
 
 	case IF:
-		SkipToken(IF)
+		l.SkipToken(IF)
 		children := []*ASTNode{}
-		children = append(children, ParseExpression()) // if condition
-		if CurrTokenType != LBRACE {
+		children = append(children, ParseExpression(l)) // if condition
+		if l.CurrTokenType != LBRACE {
 			return &ASTNode{} // error
 		}
 
-		children = append(children, parseBlockStatements()) // then block
+		children = append(children, parseBlockStatements(l)) // then block
 
-		for CurrTokenType == ELSE {
-			SkipToken(ELSE)
-			if CurrTokenType == IF {
-				SkipToken(IF)
+		for l.CurrTokenType == ELSE {
+			l.SkipToken(ELSE)
+			if l.CurrTokenType == IF {
+				l.SkipToken(IF)
 				// else-if block
-				children = append(children, ParseExpression())      // else condition
-				children = append(children, parseBlockStatements()) // else block
-			} else if CurrTokenType == LBRACE {
+				children = append(children, ParseExpression(l))      // else condition
+				children = append(children, parseBlockStatements(l)) // else block
+			} else if l.CurrTokenType == LBRACE {
 				// else block
-				children = append(children, nil)                    // else condition (nil for final else)
-				children = append(children, parseBlockStatements()) // else block
-				break                                               // final else, no more chaining
+				children = append(children, nil)                     // else condition (nil for final else)
+				children = append(children, parseBlockStatements(l)) // else block
+				break                                                // final else, no more chaining
 			} else {
 				return &ASTNode{} // error: expected { after else
 			}
@@ -5586,33 +5583,33 @@ func ParseStatement() *ASTNode {
 		}
 
 	case VAR:
-		SkipToken(VAR)
-		if CurrTokenType != IDENT {
+		l.SkipToken(VAR)
+		if l.CurrTokenType != IDENT {
 			return &ASTNode{} // error
 		}
 		varName := &ASTNode{
 			Kind:   NodeIdent,
-			String: CurrLiteral,
+			String: l.CurrLiteral,
 		}
-		SkipToken(IDENT)
-		if CurrTokenType != IDENT && CurrTokenType != LBRACKET {
+		l.SkipToken(IDENT)
+		if l.CurrTokenType != IDENT && l.CurrTokenType != LBRACKET {
 			return &ASTNode{} // error - expecting type
 		}
 
 		// Parse type using new TypeNode system
-		varName.TypeAST = parseTypeExpression()
+		varName.TypeAST = parseTypeExpression(l)
 		if varName.TypeAST == nil {
 			return &ASTNode{} // error - invalid type
 		}
 
 		// Check for optional initialization: var x I64 = value;
-		if CurrTokenType == ASSIGN {
-			SkipToken(ASSIGN)
+		if l.CurrTokenType == ASSIGN {
+			l.SkipToken(ASSIGN)
 			// Parse the initialization expression
-			initExpr := ParseExpression()
+			initExpr := ParseExpression(l)
 
-			if CurrTokenType == SEMICOLON {
-				SkipToken(SEMICOLON)
+			if l.CurrTokenType == SEMICOLON {
+				l.SkipToken(SEMICOLON)
 			}
 
 			// Return a variable declaration with initialization
@@ -5624,8 +5621,8 @@ func ParseStatement() *ASTNode {
 			}
 		} else {
 			// Regular variable declaration without initialization
-			if CurrTokenType == SEMICOLON {
-				SkipToken(SEMICOLON)
+			if l.CurrTokenType == SEMICOLON {
+				l.SkipToken(SEMICOLON)
 			}
 			return &ASTNode{
 				Kind:     NodeVar,
@@ -5635,14 +5632,14 @@ func ParseStatement() *ASTNode {
 		}
 
 	case LBRACE:
-		SkipToken(LBRACE)
+		l.SkipToken(LBRACE)
 		var statements []*ASTNode
-		for CurrTokenType != RBRACE && CurrTokenType != EOF {
-			stmt := ParseStatement()
+		for l.CurrTokenType != RBRACE && l.CurrTokenType != EOF {
+			stmt := ParseStatement(l)
 			statements = append(statements, stmt)
 		}
-		if CurrTokenType == RBRACE {
-			SkipToken(RBRACE)
+		if l.CurrTokenType == RBRACE {
+			l.SkipToken(RBRACE)
 		}
 		return &ASTNode{
 			Kind:     NodeBlock,
@@ -5650,15 +5647,15 @@ func ParseStatement() *ASTNode {
 		}
 
 	case RETURN:
-		SkipToken(RETURN)
+		l.SkipToken(RETURN)
 		var children []*ASTNode
 		// Check if there's an expression after return
-		if CurrTokenType != SEMICOLON {
-			expr := ParseExpression()
+		if l.CurrTokenType != SEMICOLON {
+			expr := ParseExpression(l)
 			children = append(children, expr)
 		}
-		if CurrTokenType == SEMICOLON {
-			SkipToken(SEMICOLON)
+		if l.CurrTokenType == SEMICOLON {
+			l.SkipToken(SEMICOLON)
 		}
 		return &ASTNode{
 			Kind:     NodeReturn,
@@ -5666,18 +5663,18 @@ func ParseStatement() *ASTNode {
 		}
 
 	case LOOP:
-		SkipToken(LOOP)
-		if CurrTokenType != LBRACE {
+		l.SkipToken(LOOP)
+		if l.CurrTokenType != LBRACE {
 			return &ASTNode{} // error
 		}
-		SkipToken(LBRACE)
+		l.SkipToken(LBRACE)
 		var statements []*ASTNode
-		for CurrTokenType != RBRACE && CurrTokenType != EOF {
-			stmt := ParseStatement()
+		for l.CurrTokenType != RBRACE && l.CurrTokenType != EOF {
+			stmt := ParseStatement(l)
 			statements = append(statements, stmt)
 		}
-		if CurrTokenType == RBRACE {
-			SkipToken(RBRACE)
+		if l.CurrTokenType == RBRACE {
+			l.SkipToken(RBRACE)
 		}
 		return &ASTNode{
 			Kind:     NodeLoop,
@@ -5685,31 +5682,31 @@ func ParseStatement() *ASTNode {
 		}
 
 	case BREAK:
-		SkipToken(BREAK)
-		if CurrTokenType == SEMICOLON {
-			SkipToken(SEMICOLON)
+		l.SkipToken(BREAK)
+		if l.CurrTokenType == SEMICOLON {
+			l.SkipToken(SEMICOLON)
 		}
 		return &ASTNode{
 			Kind: NodeBreak,
 		}
 
 	case CONTINUE:
-		SkipToken(CONTINUE)
-		if CurrTokenType == SEMICOLON {
-			SkipToken(SEMICOLON)
+		l.SkipToken(CONTINUE)
+		if l.CurrTokenType == SEMICOLON {
+			l.SkipToken(SEMICOLON)
 		}
 		return &ASTNode{
 			Kind: NodeContinue,
 		}
 
 	case FUNC:
-		return parseFunctionDeclaration()
+		return parseFunctionDeclaration(l)
 
 	default:
 		// Expression statement
-		expr := ParseExpression()
-		if CurrTokenType == SEMICOLON {
-			SkipToken(SEMICOLON)
+		expr := ParseExpression(l)
+		if l.CurrTokenType == SEMICOLON {
+			l.SkipToken(SEMICOLON)
 		}
 		return expr
 	}
@@ -5718,58 +5715,58 @@ func ParseStatement() *ASTNode {
 // parseFunctionDeclaration parses a function declaration
 // Syntax: func name(param1: Type, param2: Type): ReturnType { body }
 // Or:     func name(param1: Type, param2: Type) { body } // void return
-func parseFunctionDeclaration() *ASTNode {
-	SkipToken(FUNC) // consume 'func'
+func parseFunctionDeclaration(l *Lexer) *ASTNode {
+	l.SkipToken(FUNC) // consume 'func'
 
 	// Parse function name
-	if CurrTokenType != IDENT {
+	if l.CurrTokenType != IDENT {
 		panic("Expected function name")
 	}
-	functionName := CurrLiteral
-	SkipToken(IDENT)
+	functionName := l.CurrLiteral
+	l.SkipToken(IDENT)
 
 	// Parse parameter list
-	if CurrTokenType != LPAREN {
+	if l.CurrTokenType != LPAREN {
 		panic("Expected '(' after function name")
 	}
-	SkipToken(LPAREN)
+	l.SkipToken(LPAREN)
 
 	// Use shared parameter parsing logic for function parameters
-	paramList := parseParameterList(RPAREN, true) // allow positional params
-	if len(paramList) == 0 && CurrTokenType != RPAREN {
+	paramList := parseParameterList(l, RPAREN, true) // allow positional params
+	if len(paramList) == 0 && l.CurrTokenType != RPAREN {
 		panic("Error parsing function parameters")
 	}
 
 	// Use parsed parameters directly (now unified with struct fields)
 	parameters := paramList
 
-	if CurrTokenType != RPAREN {
+	if l.CurrTokenType != RPAREN {
 		panic("Expected ')' after parameter list")
 	}
-	SkipToken(RPAREN)
+	l.SkipToken(RPAREN)
 
 	// Parse optional return type
 	var returnType *TypeNode
-	if CurrTokenType == COLON {
-		SkipToken(COLON)
-		returnType = parseTypeExpression()
+	if l.CurrTokenType == COLON {
+		l.SkipToken(COLON)
+		returnType = parseTypeExpression(l)
 		if returnType == nil {
 			panic("Expected return type after ':'")
 		}
 	}
 
 	// Parse function body
-	if CurrTokenType != LBRACE {
+	if l.CurrTokenType != LBRACE {
 		panic("Expected '{' for function body")
 	}
-	SkipToken(LBRACE)
+	l.SkipToken(LBRACE)
 	var statements []*ASTNode
-	for CurrTokenType != RBRACE && CurrTokenType != EOF {
-		stmt := ParseStatement()
+	for l.CurrTokenType != RBRACE && l.CurrTokenType != EOF {
+		stmt := ParseStatement(l)
 		statements = append(statements, stmt)
 	}
-	if CurrTokenType == RBRACE {
-		SkipToken(RBRACE)
+	if l.CurrTokenType == RBRACE {
+		l.SkipToken(RBRACE)
 	}
 
 	return &ASTNode{
@@ -5782,11 +5779,11 @@ func parseFunctionDeclaration() *ASTNode {
 }
 
 // ParseProgram parses a complete program (multiple functions and statements)
-func ParseProgram() *ASTNode {
+func ParseProgram(l *Lexer) *ASTNode {
 	var statements []*ASTNode
 
-	for CurrTokenType != EOF {
-		stmt := ParseStatement()
+	for l.CurrTokenType != EOF {
+		stmt := ParseStatement(l)
 		statements = append(statements, stmt)
 	}
 

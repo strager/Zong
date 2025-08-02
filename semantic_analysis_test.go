@@ -375,9 +375,9 @@ func TestLookupVariable(t *testing.T) {
 func TestBuildSymbolTableSimple(t *testing.T) {
 	// Parse: var x I64;
 	input := []byte("var x I64;\x00")
-	Init(input)
-	NextToken()
-	ast := ParseStatement()
+	l := NewLexer(input)
+	l.NextToken()
+	ast := ParseStatement(l)
 
 	// Build symbol table
 	st := BuildSymbolTable(ast)
@@ -393,9 +393,9 @@ func TestBuildSymbolTableSimple(t *testing.T) {
 func TestBuildSymbolTableMultiple(t *testing.T) {
 	// Parse: { var x I64; var y I64; }
 	input := []byte("{ var x I64; var y I64; }\x00")
-	Init(input)
-	NextToken()
-	ast := ParseStatement()
+	l := NewLexer(input)
+	l.NextToken()
+	ast := ParseStatement(l)
 
 	// Build symbol table
 	st := BuildSymbolTable(ast)
@@ -416,9 +416,9 @@ func TestBuildSymbolTableMultiple(t *testing.T) {
 func TestBuildSymbolTableWithPointers(t *testing.T) {
 	// Parse: { var x I64; var ptr I64*; }
 	input := []byte("{ var x I64; var ptr I64*; }\x00")
-	Init(input)
-	NextToken()
-	ast := ParseStatement()
+	l := NewLexer(input)
+	l.NextToken()
+	ast := ParseStatement(l)
 
 	// Build symbol table
 	st := BuildSymbolTable(ast)
@@ -445,9 +445,9 @@ func TestBuildSymbolTableWithPointers(t *testing.T) {
 func TestBuildSymbolTableIgnoresUnsupportedTypes(t *testing.T) {
 	// Parse: { var x I64; var y string; }
 	input := []byte("{ var x I64; var y string; }\x00")
-	Init(input)
-	NextToken()
-	ast := ParseStatement()
+	l := NewLexer(input)
+	l.NextToken()
+	ast := ParseStatement(l)
 
 	// Build symbol table
 	st := BuildSymbolTable(ast)
@@ -462,9 +462,9 @@ func TestBuildSymbolTableIgnoresUnsupportedTypes(t *testing.T) {
 func TestVariableShadowingInNestedBlocks(t *testing.T) {
 	// Parse: { var x I64; { var x I64; } }
 	input := []byte("{ var x I64; { var x I64; } }\x00")
-	Init(input)
-	NextToken()
-	ast := ParseStatement()
+	l := NewLexer(input)
+	l.NextToken()
+	ast := ParseStatement(l)
 
 	// Build symbol table
 	st := BuildSymbolTable(ast)
@@ -482,9 +482,9 @@ func TestVariableShadowingInNestedBlocks(t *testing.T) {
 func TestFunctionParameterShadowing(t *testing.T) {
 	// Parse: func test(x: I64) { var x I64; }
 	input := []byte("func test(x: I64) { var x I64; }\x00")
-	Init(input)
-	NextToken()
-	ast := ParseStatement()
+	l := NewLexer(input)
+	l.NextToken()
+	ast := ParseStatement(l)
 
 	// Build symbol table
 	st := BuildSymbolTable(ast)
@@ -502,9 +502,9 @@ func TestFunctionParameterShadowing(t *testing.T) {
 func TestNestedBlockScoping(t *testing.T) {
 	// Parse: { var outer I64; { var middle I64; { var inner I64; } } }
 	input := []byte("{ var outer I64; { var middle I64; { var inner I64; } } }\x00")
-	Init(input)
-	NextToken()
-	ast := ParseStatement()
+	l := NewLexer(input)
+	l.NextToken()
+	ast := ParseStatement(l)
 
 	// Build symbol table
 	st := BuildSymbolTable(ast)
@@ -522,13 +522,13 @@ func TestNestedBlockScoping(t *testing.T) {
 func TestFunctionScopingWithLocalVariables(t *testing.T) {
 	// Parse: func test() { var local I64; } var global I64;
 	input := []byte("func test() { var local I64; } var global I64;\x00")
-	Init(input)
-	NextToken()
+	l := NewLexer(input)
+	l.NextToken()
 
 	// Parse function
-	funcAST := ParseStatement()
+	funcAST := ParseStatement(l)
 	// Parse global variable
-	varAST := ParseStatement()
+	varAST := ParseStatement(l)
 
 	// Create block containing both
 	blockAST := &ASTNode{
@@ -556,9 +556,9 @@ func TestFunctionScopingWithLocalVariables(t *testing.T) {
 func TestMultipleShadowingLevels(t *testing.T) {
 	// Parse: { var x I64; { var x I64; { var x I64; } } }
 	input := []byte("{ var x I64; { var x I64; { var x I64; } } }\x00")
-	Init(input)
-	NextToken()
-	ast := ParseStatement()
+	l := NewLexer(input)
+	l.NextToken()
+	ast := ParseStatement(l)
 
 	// Build symbol table
 	st := BuildSymbolTable(ast)
@@ -579,14 +579,14 @@ func TestStructSymbolTable(t *testing.T) {
 	var p Point;
 	var q Point;
 	\x00`)
-	Init(input)
-	NextToken()
+	l := NewLexer(input)
+	l.NextToken()
 
 	// Parse struct declaration
-	structAST := ParseStatement()
+	structAST := ParseStatement(l)
 	// Parse variable declarations
-	varAST1 := ParseStatement()
-	varAST2 := ParseStatement()
+	varAST1 := ParseStatement(l)
+	varAST2 := ParseStatement(l)
 
 	// Create a block containing all statements
 	blockAST := &ASTNode{
@@ -823,9 +823,9 @@ func TestCheckAssignmentPointerDereference(t *testing.T) {
 func TestCheckProgramSuccess(t *testing.T) {
 	// Parse: { var x I64; x = 42; print(x); }
 	input := []byte("{ var x I64; x = 42; print(x); }\x00")
-	Init(input)
-	NextToken()
-	ast := ParseStatement()
+	l := NewLexer(input)
+	l.NextToken()
+	ast := ParseStatement(l)
 
 	// Build symbol table and check program
 	_ = BuildSymbolTable(ast)
@@ -835,9 +835,9 @@ func TestCheckProgramSuccess(t *testing.T) {
 
 func TestStringLiteralTypeChecking(t *testing.T) {
 	input := []byte(`var s U8[] = "hello";` + "\x00")
-	Init(input)
-	NextToken()
-	ast := ParseProgram()
+	l := NewLexer(input)
+	l.NextToken()
+	ast := ParseProgram(l)
 
 	// Build symbol table and run type checking
 	_ = BuildSymbolTable(ast)

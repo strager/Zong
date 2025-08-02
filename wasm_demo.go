@@ -15,9 +15,9 @@ func main() {
 	input := []byte(expression + "\x00")
 
 	// Parse the expression
-	Init(input)
-	NextToken()
-	ast := ParseProgram()
+	l := NewLexer(input)
+	l.NextToken()
+	ast := ParseProgram(l)
 
 	fmt.Printf("Input: %s\n", expression)
 	fmt.Printf("AST: %s\n", ToSExpr(ast))

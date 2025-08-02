@@ -16,35 +16,36 @@ import (
 // LEXING TESTS
 // =============================================================================
 
-func lexInput(inputStr string) {
+func lexInput(inputStr string) *Lexer {
 	input := []byte(inputStr + "\x00") // trailing null byte
-	Init(input)
-	NextToken()
+	l := NewLexer(input)
+	l.NextToken()
+	return l
 }
 
 func TestIntLiteral(t *testing.T) {
-	lexInput("12345")
-	be.Equal(t, CurrTokenType, INT)
-	be.Equal(t, CurrLiteral, "12345")
-	be.Equal(t, CurrIntValue, int64(12345))
+	l := lexInput("12345")
+	be.Equal(t, l.CurrTokenType, INT)
+	be.Equal(t, l.CurrLiteral, "12345")
+	be.Equal(t, l.CurrIntValue, int64(12345))
 }
 
 func TestIdentifier(t *testing.T) {
-	lexInput("foobar")
-	be.Equal(t, CurrTokenType, IDENT)
-	be.Equal(t, CurrLiteral, "foobar")
+	l := lexInput("foobar")
+	be.Equal(t, l.CurrTokenType, IDENT)
+	be.Equal(t, l.CurrLiteral, "foobar")
 }
 
 func TestStringLiteral(t *testing.T) {
-	lexInput("\"hello\"")
-	be.Equal(t, CurrTokenType, STRING)
-	be.Equal(t, CurrLiteral, "hello")
+	l := lexInput("\"hello\"")
+	be.Equal(t, l.CurrTokenType, STRING)
+	be.Equal(t, l.CurrLiteral, "hello")
 }
 
 func TestCharLiteral(t *testing.T) {
-	lexInput("'a'")
-	be.Equal(t, CurrTokenType, CHAR)
-	be.Equal(t, CurrLiteral, "'a'")
+	l := lexInput("'a'")
+	be.Equal(t, l.CurrTokenType, CHAR)
+	be.Equal(t, l.CurrLiteral, "'a'")
 }
 
 func TestDelimiters(t *testing.T) {
@@ -66,8 +67,8 @@ func TestDelimiters(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		lexInput(tt.input)
-		be.Equal(t, CurrTokenType, tt.typ)
+		l := lexInput(tt.input)
+		be.Equal(t, l.CurrTokenType, tt.typ)
 	}
 }
 
@@ -103,8 +104,8 @@ func TestOperators(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		lexInput(tt.input)
-		be.Equal(t, CurrTokenType, tt.expected)
+		l := lexInput(tt.input)
+		be.Equal(t, l.CurrTokenType, tt.expected)
 	}
 }
 
@@ -141,15 +142,15 @@ func TestKeywords(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		lexInput(tt.input)
-		be.Equal(t, CurrTokenType, tt.typ)
-		be.Equal(t, CurrLiteral, tt.input)
+		l := lexInput(tt.input)
+		be.Equal(t, l.CurrTokenType, tt.typ)
+		be.Equal(t, l.CurrLiteral, tt.input)
 	}
 }
 
 func TestMultipleTokens(t *testing.T) {
 	input := []byte("func main() { x := 42; }\x00")
-	Init(input)
+	l := NewLexer(input)
 
 	expectedTokens := []struct {
 		typ     TokenType
@@ -169,58 +170,58 @@ func TestMultipleTokens(t *testing.T) {
 	}
 
 	for _, expected := range expectedTokens {
-		NextToken()
-		be.Equal(t, CurrTokenType, expected.typ)
-		be.Equal(t, CurrLiteral, expected.literal)
+		l.NextToken()
+		be.Equal(t, l.CurrTokenType, expected.typ)
+		be.Equal(t, l.CurrLiteral, expected.literal)
 		if expected.typ == INT {
-			be.Equal(t, CurrIntValue, int64(42))
+			be.Equal(t, l.CurrIntValue, int64(42))
 		}
 	}
 }
 
 func TestLineComment(t *testing.T) {
 	input := []byte("x // this is a comment\ny\x00")
-	Init(input)
+	l := NewLexer(input)
 
-	NextToken()
-	be.Equal(t, CurrTokenType, IDENT)
-	be.Equal(t, CurrLiteral, "x")
+	l.NextToken()
+	be.Equal(t, l.CurrTokenType, IDENT)
+	be.Equal(t, l.CurrLiteral, "x")
 
-	NextToken()
-	be.Equal(t, CurrTokenType, IDENT)
-	be.Equal(t, CurrLiteral, "y")
+	l.NextToken()
+	be.Equal(t, l.CurrTokenType, IDENT)
+	be.Equal(t, l.CurrLiteral, "y")
 
-	NextToken()
-	be.Equal(t, CurrTokenType, EOF)
+	l.NextToken()
+	be.Equal(t, l.CurrTokenType, EOF)
 }
 
 func TestBlockComment(t *testing.T) {
 	input := []byte("x /* this is a\nmultiline comment */ y\x00")
-	Init(input)
+	l := NewLexer(input)
 
-	NextToken()
-	be.Equal(t, CurrTokenType, IDENT)
-	be.Equal(t, CurrLiteral, "x")
+	l.NextToken()
+	be.Equal(t, l.CurrTokenType, IDENT)
+	be.Equal(t, l.CurrLiteral, "x")
 
-	NextToken()
-	be.Equal(t, CurrTokenType, IDENT)
-	be.Equal(t, CurrLiteral, "y")
+	l.NextToken()
+	be.Equal(t, l.CurrTokenType, IDENT)
+	be.Equal(t, l.CurrLiteral, "y")
 
-	NextToken()
-	be.Equal(t, CurrTokenType, EOF)
+	l.NextToken()
+	be.Equal(t, l.CurrTokenType, EOF)
 }
 
 func TestCommentsWithTokens(t *testing.T) {
 	input := []byte("func // comment\n main() /* comment */ {\x00")
-	Init(input)
+	l := NewLexer(input)
 
 	expectedTokens := []TokenType{FUNC, IDENT, LPAREN, RPAREN, LBRACE, EOF}
 	expectedLiterals := []string{"func", "main", "(", ")", "{", ""}
 
 	for i, expected := range expectedTokens {
-		NextToken()
-		be.Equal(t, CurrTokenType, expected)
-		be.Equal(t, CurrLiteral, expectedLiterals[i])
+		l.NextToken()
+		be.Equal(t, l.CurrTokenType, expected)
+		be.Equal(t, l.CurrLiteral, expectedLiterals[i])
 	}
 }
 
@@ -238,18 +239,18 @@ func TestWhitespace(t *testing.T) {
 
 	for _, tt := range tests {
 		input := []byte(tt.input + "\x00")
-		Init(input)
+		l := NewLexer(input)
 
-		NextToken()
-		be.Equal(t, CurrTokenType, IDENT)
-		be.Equal(t, CurrLiteral, "x")
+		l.NextToken()
+		be.Equal(t, l.CurrTokenType, IDENT)
+		be.Equal(t, l.CurrLiteral, "x")
 
-		NextToken()
-		be.Equal(t, CurrTokenType, IDENT)
-		be.Equal(t, CurrLiteral, "y")
+		l.NextToken()
+		be.Equal(t, l.CurrTokenType, IDENT)
+		be.Equal(t, l.CurrLiteral, "y")
 
-		NextToken()
-		be.Equal(t, CurrTokenType, EOF)
+		l.NextToken()
+		be.Equal(t, l.CurrTokenType, EOF)
 	}
 }
 
@@ -266,9 +267,9 @@ func TestEOF(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		lexInput(tt.input)
-		be.Equal(t, CurrTokenType, EOF)
-		be.Equal(t, CurrLiteral, "")
+		l := lexInput(tt.input)
+		be.Equal(t, l.CurrTokenType, EOF)
+		be.Equal(t, l.CurrLiteral, "")
 	}
 }
 
@@ -286,9 +287,9 @@ func TestStringEscapes(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		lexInput(tt.input)
-		be.Equal(t, CurrTokenType, STRING)
-		be.Equal(t, CurrLiteral, tt.expected)
+		l := lexInput(tt.input)
+		be.Equal(t, l.CurrTokenType, STRING)
+		be.Equal(t, l.CurrLiteral, tt.expected)
 	}
 }
 
@@ -308,9 +309,9 @@ func TestCharEscapes(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		lexInput(tt.input)
-		be.Equal(t, CurrTokenType, CHAR)
-		be.Equal(t, CurrLiteral, tt.expected)
+		l := lexInput(tt.input)
+		be.Equal(t, l.CurrTokenType, CHAR)
+		be.Equal(t, l.CurrLiteral, tt.expected)
 	}
 }
 
@@ -329,10 +330,10 @@ func TestNumberEdgeCases(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		lexInput(tt.input)
-		be.Equal(t, CurrTokenType, INT)
-		be.Equal(t, CurrLiteral, tt.input)
-		be.Equal(t, CurrIntValue, tt.expectedVal)
+		l := lexInput(tt.input)
+		be.Equal(t, l.CurrTokenType, INT)
+		be.Equal(t, l.CurrLiteral, tt.input)
+		be.Equal(t, l.CurrIntValue, tt.expectedVal)
 	}
 }
 
@@ -356,40 +357,40 @@ func TestOperatorBoundaries(t *testing.T) {
 
 	for _, tt := range tests {
 		input := []byte(tt.input + "\x00")
-		Init(input)
+		l := NewLexer(input)
 
 		for i, expectedType := range tt.expected {
-			NextToken()
-			be.Equal(t, CurrTokenType, expectedType)
-			be.Equal(t, CurrLiteral, tt.literals[i])
+			l.NextToken()
+			be.Equal(t, l.CurrTokenType, expectedType)
+			be.Equal(t, l.CurrLiteral, tt.literals[i])
 		}
 
-		NextToken()
-		be.Equal(t, CurrTokenType, EOF)
+		l.NextToken()
+		be.Equal(t, l.CurrTokenType, EOF)
 	}
 }
 
 func TestUnterminatedBlockComment(t *testing.T) {
-	lexInput("x /* unterminated comment")
-	be.Equal(t, CurrTokenType, IDENT)
-	be.Equal(t, CurrLiteral, "x")
+	l := lexInput("x /* unterminated comment")
+	be.Equal(t, l.CurrTokenType, IDENT)
+	be.Equal(t, l.CurrLiteral, "x")
 
-	NextToken()
-	be.Equal(t, CurrTokenType, EOF)
+	l.NextToken()
+	be.Equal(t, l.CurrTokenType, EOF)
 }
 
 func TestSkipToken(t *testing.T) {
 	// Test successful token skip
 	t.Run("successful skip", func(t *testing.T) {
 		input := []byte("123\x00")
-		Init(input)
-		NextToken()
+		l := NewLexer(input)
+		l.NextToken()
 
-		be.Equal(t, INT, CurrTokenType)
+		be.Equal(t, INT, l.CurrTokenType)
 
-		SkipToken(INT) // Should not panic
+		l.SkipToken(INT) // Should not panic
 
-		be.Equal(t, EOF, CurrTokenType)
+		be.Equal(t, EOF, l.CurrTokenType)
 	})
 
 	// Test panic on wrong token type
@@ -403,12 +404,12 @@ func TestSkipToken(t *testing.T) {
 		}()
 
 		input := []byte("123\x00")
-		Init(input)
-		NextToken()
+		l := NewLexer(input)
+		l.NextToken()
 
-		be.Equal(t, INT, CurrTokenType)
+		be.Equal(t, INT, l.CurrTokenType)
 
-		SkipToken(IDENT) // Should panic - wrong token type
+		l.SkipToken(IDENT) // Should panic - wrong token type
 	})
 }
 
@@ -456,11 +457,11 @@ func TestIntToString(t *testing.T) {
 func TestNextTokenIllegalCharacter(t *testing.T) {
 	// Test handling of illegal/unknown characters
 	input := []byte("@#$\x00") // Special characters not handled by lexer
-	Init(input)
-	NextToken()
+	l := NewLexer(input)
+	l.NextToken()
 
-	be.Equal(t, ILLEGAL, CurrTokenType)
-	be.Equal(t, "@", CurrLiteral)
+	be.Equal(t, ILLEGAL, l.CurrTokenType)
+	be.Equal(t, "@", l.CurrLiteral)
 }
 
 // =============================================================================
@@ -495,9 +496,9 @@ func TestVarTypeAST(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		Init([]byte(test.input))
-		NextToken()
-		result := ParseStatement()
+		l := NewLexer([]byte(test.input))
+		l.NextToken()
+		result := ParseStatement(l)
 
 		be.Equal(t, NodeVar, result.Kind)
 		if result.Kind != NodeVar {
@@ -516,10 +517,10 @@ func TestVarTypeAST(t *testing.T) {
 func TestSliceTypeParsing(t *testing.T) {
 	// Test basic slice type parsing directly
 	input := []byte("var nums I64[];\x00")
-	Init(input)
-	NextToken()
+	l := NewLexer(input)
+	l.NextToken()
 
-	stmt := ParseStatement()
+	stmt := ParseStatement(l)
 	be.Equal(t, stmt.Kind, NodeVar)
 
 	expectedType := &TypeNode{
@@ -532,10 +533,10 @@ func TestSliceTypeParsing(t *testing.T) {
 func TestSliceBasicDeclaration(t *testing.T) {
 	// Test basic slice variable declaration
 	input := []byte("var nums I64[];\x00")
-	Init(input)
-	NextToken()
+	l := NewLexer(input)
+	l.NextToken()
 
-	stmt := ParseStatement()
+	stmt := ParseStatement(l)
 	be.Equal(t, stmt.Kind, NodeVar)
 
 	// Verify type is slice

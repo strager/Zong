@@ -186,10 +186,10 @@ func TestEmitExpression(t *testing.T) {
 func TestCompileToWASMIntegration(t *testing.T) {
 	// Test parsing and compiling a simple expression
 	input := []byte("42 + 8\x00")
-	Init(input)
-	NextToken()
+	l := NewLexer(input)
+	l.NextToken()
 
-	ast := ParseExpression()
+	ast := ParseExpression(l)
 	be.Equal(t, ToSExpr(ast), "(binary \"+\" (integer 42) (integer 8))")
 
 	wasmBytes := CompileToWASM(ast)
@@ -241,9 +241,9 @@ func TestEmitAddressOfNonAddressedVariable(t *testing.T) {
 
 func TestStringCollection(t *testing.T) {
 	input := []byte(`var s U8[] = "hello"; var t U8[] = "world"; var u U8[] = "hello";` + "\x00")
-	Init(input)
-	NextToken()
-	ast := ParseProgram()
+	l := NewLexer(input)
+	l.NextToken()
+	ast := ParseProgram(l)
 
 	// Collect strings
 	strings := collectStringLiterals(ast)
@@ -280,9 +280,9 @@ func TestDataSectionSize(t *testing.T) {
 func TestWASMCompilationSuccess(t *testing.T) {
 	// Test that compilation doesn't crash, even if execution fails
 	input := []byte(`func main() { var s U8[] = "hello"; }` + "\x00")
-	Init(input)
-	NextToken()
-	ast := ParseProgram()
+	l := NewLexer(input)
+	l.NextToken()
+	ast := ParseProgram(l)
 
 	// This should not panic
 	defer func() {
@@ -297,9 +297,9 @@ func TestWASMCompilationSuccess(t *testing.T) {
 
 func TestDataSectionInWASM(t *testing.T) {
 	input := []byte(`func main() { var s U8[] = "hello"; }` + "\x00")
-	Init(input)
-	NextToken()
-	ast := ParseProgram()
+	l := NewLexer(input)
+	l.NextToken()
+	ast := ParseProgram(l)
 
 	wasmBytes := CompileToWASM(ast)
 
@@ -320,9 +320,9 @@ func TestDataSectionInWASM(t *testing.T) {
 
 func TestGlobalStringAddresses(t *testing.T) {
 	input := []byte(`func main() { var s U8[] = "test"; }` + "\x00")
-	Init(input)
-	NextToken()
-	ast := ParseProgram()
+	l := NewLexer(input)
+	l.NextToken()
+	ast := ParseProgram(l)
 
 	// Compile to populate global string addresses
 	CompileToWASM(ast)
@@ -338,9 +338,9 @@ func TestGlobalStringAddresses(t *testing.T) {
 
 func TestMultipleStringAddresses(t *testing.T) {
 	input := []byte(`func main() { var s U8[] = "first"; var t U8[] = "second"; }` + "\x00")
-	Init(input)
-	NextToken()
-	ast := ParseProgram()
+	l := NewLexer(input)
+	l.NextToken()
+	ast := ParseProgram(l)
 
 	CompileToWASM(ast)
 
@@ -354,9 +354,9 @@ func TestMultipleStringAddresses(t *testing.T) {
 
 func TestEmptyString(t *testing.T) {
 	input := []byte(`func main() { var s U8[] = ""; }` + "\x00")
-	Init(input)
-	NextToken()
-	ast := ParseProgram()
+	l := NewLexer(input)
+	l.NextToken()
+	ast := ParseProgram(l)
 
 	// Should not crash
 	defer func() {
@@ -402,9 +402,9 @@ func compileExpression(t *testing.T, expression string) []byte {
 	input := []byte(expression + "\x00")
 
 	// Parse the expression
-	Init(input)
-	NextToken()
-	ast := ParseExpression()
+	l := NewLexer(input)
+	l.NextToken()
+	ast := ParseExpression(l)
 
 	// Compile to WASM
 	wasmBytes := CompileToWASM(ast)

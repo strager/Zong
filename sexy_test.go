@@ -53,14 +53,14 @@ func TestSexyAllTests(t *testing.T) {
 
 					if !hasCompileErrorAssertion {
 						input := tc.Input + "\x00" // Null-terminate as required by Zong parser
-						Init([]byte(input))
-						NextToken()
+						l := NewLexer([]byte(input))
+						l.NextToken()
 
 						switch tc.InputType {
 						case sexy.InputTypeZongExpr:
-							ast = ParseExpression()
+							ast = ParseExpression(l)
 						case sexy.InputTypeZongProgram:
-							ast = ParseProgram()
+							ast = ParseProgram(l)
 						default:
 							t.Fatalf("Unknown input type: %s", tc.InputType)
 						}
@@ -1040,15 +1040,15 @@ func assertCompileErrorMatch(t *testing.T, input string, expectedError string, i
 
 	// Parse the input
 	input = input + "\x00" // Null-terminate as required by Zong parser
-	Init([]byte(input))
-	NextToken()
+	l := NewLexer([]byte(input))
+	l.NextToken()
 
 	var ast *ASTNode
 	switch inputType {
 	case sexy.InputTypeZongExpr:
-		ast = ParseExpression()
+		ast = ParseExpression(l)
 	case sexy.InputTypeZongProgram:
-		ast = ParseProgram()
+		ast = ParseProgram(l)
 	default:
 		t.Fatalf("Unknown input type: %s", inputType)
 	}
