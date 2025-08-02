@@ -219,7 +219,7 @@ func main() {
 
 ## Test: function return field access
 ```zong-program
-struct Point { var x I64; var y I64; }
+struct Point(x: I64, y: I64);
 
 func makePoint(pointX: I64, pointY: I64): Point {
 	var p Point;
@@ -240,7 +240,7 @@ func main() {
 
 ## Test: function returning struct
 ```zong-program
-struct Point { var x I64; var y I64; }
+struct Point(x: I64, y: I64);
 
 func createPoint(_ createPointXVal: I64, _ createPointYVal: I64): Point {
 	var p Point;
@@ -263,7 +263,7 @@ func main() {
 
 ## Test: function struct param copies
 ```zong-program
-struct S { var i I64; }
+struct S(i: I64);
 
 func f(_ fS: S) {
 	fS.i = 3;
@@ -300,7 +300,7 @@ func main() {
 
 ## Test: mixed field access
 ```zong-program
-struct Point { var x I64; var y I64; }
+struct Point(x: I64, y: I64);
 
 func makePoint(pointX: I64, pointY: I64): Point {
 	var newP Point;
@@ -402,8 +402,8 @@ func main() {
 
 ## Test: nested struct function return
 ```zong-program
-struct Address { var state I64; var zipCode I64; }
-struct Person { var name I64; var address Address; var age I64; }
+struct Address(state: I64, zipCode: I64);
+struct Person(name: I64, address: Address, age: I64);
 
 func createAddress(addrState: I64, addrZip: I64): Address {
 	var addr Address;
@@ -463,7 +463,7 @@ func main() {
 
 ## Test: struct parameter passing
 ```zong-program
-struct Point { var x I64; var y I64; }
+struct Point(x: I64, y: I64);
 
 func processPoint(_ processPointP: Point) {
 	print(processPointP.x);

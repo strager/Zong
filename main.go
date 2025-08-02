@@ -5393,23 +5393,54 @@ func ParseStatement() *ASTNode {
 		}
 		structName := CurrLiteral
 		SkipToken(IDENT)
-		if CurrTokenType != LBRACE {
+		if CurrTokenType != LPAREN {
 			return &ASTNode{} // error
 		}
-		SkipToken(LBRACE)
+		SkipToken(LPAREN)
 
 		var fields []*ASTNode
-		for CurrTokenType != RBRACE && CurrTokenType != EOF {
-			// Parse field declaration: var fieldName Type;
-			if CurrTokenType != VAR {
+		for CurrTokenType != RPAREN && CurrTokenType != EOF {
+			// Parse field declaration: fieldName: Type
+			if CurrTokenType != IDENT {
 				break // error
 			}
-			fieldDecl := ParseStatement() // Parse the var declaration
+			fieldName := &ASTNode{
+				Kind:   NodeIdent,
+				String: CurrLiteral,
+			}
+			SkipToken(IDENT)
+
+			if CurrTokenType != COLON {
+				return &ASTNode{} // error - expecting colon
+			}
+			SkipToken(COLON)
+
+			// Parse type using new TypeNode system
+			fieldName.TypeAST = parseTypeExpression()
+			if fieldName.TypeAST == nil {
+				return &ASTNode{} // error - invalid type
+			}
+
+			// Create field declaration node
+			fieldDecl := &ASTNode{
+				Kind:     NodeVar,
+				Children: []*ASTNode{fieldName},
+				TypeAST:  fieldName.TypeAST,
+			}
 			fields = append(fields, fieldDecl)
+
+			// Skip optional comma
+			if CurrTokenType == COMMA {
+				SkipToken(COMMA)
+			}
 		}
 
-		if CurrTokenType == RBRACE {
-			SkipToken(RBRACE)
+		if CurrTokenType == RPAREN {
+			SkipToken(RPAREN)
+		}
+
+		if CurrTokenType == SEMICOLON {
+			SkipToken(SEMICOLON)
 		}
 
 		return &ASTNode{

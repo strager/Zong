@@ -9,7 +9,7 @@ Implement slices as synthesized struct types with subscript operators and `appen
 ### Slice Type Syntax
 - `Foo[]` creates a slice type for element type `Foo`
   - Works for built-in types like `Boolean` and `I64` too
-- Synthesizes: `struct Foo[] { var items Foo*; var length I64; }`
+- Synthesizes: `struct Foo[](items: Foo*, length: I64)`
   - Not valid Zong syntax but compiler internal representation
 
 ### Type System Changes

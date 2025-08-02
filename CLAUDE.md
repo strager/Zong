@@ -59,7 +59,7 @@ func be.True(tb testing.TB, got bool)
 ### Current Syntax
 ```zong
 // Struct definitions
-struct Point { var x I64; var y I64; }
+struct Point(x: I64, y: I64);
 
 // Functions with named/positional parameters
 func add(_ a: I64, _ b: I64): I64 { return a + b; }

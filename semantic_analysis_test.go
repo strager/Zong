@@ -575,7 +575,7 @@ func TestMultipleShadowingLevels(t *testing.T) {
 }
 
 func TestStructSymbolTable(t *testing.T) {
-	input := []byte(`struct Point { var x I64; var y I64; }
+	input := []byte(`struct Point(x: I64, y: I64);
 	var p Point;
 	var q Point;
 	\x00`)

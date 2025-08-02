@@ -2,7 +2,7 @@
 
 ## Test: struct declaration
 ```zong-program
-struct Point { var x I64; var y I64; }
+struct Point(x: I64, y: I64);
 ```
 ```ast
 [(struct "Point"
@@ -44,7 +44,7 @@ p.x + q.y
 
 ## Test: struct field access and assignment execution
 ```zong-program
-struct Point { var x I64; var y I64; }
+struct Point(x: I64, y: I64);
 func main() {
     var p Point;
     p.x = 42;
@@ -63,7 +63,7 @@ func main() {
 ## Test: nested struct operations
 ```zong-program
 {
-		struct Point { var x I64; var y I64; }
+		struct Point(x: I64, y: I64);
 		var p1 Point;
 		var p2 Point;
 		var p3 Point;
@@ -90,7 +90,7 @@ func main() {
 ## Test: struct basic field access
 ```zong-program
 {
-		struct Point { var x I64; var y I64; }
+		struct Point(x: I64, y: I64);
 		var p Point;
 		p.x = 42;
 		p.y = 84;
@@ -106,7 +106,7 @@ func main() {
 ## Test: struct field arithmetic
 ```zong-program
 {
-		struct Point { var x I64; var y I64; }
+		struct Point(x: I64, y: I64);
 		var p Point;
 		p.x = 10;
 		p.y = 20;
@@ -122,7 +122,7 @@ func main() {
 ## Test: struct field assignment chain
 ```zong-program
 {
-		struct Point { var x I64; var y I64; }
+		struct Point(x: I64, y: I64);
 		var p1 Point;
 		var p2 Point;
 		p1.x = 100;
@@ -142,7 +142,7 @@ func main() {
 ## Test: struct field in expressions
 ```zong-program
 {
-		struct Point { var x I64; var y I64; }
+		struct Point(x: I64, y: I64);
 		var p Point;
 		p.x = 15;
 		p.y = 25;
@@ -162,7 +162,7 @@ func main() {
 ## Test: struct multiple instances
 ```zong-program
 {
-		struct Point { var x I64; var y I64; }
+		struct Point(x: I64, y: I64);
 		var p1 Point;
 		var p2 Point;
 		p1.x = 1;
@@ -181,7 +181,7 @@ func main() {
 ## Test: struct with mixed variable types
 ```zong-program
 {
-		struct Point { var x I64; var y I64; }
+		struct Point(x: I64, y: I64);
 		var p Point;
 		var regular I64;
 		
@@ -205,7 +205,7 @@ func main() {
 ## Test: struct with more fields
 ```zong-program
 {
-		struct Rectangle { var width I64; var height I64; var depth I64; }
+		struct Rectangle(width: I64, height: I64, depth: I64);
 		var rect Rectangle;
 		rect.width = 5;
 		rect.height = 10;
@@ -226,7 +226,7 @@ func main() {
 ## Test: struct zero initialization
 ```zong-program
 {
-		struct Point { var x I64; var y I64; }
+		struct Point(x: I64, y: I64);
 		var p Point;
 		print(p.x);
 		print(p.y);
@@ -240,7 +240,7 @@ func main() {
 ## Test: struct function-style initialization
 ```zong-program
 {
-		struct Point { var x I64; var y I64; }
+		struct Point(x: I64, y: I64);
 		var p Point = Point(x: 2, y: 3);
 		print(p.x);
 		print(p.y);
@@ -254,7 +254,7 @@ func main() {
 ## Test: struct function-style initialization field order doesn't matter
 ```zong-program
 {
-		struct Point { var x I64; var y I64; }
+		struct Point(x: I64, y: I64);
 		var p Point = Point(y: 3, x: 2);
 		print(p.x);
 		print(p.y);
@@ -268,7 +268,7 @@ func main() {
 ## Test: struct function-style initialization with different field types
 ```zong-program
 {
-		struct Mixed { var flag Boolean; var count I64; }
+		struct Mixed(flag: Boolean, count: I64);
 		var m Mixed = Mixed(flag: true, count: 42);
 		print(m.flag);
 		print(m.count);
@@ -282,7 +282,7 @@ func main() {
 ## Test: struct function-style initialization with nested expressions
 ```zong-program
 {
-		struct Point { var x I64; var y I64; }
+		struct Point(x: I64, y: I64);
 		var p Point = Point(x: 1 + 1, y: 3 * 4);
 		print(p.x);
 		print(p.y);
@@ -296,7 +296,7 @@ func main() {
 ## Test: struct function-style initialization in expressions
 ```zong-program
 {
-		struct Point { var x I64; var y I64; }
+		struct Point(x: I64, y: I64);
 		var sum I64 = Point(x: 1, y: 2).x + Point(x: 3, y: 4).y;
 		print(sum);
 	}
@@ -308,7 +308,7 @@ func main() {
 ## Test: struct function-style initialization as function argument
 ```zong-program
 {
-		struct Point { var x I64; var y I64; }
+		struct Point(x: I64, y: I64);
 		print(Point(x: 5, y: 6).x);
 	}
 ```
@@ -319,7 +319,7 @@ func main() {
 ## Test: single field struct initialization
 ```zong-program
 {
-		struct Single { var value I64; }
+		struct Single(value: I64);
 		var s Single = Single(value: 42);
 		print(s.value);
 	}
@@ -332,8 +332,8 @@ func main() {
 
 ## Test: nested struct initialization
 ```zong-program
-struct Address { var state I64; var zipCode I64; }
-struct Person { var name I64; var address Address; var age I64; }
+struct Address(state: I64, zipCode: I64);
+struct Person(name: I64, address: Address, age: I64);
 
 func main() {
 	var person Person;
@@ -363,8 +363,8 @@ func main() {
 
 ## Test: nested structs
 ```zong-program
-struct Address { var state I64; var zipCode I64; }
-struct Person { var name I64; var address Address; var age I64; }
+struct Address(state: I64, zipCode: I64);
+struct Person(name: I64, address: Address, age: I64);
 
 func main() {
 	var person Person;
@@ -394,7 +394,7 @@ func main() {
 ## Test: struct initialization missing required field
 ```zong-program
 {
-		struct Point { var x I64; var y I64; }
+		struct Point(x: I64, y: I64);
 		var p Point = Point(x: 2);
 	}
 ```
@@ -405,7 +405,7 @@ error: struct initialization expects 2 fields, got 1
 ## Test: struct initialization missing all fields
 ```zong-program
 {
-		struct Point { var x I64; var y I64; }
+		struct Point(x: I64, y: I64);
 		var p Point = Point();
 	}
 ```
@@ -416,7 +416,7 @@ error: struct initialization expects 2 fields, got 0
 ## Test: struct initialization with unknown field
 ```zong-program
 {
-		struct Point { var x I64; var y I64; }
+		struct Point(x: I64, y: I64);
 		var p Point = Point(x: 1, y: 2, z: 3);
 	}
 ```
@@ -427,7 +427,7 @@ error: struct initialization expects 2 fields, got 3
 ## Test: struct initialization with duplicate field
 ```zong-program
 {
-		struct Point { var x I64; var y I64; }
+		struct Point(x: I64, y: I64);
 		var p Point = Point(x: 1, y: 2, x: 3);
 	}
 ```
@@ -438,7 +438,7 @@ error: struct initialization has duplicate field 'x'
 ## Test: struct initialization with wrong field type
 ```zong-program
 {
-		struct Point { var x I64; var y I64; }
+		struct Point(x: I64, y: I64);
 		var p Point = Point(x: true, y: 2);
 	}
 ```
@@ -449,7 +449,7 @@ error: struct initialization field 'x' expects type I64, got Boolean
 ## Test: struct initialization with unknown field name
 ```zong-program
 {
-		struct Point { var x I64; var y I64; }
+		struct Point(x: I64, y: I64);
 		var p Point = Point(x: 1, z: 2);
 	}
 ```
@@ -470,7 +470,7 @@ undefined symbol 'FakeStruct'
 ## Test: struct initialization without named parameters
 ```zong-program
 {
-		struct Point { var x I64; var y I64; }
+		struct Point(x: I64, y: I64);
 		var p Point = Point(1, 2);
 	}
 ```
