@@ -3178,17 +3178,17 @@ func synthesizeSliceStruct(sliceType *TypeNode) *TypeNode {
 func transformSlicesToStructs(ast *ASTNode, symbolTable *SymbolTable) {
 	// Transform types in symbol table
 	for _, symbol := range symbolTable.GetAllVariables() {
-		transformTypeNodeSlices(symbol.Type, symbolTable)
+		transformTypeNodeSlices(&symbol.Type, symbolTable)
 	}
 	for _, structDef := range symbolTable.GetAllStructs() {
 		for i := range structDef.Fields {
-			transformTypeNodeSlices(structDef.Fields[i].Type, symbolTable)
+			transformTypeNodeSlices(&structDef.Fields[i].Type, symbolTable)
 		}
 	}
 	for _, funcDef := range symbolTable.GetAllFunctions() {
-		transformTypeNodeSlices(funcDef.ReturnType, symbolTable)
+		transformTypeNodeSlices(&funcDef.ReturnType, symbolTable)
 		for i := range funcDef.Parameters {
-			transformTypeNodeSlices(funcDef.Parameters[i].Type, symbolTable)
+			transformTypeNodeSlices(&funcDef.Parameters[i].Type, symbolTable)
 		}
 	}
 
@@ -3197,26 +3197,23 @@ func transformSlicesToStructs(ast *ASTNode, symbolTable *SymbolTable) {
 }
 
 // transformTypeNodeSlices recursively converts slice types to struct types in a TypeNode tree
-func transformTypeNodeSlices(typeNode *TypeNode, symbolTable *SymbolTable) {
-	if typeNode == nil {
+func transformTypeNodeSlices(typeNode **TypeNode, symbolTable *SymbolTable) {
+	if *typeNode == nil {
 		return
 	}
 
-	switch typeNode.Kind {
+	switch (*typeNode).Kind {
 	case TypeSlice:
 		// First, recursively transform the child type
-		transformTypeNodeSlices(typeNode.Child, symbolTable)
+		transformTypeNodeSlices(&(*typeNode).Child, symbolTable)
 
 		// Use synthesizeSliceStruct to convert slice to struct
-		synthesizedStruct := synthesizeSliceStruct(typeNode)
-
-		// Copy the synthesized struct into the current type node
-		*typeNode = *synthesizedStruct
+		*typeNode = synthesizeSliceStruct(*typeNode)
 	case TypePointer:
-		transformTypeNodeSlices(typeNode.Child, symbolTable)
+		transformTypeNodeSlices(&(*typeNode).Child, symbolTable)
 	case TypeStruct:
-		for i := range typeNode.Fields {
-			transformTypeNodeSlices(typeNode.Fields[i].Type, symbolTable)
+		for i := range (*typeNode).Fields {
+			transformTypeNodeSlices(&(*typeNode).Fields[i].Type, symbolTable)
 		}
 	}
 }
@@ -3263,7 +3260,7 @@ func transformASTSlices(node *ASTNode, symbolTable *SymbolTable) {
 
 	// Transform TypeAST if present
 	if node.TypeAST != nil {
-		transformTypeNodeSlices(node.TypeAST, symbolTable)
+		transformTypeNodeSlices(&node.TypeAST, symbolTable)
 	}
 
 	// Recursively transform children
