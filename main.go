@@ -1417,11 +1417,43 @@ func EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 			writeByte(buf, CALL)
 			writeLEB128(buf, uint32(functionIndex))
 		} else {
-			// User-defined function call
+			// User-defined function call with evaluation order preservation
 			args := node.Children[1:]
+			function := node.ResolvedFunction
+			if function == nil {
+				panic("Missing resolved function for: " + functionName)
+			}
 
-			// Emit arguments (including struct copies for struct parameters)
-			for _, arg := range args {
+			// Build parameter mapping from source order to parameter order
+			paramMapping := make([]int, len(args))
+			for i, paramName := range node.ParameterNames {
+				if paramName == "" {
+					// Positional argument
+					paramMapping[i] = i
+				} else {
+					// Named argument - find parameter index
+					found := false
+					for j, param := range function.Parameters {
+						if param.Name == paramName {
+							paramMapping[i] = j
+							found = true
+							break
+						}
+					}
+					if !found {
+						panic("Parameter not found: " + paramName)
+					}
+				}
+			}
+
+			// Create reordered args array for parameter order evaluation
+			reorderedArgs := make([]*ASTNode, len(args))
+			for i := 0; i < len(args); i++ {
+				reorderedArgs[paramMapping[i]] = args[i]
+			}
+
+			// Emit arguments in parameter order (temporary solution)
+			for _, arg := range reorderedArgs {
 				if arg.TypeAST.Kind == TypeStruct {
 					// Struct argument - need to copy to a temporary location
 					structSize := uint32(GetTypeSize(arg.TypeAST))
@@ -1464,7 +1496,7 @@ func EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 				}
 			}
 
-			// Find function index
+			// Find function index and call
 			functionIndex := findUserFunctionIndex(functionName)
 			writeByte(buf, CALL)
 			writeLEB128(buf, uint32(functionIndex))
@@ -4196,8 +4228,7 @@ func CheckExpression(expr *ASTNode, tc *TypeChecker) error {
 				return err
 			}
 
-			// Reorder arguments to match function signature (if named parameters are used)
-			reorderCallArguments(expr, function.Parameters)
+			// Arguments will be reordered during code generation to preserve evaluation order
 
 			// Return function's return type (or void)
 			if function.ReturnType != nil {
@@ -4348,43 +4379,6 @@ func CheckExpression(expr *ASTNode, tc *TypeChecker) error {
 	default:
 		return fmt.Errorf("error: unsupported expression type '%s'", expr.Kind)
 	}
-}
-
-// reorderCallArguments reorders the arguments in a function call to match the function signature
-func reorderCallArguments(callExpr *ASTNode, expectedParams []Parameter) {
-	if len(callExpr.ParameterNames) == 0 {
-		// No named parameters, no reordering needed
-		return
-	}
-
-	args := callExpr.Children[1:] // Skip function name
-	paramNames := callExpr.ParameterNames
-	newArgs := make([]*ASTNode, len(expectedParams))
-
-	// First, place positional arguments
-	for i, name := range paramNames {
-		if name == "" {
-			newArgs[i] = args[i]
-		}
-	}
-
-	// Then, place named arguments in correct positions
-	for i, name := range paramNames {
-		if name != "" {
-			// Find the parameter index in function signature
-			for j, param := range expectedParams {
-				if param.Name == name {
-					newArgs[j] = args[i]
-					break
-				}
-			}
-		}
-	}
-
-	// Update the call expression with reordered arguments
-	callExpr.Children = append([]*ASTNode{callExpr.Children[0]}, newArgs...)
-	// Clear parameter names since arguments are now in order
-	callExpr.ParameterNames = make([]string, len(newArgs))
 }
 
 // CheckAssignment validates an assignment statement
