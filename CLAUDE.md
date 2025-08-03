@@ -57,18 +57,10 @@ func be.True(tb testing.TB, got bool)
 
 ### Core Components
 
-- **Lexer**: Global state lexer in main.go with `Init()` and `NextToken()`
-- **Parser**: Precedence climbing parser with `ParseExpression()` and `ParseStatement()`
+- **Parser**: Precedence climbing parser with `ParseExpression()` and `ParseStatement()`, with split lexer+parser
 - **Type System**: `TypeNode` structures with support for I64, U8, Boolean, structs, pointers, and slices
 - **Compiler**: Compiles typed, symbolified AST to WebAssembly
 - **Runtime**: Rust-based WASM executor in `wasmruntime/` directory
-
-### Key Types
-
-- `ASTNode`
-- `TypeNode`
-- `LocalContext`
-- `LocalVarInfo`
 
 ### Memory Management
 
@@ -86,14 +78,16 @@ struct Point(x: I64, y: I64);
 
 // Functions with named/positional parameters
 func add(_ a: I64, _ b: I64): I64 { return a + b; }
-func greet(name: I64, age: I64) { print(name); print(age); }
+func update(p: Point*) {
+    p.x = 0;
+}
 
 // Variable declarations with initialization
 var x I64 = 42;
 var flag Boolean = true;
 
 // Control flow
-if (condition) {
+if condition {
     // statements
 }
 
@@ -107,13 +101,14 @@ numbers = append(numbers, 10);
 
 // Main function
 func main() {
-    var p Point;
-    p.x = 10;
-    p.y = 20;
+    var p Point = Point(x: 10, y: 20);
     print(add(p.x, p.y));
-    greet(name: 42, age: 25);
+
+    greet(p&);
+    print(p.x);
+    print(p.y);
     
-    if (p.x > 5) {
+    if p.x > 5 {
         print(999);
     }
 }
@@ -137,38 +132,36 @@ func main() {
 - **Nested struct field access**: Multi-level field access like `obj.field.subfield`
 - **Slice operations**: Dynamic array operations with `append()`
 
-### Key Functions
-
-- **Parsing**: `ParseProgram()`, `ParseStatement()`, `ParseExpression()`
-- **Compilation**: `CompileToWASM()`, `BuildLocalContext()`
-- **Testing**: `executeWasm()`, `executeWasmAndVerify()`
-
 ## Sexy Test Framework
 
-The Sexy test framework provides declarative AST testing for the Zong compiler using S-expression patterns.
+The Sexy test framework provides:
+
+- AST testing using S-expression patterns
+- Compile error testing
+- Execution testing
 
 ### Test Structure
 
-Tests are written in Markdown files in the `test/` directory with `.md` extension. Each test follows this format:
+Tests are written in Markdown files in the `test/` directory with `_test.md` extension. Each test follows this format:
 
-```markdown
-## Test: test name
-```zong-expr
-input_code
-```
-```ast
-(expected_ast_pattern)
-```
-```
+    ## Test: test name
+    ```zong-expr
+    input_code
+    ```
+    ```ast
+    (expected_ast_pattern)
+    ```
 
 ### Test Types
 
 - **Input Types**:
   - `zong-expr`: Single expression input
   - `zong-program`: Full program input
+  - `input`: Data to feed to the program for `execute` tests
 
 - **Assertion Types**:
   - `ast`: AST pattern matching using Sexy syntax
+  - `compile-error`: Test errors found during compilation
   - `execute`: Execution testing with expected output comparison
 
 ### Running Sexy Tests
@@ -224,16 +217,8 @@ func main() {
 ```execute
 
 ```
-```
 
 **Important**: Test code must explicitly call `print()` to generate output. Expressions are not automatically wrapped in print calls.
-
-### Pattern Matching Features
-
-- Exact AST structure matching with detailed error messages
-- Path-based error reporting (e.g., "root.left.operand")
-- Support for all Zong AST node types
-- Automatic test discovery and execution
 
 ## Test Structure
 
@@ -248,13 +233,7 @@ The Zong compiler has a comprehensive test suite organized by compiler phases:
 
 ### Sexy Framework Test Files
 
-Integration tests are written in Markdown files in `test/*.md` using the Sexy framework:
-- `test/expressions_test.md`: Expression parsing and evaluation
-- `test/functions_test.md`: Function declarations and calls
-- `test/structs_test.md`: Struct definitions and field access
-- `test/statements_test.md`: Variable declarations and control flow
-- `test/binary_expr_test.md`: Binary operations and precedence
-- And 20+ other feature-specific test files
+Integration tests are written in Markdown files in `test/*.md` using the Sexy framework.
 
 ### Running Tests
 
@@ -271,7 +250,5 @@ go test -run TestSexyAllTests   # sexy_test.go Sexy framework
 
 ## Development Notes
 
-- Input must be null-terminated (`\x00`)
 - Uses Go 1.23.5, requires Rust for runtime
-- Test coverage: ~100 unit tests + 200+ Sexy integration tests
 - WASM debugging tools: `wasm2wat`, `wasm-objdump` (optional)
