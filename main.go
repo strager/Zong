@@ -1726,10 +1726,6 @@ func isComparisonOp(op string) bool {
 }
 
 func CompileToWASM(ast *ASTNode) []byte {
-	// Initialize globals for slice type collection and synthesis before any processing
-	globalSliceTypes = make(map[string]*TypeNode)
-	synthesizedSliceStructs = make(map[string]*TypeNode)
-
 	// Build symbol table
 	symbolTable := BuildSymbolTable(ast)
 
