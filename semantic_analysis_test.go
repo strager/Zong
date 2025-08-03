@@ -340,8 +340,7 @@ func TestDeclareVariable(t *testing.T) {
 	st := NewSymbolTable()
 
 	// Declare a variable
-	symbol, err := st.DeclareVariable("x", TypeI64)
-	be.Err(t, err, nil)
+	symbol := st.DeclareVariable("x", TypeI64)
 	be.True(t, symbol != nil)
 
 	variables := st.GetAllVariables()
@@ -356,14 +355,13 @@ func TestDeclareVariableDuplicate(t *testing.T) {
 	st := NewSymbolTable()
 
 	// Declare a variable
-	_, err := st.DeclareVariable("x", TypeI64)
-	be.Err(t, err, nil)
+	st.DeclareVariable("x", TypeI64)
 
 	// Try to declare the same variable again
-	symbol, err := st.DeclareVariable("x", TypeI64)
-	be.True(t, err != nil)
+	symbol := st.DeclareVariable("x", TypeI64)
+	be.True(t, st.Errors.HasErrors())
 	be.True(t, symbol == nil)
-	be.Equal(t, "error: variable 'x' already declared", err.Error())
+	be.Equal(t, "error: variable 'x' already declared", st.Errors.String())
 }
 
 func TestLookupVariable(t *testing.T) {
@@ -375,8 +373,7 @@ func TestLookupVariable(t *testing.T) {
 	be.True(t, symbol == nil)
 
 	// Declare and lookup variable
-	_, err := st.DeclareVariable("x", TypeI64)
-	be.Err(t, err, nil)
+	st.DeclareVariable("x", TypeI64)
 
 	symbol = st.LookupVariable("x")
 	be.True(t, symbol != nil)
@@ -395,6 +392,7 @@ func TestBuildSymbolTableSimple(t *testing.T) {
 
 	// Build symbol table
 	st := BuildSymbolTable(ast)
+	be.True(t, !st.Errors.HasErrors())
 
 	// Verify symbol table
 	variables := st.GetAllVariables()
@@ -414,6 +412,7 @@ func TestBuildSymbolTableMultiple(t *testing.T) {
 
 	// Build symbol table
 	st := BuildSymbolTable(ast)
+	be.True(t, !st.Errors.HasErrors())
 
 	// Verify symbol table
 	variables := st.GetAllVariables()
@@ -438,6 +437,7 @@ func TestBuildSymbolTableWithPointers(t *testing.T) {
 
 	// Build symbol table
 	st := BuildSymbolTable(ast)
+	be.True(t, !st.Errors.HasErrors())
 
 	// Verify symbol table
 	variables := st.GetAllVariables()
@@ -468,6 +468,7 @@ func TestBuildSymbolTableIgnoresUnsupportedTypes(t *testing.T) {
 
 	// Build symbol table
 	st := BuildSymbolTable(ast)
+	be.True(t, !st.Errors.HasErrors())
 
 	// Should only include I64 variable
 	variables := st.GetAllVariables()
@@ -486,6 +487,7 @@ func TestVariableShadowingInNestedBlocks(t *testing.T) {
 
 	// Build symbol table
 	st := BuildSymbolTable(ast)
+	be.True(t, !st.Errors.HasErrors())
 
 	// Should have both variables but only outer one is accessible at top level
 	variables := st.GetAllVariables()
@@ -507,6 +509,7 @@ func TestFunctionParameterShadowing(t *testing.T) {
 
 	// Build symbol table
 	st := BuildSymbolTable(ast)
+	be.True(t, !st.Errors.HasErrors())
 
 	// Should have both parameter and local variable
 	variables := st.GetAllVariables()
@@ -528,6 +531,7 @@ func TestNestedBlockScoping(t *testing.T) {
 
 	// Build symbol table
 	st := BuildSymbolTable(ast)
+	be.True(t, !st.Errors.HasErrors())
 
 	// Should have all three variables
 	variables := st.GetAllVariables()
@@ -559,6 +563,7 @@ func TestFunctionScopingWithLocalVariables(t *testing.T) {
 
 	// Build symbol table
 	st := BuildSymbolTable(blockAST)
+	be.True(t, !st.Errors.HasErrors())
 
 	// Should have both variables
 	variables := st.GetAllVariables()
@@ -584,6 +589,7 @@ func TestMultipleShadowingLevels(t *testing.T) {
 
 	// Build symbol table
 	st := BuildSymbolTable(ast)
+	be.True(t, !st.Errors.HasErrors())
 
 	// Should have three x variables at different scope levels
 	variables := st.GetAllVariables()
@@ -619,6 +625,7 @@ func TestStructSymbolTable(t *testing.T) {
 
 	// Build symbol table
 	symbolTable := BuildSymbolTable(blockAST)
+	be.True(t, !symbolTable.Errors.HasErrors())
 
 	// Check that Point struct is declared
 	pointStruct := symbolTable.LookupStruct("Point")
@@ -680,8 +687,7 @@ func TestCheckExpressionInteger(t *testing.T) {
 func TestCheckExpressionVariableAssigned(t *testing.T) {
 	t.Parallel()
 	st := NewSymbolTable()
-	symbol, err := st.DeclareVariable("x", TypeI64)
-	be.Err(t, err, nil)
+	symbol := st.DeclareVariable("x", TypeI64)
 	symbol.Assigned = true
 
 	typeTable := NewTypeTable()
@@ -745,8 +751,7 @@ func TestCheckExpressionBinaryComparison(t *testing.T) {
 func TestCheckExpressionAddressOf(t *testing.T) {
 	t.Parallel()
 	st := NewSymbolTable()
-	symbol, err := st.DeclareVariable("x", TypeI64)
-	be.Err(t, err, nil)
+	symbol := st.DeclareVariable("x", TypeI64)
 	symbol.Assigned = true
 
 	typeTable := NewTypeTable()
@@ -772,8 +777,7 @@ func TestCheckExpressionDereference(t *testing.T) {
 	t.Parallel()
 	st := NewSymbolTable()
 	ptrType := &TypeNode{Kind: TypePointer, Child: TypeI64}
-	symbol, err := st.DeclareVariable("ptr", ptrType)
-	be.Err(t, err, nil)
+	symbol := st.DeclareVariable("ptr", ptrType)
 	symbol.Assigned = true
 
 	typeTable := NewTypeTable()
@@ -817,8 +821,7 @@ func TestCheckExpressionFunctionCall(t *testing.T) {
 func TestCheckAssignmentValid(t *testing.T) {
 	t.Parallel()
 	st := NewSymbolTable()
-	symbol, err := st.DeclareVariable("x", TypeI64)
-	be.Err(t, err, nil)
+	symbol := st.DeclareVariable("x", TypeI64)
 
 	typeTable := NewTypeTable()
 	tc := NewTypeChecker(typeTable)
@@ -839,8 +842,7 @@ func TestCheckAssignmentPointerDereference(t *testing.T) {
 	t.Parallel()
 	st := NewSymbolTable()
 	ptrType := &TypeNode{Kind: TypePointer, Child: TypeI64}
-	symbol, err := st.DeclareVariable("ptr", ptrType)
-	be.Err(t, err, nil)
+	symbol := st.DeclareVariable("ptr", ptrType)
 	symbol.Assigned = true
 
 	typeTable := NewTypeTable()
@@ -871,6 +873,7 @@ func TestCheckProgramSuccess(t *testing.T) {
 
 	// Build symbol table and check program
 	symbolTable := BuildSymbolTable(ast)
+	be.True(t, !symbolTable.Errors.HasErrors())
 	errors := CheckProgram(ast, symbolTable.typeTable)
 	be.True(t, !errors.HasErrors())
 }
@@ -884,6 +887,7 @@ func TestStringLiteralTypeChecking(t *testing.T) {
 
 	// Build symbol table and run type checking
 	symbolTable := BuildSymbolTable(ast)
+	be.True(t, !symbolTable.Errors.HasErrors())
 	errors := CheckProgram(ast, symbolTable.typeTable)
 	be.True(t, !errors.HasErrors()) // Should not error
 

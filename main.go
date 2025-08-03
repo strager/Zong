@@ -1767,6 +1767,9 @@ func isComparisonOp(op string) bool {
 func CompileToWASM(ast *ASTNode) []byte {
 	// Build symbol table
 	symbolTable := BuildSymbolTable(ast)
+	if symbolTable.Errors.HasErrors() {
+		panic("symbol resolution failed: " + symbolTable.Errors.String())
+	}
 
 	// Extract functions from the program first
 	functions := extractFunctions(ast)
@@ -2732,7 +2735,7 @@ func (tc *TypeChecker) resolveIntegerType(node *ASTNode, targetType *TypeNode) {
 	}
 
 	if !IsIntegerCompatible(node.Integer, targetType) {
-		tc.AddError(fmt.Sprintf("cannot convert integer %d to %s", node.Integer, TypeToString(targetType)))
+		tc.AddError(fmt.Sprintf("error: cannot convert integer %d to %s", node.Integer, TypeToString(targetType)))
 	}
 	node.TypeAST = targetType
 }
@@ -2862,9 +2865,10 @@ func NewTypeTable() *TypeTable {
 type SymbolTable struct {
 	currentScope   *Scope
 	unresolvedRefs []UnresolvedReference
-	allFunctions   []FunctionInfo // Global list for WASM index assignment
-	allScopes      []*Scope       // Keep track of all scopes for traversal
-	typeTable      *TypeTable     // Type synthesis and caching
+	allFunctions   []FunctionInfo   // Global list for WASM index assignment
+	allScopes      []*Scope         // Keep track of all scopes for traversal
+	typeTable      *TypeTable       // Type synthesis and caching
+	Errors         *ErrorCollection // Error collection for symbol resolution
 }
 
 // TypeChecker holds state for type checking
@@ -2899,6 +2903,7 @@ func NewSymbolTable() *SymbolTable {
 		allFunctions:   make([]FunctionInfo, 0),
 		allScopes:      []*Scope{globalScope},
 		typeTable:      NewTypeTable(),
+		Errors:         &ErrorCollection{},
 	}
 
 	// Add built-in functions
@@ -2953,6 +2958,11 @@ func NewSymbolTable() *SymbolTable {
 	return st
 }
 
+// AddError creates an Error with the given message and appends it to the SymbolTable's ErrorCollection
+func (st *SymbolTable) AddError(message string) {
+	st.Errors.Append(Error{message: message})
+}
+
 // PushScope creates a new scope and makes it current
 func (st *SymbolTable) PushScope() {
 	newScope := &Scope{
@@ -2971,10 +2981,11 @@ func (st *SymbolTable) PopScope() {
 }
 
 // DeclareVariable adds a variable declaration to the symbol table
-func (st *SymbolTable) DeclareVariable(name string, varType *TypeNode) (*SymbolInfo, error) {
+func (st *SymbolTable) DeclareVariable(name string, varType *TypeNode) *SymbolInfo {
 	// Check for duplicate declaration in current scope only
 	if _, exists := st.currentScope.symbols[name]; exists {
-		return nil, fmt.Errorf("error: variable '%s' already declared", name)
+		st.AddError(fmt.Sprintf("error: variable '%s' already declared", name))
+		return nil
 	}
 
 	// Create new symbol
@@ -2991,7 +3002,7 @@ func (st *SymbolTable) DeclareVariable(name string, varType *TypeNode) (*SymbolI
 	// Resolve any unresolved references to this symbol
 	st.resolvePendingReferences(name, symbol)
 
-	return symbol, nil
+	return symbol
 }
 
 // LookupVariable finds a variable in the symbol table, searching through the scope chain
@@ -3009,24 +3020,24 @@ func (st *SymbolTable) LookupVariable(name string) *SymbolInfo {
 
 // checkDuplicateDeclaration checks if a symbol name already exists in the current scope
 // Returns an error if the symbol is already declared
-func (st *SymbolTable) checkDuplicateDeclaration(name string, symbolType string) error {
+func (st *SymbolTable) checkDuplicateDeclaration(name string, symbolType string) bool {
 	if _, exists := st.currentScope.symbols[name]; exists {
-		return fmt.Errorf("%s '%s' already declared", symbolType, name)
+		st.AddError(fmt.Sprintf("error: %s '%s' already declared", symbolType, name))
+		return true
 	}
-	return nil
+	return false
 }
 
 // validateParameterList checks for duplicate parameter names in a parameter list
 // Can be used for both function parameters and struct fields
-func validateParameterList(parameters []Parameter, contextName string) error {
+func (st *SymbolTable) validateParameterList(parameters []Parameter, contextName string) {
 	seen := make(map[string]bool)
 	for _, param := range parameters {
 		if seen[param.Name] {
-			return fmt.Errorf("duplicate parameter '%s' in %s", param.Name, contextName)
+			st.AddError(fmt.Sprintf("error: duplicate parameter '%s' in %s", param.Name, contextName))
 		}
 		seen[param.Name] = true
 	}
-	return nil
 }
 
 // validateCallArguments validates arguments against a parameter list for both function calls and struct initialization
@@ -3114,18 +3125,16 @@ func validateCallArguments(
 }
 
 // DeclareStruct adds a struct declaration to the symbol table
-func (st *SymbolTable) DeclareStruct(structType *TypeNode) error {
+func (st *SymbolTable) DeclareStruct(structType *TypeNode) {
 	name := structType.String
 
 	// Check for duplicate declaration
-	if err := st.checkDuplicateDeclaration(name, "struct"); err != nil {
-		return fmt.Errorf("error: %v", err)
+	if st.checkDuplicateDeclaration(name, "struct") {
+		return
 	}
 
 	// Validate struct fields for duplicates
-	if err := validateParameterList(structType.Fields, "struct "+name); err != nil {
-		return fmt.Errorf("error: %v", err)
-	}
+	st.validateParameterList(structType.Fields, "struct "+name)
 
 	// Create new symbol for struct
 	symbol := &SymbolInfo{
@@ -3140,8 +3149,6 @@ func (st *SymbolTable) DeclareStruct(structType *TypeNode) error {
 
 	// Resolve any unresolved references to this struct
 	st.resolvePendingReferences(name, symbol)
-
-	return nil
 }
 
 // LookupStruct finds a struct type by name, searching through the scope chain
@@ -3158,16 +3165,14 @@ func (st *SymbolTable) LookupStruct(name string) *TypeNode {
 }
 
 // DeclareFunction adds a function declaration to the symbol table
-func (st *SymbolTable) DeclareFunction(name string, parameters []Parameter, returnType *TypeNode) error {
+func (st *SymbolTable) DeclareFunction(name string, parameters []Parameter, returnType *TypeNode) {
 	// Check for duplicate declaration
-	if err := st.checkDuplicateDeclaration(name, "function"); err != nil {
-		return err
+	if st.checkDuplicateDeclaration(name, "function") {
+		return
 	}
 
 	// Validate function parameters for duplicates
-	if err := validateParameterList(parameters, "function "+name); err != nil {
-		return err
-	}
+	st.validateParameterList(parameters, "function "+name)
 
 	// Assign WASM index (builtin functions like print start at 0, user functions follow)
 	wasmIndex := uint32(2 + len(st.allFunctions)) // print is at index 0, print_bytes is at index 1
@@ -3196,8 +3201,6 @@ func (st *SymbolTable) DeclareFunction(name string, parameters []Parameter, retu
 
 	// Resolve any unresolved references to this function
 	st.resolvePendingReferences(name, symbol)
-
-	return nil
 }
 
 // LookupFunction finds a function by name, searching through the scope chain
@@ -3251,12 +3254,10 @@ func (st *SymbolTable) resolvePendingReferences(name string, symbol *SymbolInfo)
 }
 
 // ReportUnresolvedSymbols returns errors for any symbols that remain unresolved
-func (st *SymbolTable) ReportUnresolvedSymbols() []error {
-	var errors []error
+func (st *SymbolTable) ReportUnresolvedSymbols() {
 	for _, ref := range st.unresolvedRefs {
-		errors = append(errors, fmt.Errorf("undefined symbol '%s'", ref.Name))
+		st.AddError(fmt.Sprintf("error: undefined symbol '%s'", ref.Name))
 	}
-	return errors
 }
 
 // GetAllVariables returns all variable symbols from all scopes
@@ -3653,22 +3654,18 @@ func BuildSymbolTable(ast *ASTNode) *SymbolTable {
 			// Create symbol table entries for struct fields (similar to function parameters)
 			st.PushScope() // Create a scope for struct fields
 			for i, field := range structType.Fields {
-				symbol, err := st.DeclareVariable(field.Name, field.Type)
-				if err != nil {
-					panic(err.Error()) // Field names should not conflict within a struct
-				}
-				// Mark field as assigned (struct fields are always accessible)
-				symbol.Assigned = true
+				symbol := st.DeclareVariable(field.Name, field.Type)
+				if symbol != nil {
+					// Mark field as assigned (struct fields are always accessible)
+					symbol.Assigned = true
 
-				// Populate the Symbol field in the Parameter using the returned symbol
-				structType.Fields[i].Symbol = symbol
+					// Populate the Symbol field in the Parameter using the returned symbol
+					structType.Fields[i].Symbol = symbol
+				}
 			}
 			st.PopScope() // Close struct field scope
 
-			err := st.DeclareStruct(structType)
-			if err != nil {
-				panic(err.Error())
-			}
+			st.DeclareStruct(structType)
 
 		case NodeFunc:
 			// Resolve struct types in function parameters and update the AST node
@@ -3707,10 +3704,7 @@ func BuildSymbolTable(ast *ASTNode) *SymbolTable {
 			}
 
 			// Declare function (in global scope)
-			err := st.DeclareFunction(node.FunctionName, node.Parameters, node.ReturnType)
-			if err != nil {
-				panic(err.Error())
-			}
+			st.DeclareFunction(node.FunctionName, node.Parameters, node.ReturnType)
 		}
 
 		// Traverse children for other declarations
@@ -3742,15 +3736,14 @@ func BuildSymbolTable(ast *ASTNode) *SymbolTable {
 
 			// Only add supported types to symbol table
 			if isWASMI64Type(varType) || isWASMI32Type(varType) || varType.Kind == TypeStruct || varType.Kind == TypeSlice {
-				symbol, err := st.DeclareVariable(varName, varType)
-				if err != nil {
-					panic(err.Error())
-				}
-				node.Children[0].Symbol = symbol
+				symbol := st.DeclareVariable(varName, varType)
+				if symbol != nil {
+					node.Children[0].Symbol = symbol
 
-				// Mark variable as assigned if it has an initializer or if it's a struct/slice
-				if hasInitializer || varType.Kind == TypeStruct || varType.Kind == TypeSlice {
-					symbol.Assigned = true
+					// Mark variable as assigned if it has an initializer or if it's a struct/slice
+					if hasInitializer || varType.Kind == TypeStruct || varType.Kind == TypeSlice {
+						symbol.Assigned = true
+					}
 				}
 			}
 
@@ -3769,15 +3762,14 @@ func BuildSymbolTable(ast *ASTNode) *SymbolTable {
 
 			// Declare function parameters in the function scope
 			for i, param := range node.Parameters {
-				symbol, err := st.DeclareVariable(param.Name, param.Type)
-				if err != nil {
-					panic(err.Error()) // Parameters should not conflict in their own scope
-				}
-				// Mark parameter as assigned (since it gets its value from the call)
-				symbol.Assigned = true
+				symbol := st.DeclareVariable(param.Name, param.Type)
+				if symbol != nil {
+					// Mark parameter as assigned (since it gets its value from the call)
+					symbol.Assigned = true
 
-				// Populate the Symbol field in the Parameter using the returned symbol
-				node.Parameters[i].Symbol = symbol
+					// Populate the Symbol field in the Parameter using the returned symbol
+					node.Parameters[i].Symbol = symbol
+				}
 			}
 
 			// Process function body with parameters in scope
@@ -3944,14 +3936,7 @@ func BuildSymbolTable(ast *ASTNode) *SymbolTable {
 	resolveFunctionCalls(ast)
 
 	// Report any unresolved symbols as errors
-	unresolved := st.ReportUnresolvedSymbols()
-	if len(unresolved) > 0 {
-		// For now, panic on unresolved symbols
-		// TODO: Return these errors properly
-		for _, err := range unresolved {
-			panic(err.Error())
-		}
-	}
+	st.ReportUnresolvedSymbols()
 
 	return st
 }

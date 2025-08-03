@@ -21,6 +21,11 @@ func main() {
 
 	// Build symbol table for type checking
 	symbolTable := BuildSymbolTable(ast)
+	if symbolTable.Errors.HasErrors() {
+		fmt.Println("Symbol resolution errors:")
+		fmt.Println(symbolTable.Errors.String())
+		os.Exit(1)
+	}
 
 	// Perform type checking to collect type errors
 	typeErrors := CheckProgram(ast, symbolTable.typeTable)

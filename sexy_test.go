@@ -1065,6 +1065,19 @@ func assertCompileErrorMatch(t *testing.T, input string, expectedError string, i
 	if ast != nil {
 		// Build symbol table and check for type errors
 		symbolTable := BuildSymbolTable(ast)
+		if symbolTable.Errors.HasErrors() {
+			// Check if we expected some error and got one
+			if expectedError == "" {
+				t.Errorf("Unexpected symbol resolution errors: %s", symbolTable.Errors.String())
+				return
+			}
+			// Check if any error message contains the expected error
+			errorMsg := symbolTable.Errors.String()
+			if !strings.Contains(errorMsg, expectedError) {
+				t.Errorf("Symbol resolution error mismatch:\n  Expected error containing: %q\n  Actual errors: %q", expectedError, errorMsg)
+			}
+			return
+		}
 		typeErrors := CheckProgram(ast, symbolTable.typeTable)
 
 		// Check for type errors first
