@@ -29,6 +29,7 @@ func TestSexyAllTests(t *testing.T) {
 		testName := strings.TrimSuffix(fileName, ".md")
 
 		t.Run(testName, func(t *testing.T) {
+			t.Parallel()
 			// Read the test file
 			content, err := os.ReadFile(testFile)
 			be.Err(t, err, nil)
@@ -40,6 +41,7 @@ func TestSexyAllTests(t *testing.T) {
 			// Generate a subtest for each test case
 			for _, tc := range testCases {
 				t.Run(tc.Name, func(t *testing.T) {
+					t.Parallel()
 					// Parse the Zong input based on input type, but skip for compile-error tests
 					// since they handle their own parsing with error recovery
 					var ast *ASTNode
@@ -69,6 +71,7 @@ func TestSexyAllTests(t *testing.T) {
 					// For each assertion, match the AST against the Sexy pattern or execute the code
 					for i, assertion := range tc.Assertions {
 						t.Run("assertion_"+string(rune('a'+i)), func(t *testing.T) {
+							t.Parallel()
 							if assertion.Type == sexy.AssertionTypeAST {
 								assertPatternMatch(t, ast, assertion.ParsedSexy, "root")
 							} else if assertion.Type == sexy.AssertionTypeExecute {

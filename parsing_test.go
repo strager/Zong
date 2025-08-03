@@ -24,6 +24,7 @@ func lexInput(inputStr string) *Lexer {
 }
 
 func TestIntLiteral(t *testing.T) {
+	t.Parallel()
 	l := lexInput("12345")
 	be.Equal(t, l.CurrTokenType, INT)
 	be.Equal(t, l.CurrLiteral, "12345")
@@ -31,24 +32,28 @@ func TestIntLiteral(t *testing.T) {
 }
 
 func TestIdentifier(t *testing.T) {
+	t.Parallel()
 	l := lexInput("foobar")
 	be.Equal(t, l.CurrTokenType, IDENT)
 	be.Equal(t, l.CurrLiteral, "foobar")
 }
 
 func TestStringLiteral(t *testing.T) {
+	t.Parallel()
 	l := lexInput("\"hello\"")
 	be.Equal(t, l.CurrTokenType, STRING)
 	be.Equal(t, l.CurrLiteral, "hello")
 }
 
 func TestCharLiteral(t *testing.T) {
+	t.Parallel()
 	l := lexInput("'a'")
 	be.Equal(t, l.CurrTokenType, CHAR)
 	be.Equal(t, l.CurrLiteral, "'a'")
 }
 
 func TestDelimiters(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		input string
 		typ   TokenType
@@ -73,6 +78,7 @@ func TestDelimiters(t *testing.T) {
 }
 
 func TestOperators(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		input    string
 		expected TokenType
@@ -110,6 +116,7 @@ func TestOperators(t *testing.T) {
 }
 
 func TestKeywords(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		input string
 		typ   TokenType
@@ -149,6 +156,7 @@ func TestKeywords(t *testing.T) {
 }
 
 func TestMultipleTokens(t *testing.T) {
+	t.Parallel()
 	input := []byte("func main() { x := 42; }\x00")
 	l := NewLexer(input)
 
@@ -180,6 +188,7 @@ func TestMultipleTokens(t *testing.T) {
 }
 
 func TestLineComment(t *testing.T) {
+	t.Parallel()
 	input := []byte("x // this is a comment\ny\x00")
 	l := NewLexer(input)
 
@@ -196,6 +205,7 @@ func TestLineComment(t *testing.T) {
 }
 
 func TestBlockComment(t *testing.T) {
+	t.Parallel()
 	input := []byte("x /* this is a\nmultiline comment */ y\x00")
 	l := NewLexer(input)
 
@@ -212,6 +222,7 @@ func TestBlockComment(t *testing.T) {
 }
 
 func TestCommentsWithTokens(t *testing.T) {
+	t.Parallel()
 	input := []byte("func // comment\n main() /* comment */ {\x00")
 	l := NewLexer(input)
 
@@ -226,6 +237,7 @@ func TestCommentsWithTokens(t *testing.T) {
 }
 
 func TestWhitespace(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		input string
 		desc  string
@@ -255,6 +267,7 @@ func TestWhitespace(t *testing.T) {
 }
 
 func TestEOF(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		input string
 		desc  string
@@ -274,6 +287,7 @@ func TestEOF(t *testing.T) {
 }
 
 func TestStringEscapes(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		input    string
 		expected string
@@ -294,6 +308,7 @@ func TestStringEscapes(t *testing.T) {
 }
 
 func TestCharEscapes(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		input    string
 		expected string
@@ -316,6 +331,7 @@ func TestCharEscapes(t *testing.T) {
 }
 
 func TestNumberEdgeCases(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		input       string
 		expectedVal int64
@@ -338,6 +354,7 @@ func TestNumberEdgeCases(t *testing.T) {
 }
 
 func TestOperatorBoundaries(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		input    string
 		expected []TokenType
@@ -371,6 +388,7 @@ func TestOperatorBoundaries(t *testing.T) {
 }
 
 func TestUnterminatedBlockComment(t *testing.T) {
+	t.Parallel()
 	l := lexInput("x /* unterminated comment")
 	be.Equal(t, l.CurrTokenType, IDENT)
 	be.Equal(t, l.CurrLiteral, "x")
@@ -380,6 +398,7 @@ func TestUnterminatedBlockComment(t *testing.T) {
 }
 
 func TestSkipToken(t *testing.T) {
+	t.Parallel()
 	// Test successful token skip
 	t.Run("successful skip", func(t *testing.T) {
 		input := []byte("123\x00")
@@ -414,6 +433,7 @@ func TestSkipToken(t *testing.T) {
 }
 
 func TestIntToString(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		value    int64
@@ -455,6 +475,7 @@ func TestIntToString(t *testing.T) {
 }
 
 func TestNextTokenIllegalCharacter(t *testing.T) {
+	t.Parallel()
 	// Test handling of illegal/unknown characters
 	input := []byte("@#$\x00") // Special characters not handled by lexer
 	l := NewLexer(input)
@@ -469,6 +490,7 @@ func TestNextTokenIllegalCharacter(t *testing.T) {
 // =============================================================================
 
 func TestVarTypeAST(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		input        string
 		expectedType *TypeNode
@@ -515,6 +537,7 @@ func TestVarTypeAST(t *testing.T) {
 }
 
 func TestSliceTypeParsing(t *testing.T) {
+	t.Parallel()
 	// Test basic slice type parsing directly
 	input := []byte("var nums I64[];\x00")
 	l := NewLexer(input)
@@ -531,6 +554,7 @@ func TestSliceTypeParsing(t *testing.T) {
 }
 
 func TestSliceBasicDeclaration(t *testing.T) {
+	t.Parallel()
 	// Test basic slice variable declaration
 	input := []byte("var nums I64[];\x00")
 	l := NewLexer(input)

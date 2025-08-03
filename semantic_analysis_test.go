@@ -16,6 +16,7 @@ import (
 // =============================================================================
 
 func TestTypesEqual(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		a, b     *TypeNode
@@ -68,6 +69,7 @@ func TestTypesEqual(t *testing.T) {
 }
 
 func TestIsWASMI64Type(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		t        *TypeNode
@@ -114,6 +116,7 @@ func TestIsWASMI64Type(t *testing.T) {
 }
 
 func TestGetTypeSize(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		t        *TypeNode
@@ -150,6 +153,7 @@ func TestGetTypeSize(t *testing.T) {
 }
 
 func TestTypeToString(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name     string
 		t        *TypeNode
@@ -191,6 +195,7 @@ func TestTypeToString(t *testing.T) {
 }
 
 func TestSliceTypeToString(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name        string
 		typeNode    *TypeNode
@@ -226,6 +231,7 @@ func TestSliceTypeToString(t *testing.T) {
 }
 
 func TestSliceStringRepresentation(t *testing.T) {
+	t.Parallel()
 	// Test TypeToString for slices
 	sliceType := &TypeNode{
 		Kind:  TypeSlice,
@@ -236,6 +242,7 @@ func TestSliceStringRepresentation(t *testing.T) {
 }
 
 func TestSliceSize(t *testing.T) {
+	t.Parallel()
 	// Test GetTypeSize for slices
 	sliceType := &TypeNode{
 		Kind:  TypeSlice,
@@ -246,6 +253,7 @@ func TestSliceSize(t *testing.T) {
 }
 
 func TestStructTypeSize(t *testing.T) {
+	t.Parallel()
 	// Create a simple struct type
 	structType := &TypeNode{
 		Kind:   TypeStruct,
@@ -261,6 +269,7 @@ func TestStructTypeSize(t *testing.T) {
 }
 
 func TestTypeUtilityFunctions(t *testing.T) {
+	t.Parallel()
 	// Test TypesEqual
 	if !TypesEqual(TypeI64, TypeI64) {
 		t.Error("TypeI64 should equal itself")
@@ -320,12 +329,14 @@ func TestTypeUtilityFunctions(t *testing.T) {
 // =============================================================================
 
 func TestNewSymbolTable(t *testing.T) {
+	t.Parallel()
 	st := NewSymbolTable()
 	be.True(t, st != nil)
 	be.Equal(t, 0, len(st.GetAllVariables()))
 }
 
 func TestDeclareVariable(t *testing.T) {
+	t.Parallel()
 	st := NewSymbolTable()
 
 	// Declare a variable
@@ -341,6 +352,7 @@ func TestDeclareVariable(t *testing.T) {
 }
 
 func TestDeclareVariableDuplicate(t *testing.T) {
+	t.Parallel()
 	st := NewSymbolTable()
 
 	// Declare a variable
@@ -355,6 +367,7 @@ func TestDeclareVariableDuplicate(t *testing.T) {
 }
 
 func TestLookupVariable(t *testing.T) {
+	t.Parallel()
 	st := NewSymbolTable()
 
 	// Lookup non-existent variable
@@ -373,6 +386,7 @@ func TestLookupVariable(t *testing.T) {
 }
 
 func TestBuildSymbolTableSimple(t *testing.T) {
+	t.Parallel()
 	// Parse: var x I64;
 	input := []byte("var x I64;\x00")
 	l := NewLexer(input)
@@ -391,6 +405,7 @@ func TestBuildSymbolTableSimple(t *testing.T) {
 }
 
 func TestBuildSymbolTableMultiple(t *testing.T) {
+	t.Parallel()
 	// Parse: { var x I64; var y I64; }
 	input := []byte("{ var x I64; var y I64; }\x00")
 	l := NewLexer(input)
@@ -414,6 +429,7 @@ func TestBuildSymbolTableMultiple(t *testing.T) {
 }
 
 func TestBuildSymbolTableWithPointers(t *testing.T) {
+	t.Parallel()
 	// Parse: { var x I64; var ptr I64*; }
 	input := []byte("{ var x I64; var ptr I64*; }\x00")
 	l := NewLexer(input)
@@ -443,6 +459,7 @@ func TestBuildSymbolTableWithPointers(t *testing.T) {
 }
 
 func TestBuildSymbolTableIgnoresUnsupportedTypes(t *testing.T) {
+	t.Parallel()
 	// Parse: { var x I64; var y string; }
 	input := []byte("{ var x I64; var y string; }\x00")
 	l := NewLexer(input)
@@ -460,6 +477,7 @@ func TestBuildSymbolTableIgnoresUnsupportedTypes(t *testing.T) {
 }
 
 func TestVariableShadowingInNestedBlocks(t *testing.T) {
+	t.Parallel()
 	// Parse: { var x I64; { var x I64; } }
 	input := []byte("{ var x I64; { var x I64; } }\x00")
 	l := NewLexer(input)
@@ -480,6 +498,7 @@ func TestVariableShadowingInNestedBlocks(t *testing.T) {
 }
 
 func TestFunctionParameterShadowing(t *testing.T) {
+	t.Parallel()
 	// Parse: func test(x: I64) { var x I64; }
 	input := []byte("func test(x: I64) { var x I64; }\x00")
 	l := NewLexer(input)
@@ -500,6 +519,7 @@ func TestFunctionParameterShadowing(t *testing.T) {
 }
 
 func TestNestedBlockScoping(t *testing.T) {
+	t.Parallel()
 	// Parse: { var outer I64; { var middle I64; { var inner I64; } } }
 	input := []byte("{ var outer I64; { var middle I64; { var inner I64; } } }\x00")
 	l := NewLexer(input)
@@ -520,6 +540,7 @@ func TestNestedBlockScoping(t *testing.T) {
 }
 
 func TestFunctionScopingWithLocalVariables(t *testing.T) {
+	t.Parallel()
 	// Parse: func test() { var local I64; } var global I64;
 	input := []byte("func test() { var local I64; } var global I64;\x00")
 	l := NewLexer(input)
@@ -554,6 +575,7 @@ func TestFunctionScopingWithLocalVariables(t *testing.T) {
 }
 
 func TestMultipleShadowingLevels(t *testing.T) {
+	t.Parallel()
 	// Parse: { var x I64; { var x I64; { var x I64; } } }
 	input := []byte("{ var x I64; { var x I64; { var x I64; } } }\x00")
 	l := NewLexer(input)
@@ -575,6 +597,7 @@ func TestMultipleShadowingLevels(t *testing.T) {
 }
 
 func TestStructSymbolTable(t *testing.T) {
+	t.Parallel()
 	input := []byte(`struct Point(x: I64, y: I64);
 	var p Point;
 	var q Point;
@@ -638,6 +661,7 @@ func TestStructSymbolTable(t *testing.T) {
 // =============================================================================
 
 func TestCheckExpressionInteger(t *testing.T) {
+	t.Parallel()
 	typeTable := NewTypeTable()
 	tc := NewTypeChecker(typeTable)
 
@@ -654,6 +678,7 @@ func TestCheckExpressionInteger(t *testing.T) {
 }
 
 func TestCheckExpressionVariableAssigned(t *testing.T) {
+	t.Parallel()
 	st := NewSymbolTable()
 	symbol, err := st.DeclareVariable("x", TypeI64)
 	be.Err(t, err, nil)
@@ -676,6 +701,7 @@ func TestCheckExpressionVariableAssigned(t *testing.T) {
 }
 
 func TestCheckExpressionBinaryArithmetic(t *testing.T) {
+	t.Parallel()
 	typeTable := NewTypeTable()
 	tc := NewTypeChecker(typeTable)
 
@@ -696,6 +722,7 @@ func TestCheckExpressionBinaryArithmetic(t *testing.T) {
 }
 
 func TestCheckExpressionBinaryComparison(t *testing.T) {
+	t.Parallel()
 	typeTable := NewTypeTable()
 	tc := NewTypeChecker(typeTable)
 
@@ -716,6 +743,7 @@ func TestCheckExpressionBinaryComparison(t *testing.T) {
 }
 
 func TestCheckExpressionAddressOf(t *testing.T) {
+	t.Parallel()
 	st := NewSymbolTable()
 	symbol, err := st.DeclareVariable("x", TypeI64)
 	be.Err(t, err, nil)
@@ -741,6 +769,7 @@ func TestCheckExpressionAddressOf(t *testing.T) {
 }
 
 func TestCheckExpressionDereference(t *testing.T) {
+	t.Parallel()
 	st := NewSymbolTable()
 	ptrType := &TypeNode{Kind: TypePointer, Child: TypeI64}
 	symbol, err := st.DeclareVariable("ptr", ptrType)
@@ -766,6 +795,7 @@ func TestCheckExpressionDereference(t *testing.T) {
 }
 
 func TestCheckExpressionFunctionCall(t *testing.T) {
+	t.Parallel()
 	typeTable := NewTypeTable()
 	tc := NewTypeChecker(typeTable)
 
@@ -785,6 +815,7 @@ func TestCheckExpressionFunctionCall(t *testing.T) {
 }
 
 func TestCheckAssignmentValid(t *testing.T) {
+	t.Parallel()
 	st := NewSymbolTable()
 	symbol, err := st.DeclareVariable("x", TypeI64)
 	be.Err(t, err, nil)
@@ -805,6 +836,7 @@ func TestCheckAssignmentValid(t *testing.T) {
 }
 
 func TestCheckAssignmentPointerDereference(t *testing.T) {
+	t.Parallel()
 	st := NewSymbolTable()
 	ptrType := &TypeNode{Kind: TypePointer, Child: TypeI64}
 	symbol, err := st.DeclareVariable("ptr", ptrType)
@@ -830,6 +862,7 @@ func TestCheckAssignmentPointerDereference(t *testing.T) {
 }
 
 func TestCheckProgramSuccess(t *testing.T) {
+	t.Parallel()
 	// Parse: { var x I64; x = 42; print(x); }
 	input := []byte("{ var x I64; x = 42; print(x); }\x00")
 	l := NewLexer(input)
@@ -843,6 +876,7 @@ func TestCheckProgramSuccess(t *testing.T) {
 }
 
 func TestStringLiteralTypeChecking(t *testing.T) {
+	t.Parallel()
 	input := []byte(`var s U8[] = "hello";` + "\x00")
 	l := NewLexer(input)
 	l.NextToken()

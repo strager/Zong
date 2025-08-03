@@ -187,6 +187,7 @@ func TestEmitExpression(t *testing.T) {
 }
 
 func TestCompileToWASMIntegration(t *testing.T) {
+	t.Parallel()
 	// Test parsing and compiling a simple expression
 	input := []byte("42 + 8\x00")
 	l := NewLexer(input)
@@ -205,6 +206,7 @@ func TestCompileToWASMIntegration(t *testing.T) {
 }
 
 func TestEmitAddressOfNonAddressedVariable(t *testing.T) {
+	t.Parallel()
 	defer func() {
 		r := recover()
 		be.True(t, r != nil)
@@ -244,6 +246,7 @@ func TestEmitAddressOfNonAddressedVariable(t *testing.T) {
 // =============================================================================
 
 func TestStringCollection(t *testing.T) {
+	t.Parallel()
 	input := []byte(`var s U8[] = "hello"; var t U8[] = "world"; var u U8[] = "hello";` + "\x00")
 	l := NewLexer(input)
 	l.NextToken()
@@ -272,6 +275,7 @@ func TestStringCollection(t *testing.T) {
 }
 
 func TestDataSectionSize(t *testing.T) {
+	t.Parallel()
 	strings := []StringLiteral{
 		{Content: "hello", Address: 0, Length: 5},
 		{Content: "world", Address: 5, Length: 5},
@@ -282,6 +286,7 @@ func TestDataSectionSize(t *testing.T) {
 }
 
 func TestWASMCompilationSuccess(t *testing.T) {
+	t.Parallel()
 	// Test that compilation doesn't crash, even if execution fails
 	input := []byte(`func main() { var s U8[] = "hello"; }` + "\x00")
 	l := NewLexer(input)
@@ -300,6 +305,7 @@ func TestWASMCompilationSuccess(t *testing.T) {
 }
 
 func TestDataSectionInWASM(t *testing.T) {
+	t.Parallel()
 	input := []byte(`func main() { var s U8[] = "hello"; }` + "\x00")
 	l := NewLexer(input)
 	l.NextToken()
@@ -323,6 +329,7 @@ func TestDataSectionInWASM(t *testing.T) {
 }
 
 func TestGlobalStringAddresses(t *testing.T) {
+	t.Parallel()
 	input := []byte(`func main() { var s U8[] = "test"; }` + "\x00")
 	l := NewLexer(input)
 	l.NextToken()
@@ -338,6 +345,7 @@ func TestGlobalStringAddresses(t *testing.T) {
 }
 
 func TestMultipleStringAddresses(t *testing.T) {
+	t.Parallel()
 	input := []byte(`func main() { var s U8[] = "first"; var t U8[] = "second"; }` + "\x00")
 	l := NewLexer(input)
 	l.NextToken()
@@ -368,6 +376,7 @@ func TestMultipleStringAddresses(t *testing.T) {
 }
 
 func TestEmptyString(t *testing.T) {
+	t.Parallel()
 	input := []byte(`func main() { var s U8[] = ""; }` + "\x00")
 	l := NewLexer(input)
 	l.NextToken()
