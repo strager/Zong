@@ -222,7 +222,6 @@ var globalFunctionMap map[string]int
 
 // Global slice type registry for generating append functions
 var globalSliceTypes map[string]*TypeNode
-var generatedAppendFunctions []*ASTNode
 
 // Global cache for synthesized slice struct types to ensure symbol consistency
 var synthesizedSliceStructs map[string]*TypeNode
@@ -231,7 +230,6 @@ func initTypeRegistry() {
 	globalTypeRegistry = []FunctionType{}
 	globalTypeMap = make(map[string]int)
 	globalSliceTypes = make(map[string]*TypeNode)
-	generatedAppendFunctions = []*ASTNode{}
 	synthesizedSliceStructs = make(map[string]*TypeNode)
 
 	// Type 0: print function (i64) -> ()
@@ -1730,7 +1728,6 @@ func isComparisonOp(op string) bool {
 func CompileToWASM(ast *ASTNode) []byte {
 	// Initialize globals for slice type collection and synthesis before any processing
 	globalSliceTypes = make(map[string]*TypeNode)
-	generatedAppendFunctions = []*ASTNode{}
 	synthesizedSliceStructs = make(map[string]*TypeNode)
 
 	// Build symbol table
@@ -1747,7 +1744,7 @@ func CompileToWASM(ast *ASTNode) []byte {
 
 	// Collect slice types before transformation (when they're still slice types)
 	collectSliceTypes(ast)
-	generateAllAppendFunctions()
+	generatedAppendFunctions := generateAllAppendFunctions()
 
 	// Apply slice-to-struct transformation pass after type checking and slice collection
 	transformSlicesToStructs(ast, symbolTable)
@@ -3574,11 +3571,13 @@ func sanitizeTypeName(typeName string) string {
 }
 
 // generateAllAppendFunctions creates append functions for all collected slice types
-func generateAllAppendFunctions() {
+func generateAllAppendFunctions() []*ASTNode {
+	var generatedFunctions []*ASTNode
 	for _, sliceType := range globalSliceTypes {
 		appendFunc := generateAppendFunction(sliceType)
-		generatedAppendFunctions = append(generatedAppendFunctions, appendFunc)
+		generatedFunctions = append(generatedFunctions, appendFunc)
 	}
+	return generatedFunctions
 }
 
 // BuildSymbolTable traverses the AST to build a symbol table with variable declarations
