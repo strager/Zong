@@ -24,7 +24,9 @@
       "Bash(target/release/wasmruntime:*)",
       "Bash(wasmruntime/target/release/wasmruntime test.wasm)",
       "Bash(sl diff:*)",
-      "Bash(sl show:*)"
+      "Bash(sl show:*)",
+      "Bash(./zong run:*)",
+      "Bash(./zong eval:*)"
     ],
     "deny": []
   }

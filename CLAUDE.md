@@ -14,10 +14,33 @@ cd wasmruntime
 cargo build --release
 ```
 
-### Compiling a program and running it
+### Modern CLI Usage
+
+The Zong compiler now provides a modern CLI with subcommands:
+
 ```bash
-go run . 'print(42);'
-./wasmruntime/target/release/wasmruntime test.wasm
+# File-based operations
+go run . run examples/prime.zong           # Compile and execute
+go run . build examples/prime.zong         # Compile to WASM only  
+go run . build -o myapp.wasm prime.zong    # Custom output name
+
+# Inline evaluation
+go run . eval 'print(42)'                 # Evaluate expressions
+go run . eval 'func main() { print(123); }' # Evaluate full programs
+
+# Development workflow
+go run . check examples/prime.zong         # Parse and type-check only
+
+# Verbose output
+go run . run -v examples/prime.zong        # Show compilation details
+```
+
+### Building and Installing
+
+To create a standalone binary:
+```bash
+go build -o zong .
+./zong run examples/prime.zong
 ```
 
 ## Code Style
