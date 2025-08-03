@@ -2789,17 +2789,21 @@ type Scope struct {
 	symbols map[string]*SymbolInfo // All symbols (variables, functions, structs) in this scope
 }
 
+// SliceTypeInfo holds both original and synthesized representations of a slice type
+type SliceTypeInfo struct {
+	Original    *TypeNode // Original slice type (for codegen)
+	Synthesized *TypeNode // Synthesized struct type (for type checking)
+}
+
 // TypeTable manages type synthesis and caching
 type TypeTable struct {
-	synthesizedSliceStructs map[string]*TypeNode // Cache for synthesized slice struct types
-	originalSliceTypes      map[string]*TypeNode // Registry of original slice types for code generation
+	sliceTypes map[string]*SliceTypeInfo // Combined registry of slice types
 }
 
 // NewTypeTable creates a new type table
 func NewTypeTable() *TypeTable {
 	return &TypeTable{
-		synthesizedSliceStructs: make(map[string]*TypeNode),
-		originalSliceTypes:      make(map[string]*TypeNode),
+		sliceTypes: make(map[string]*SliceTypeInfo),
 	}
 }
 
@@ -3301,8 +3305,8 @@ func synthesizeSliceStruct(sliceType *TypeNode, typeTable *TypeTable) *TypeNode 
 	sliceName := TypeToString(sliceType)
 
 	// Check if we already have a synthesized struct for this slice type
-	if cachedStruct, exists := typeTable.synthesizedSliceStructs[sliceName]; exists {
-		return cachedStruct
+	if sliceInfo, exists := typeTable.sliceTypes[sliceName]; exists && sliceInfo.Synthesized != nil {
+		return sliceInfo.Synthesized
 	}
 
 	// Create the internal struct with symbols
@@ -3315,7 +3319,15 @@ func synthesizeSliceStruct(sliceType *TypeNode, typeTable *TypeTable) *TypeNode 
 	}
 
 	// Cache the synthesized struct to ensure symbol consistency
-	typeTable.synthesizedSliceStructs[sliceName] = synthesized
+	if sliceInfo, exists := typeTable.sliceTypes[sliceName]; exists {
+		sliceInfo.Synthesized = synthesized
+	} else {
+		// Create new entry if it doesn't exist (shouldn't happen normally)
+		typeTable.sliceTypes[sliceName] = &SliceTypeInfo{
+			Original:    sliceType,
+			Synthesized: synthesized,
+		}
+	}
 
 	return synthesized
 }
@@ -3441,8 +3453,11 @@ func collectSliceTypesFromType(typeNode *TypeNode, typeTable *TypeTable) {
 	switch typeNode.Kind {
 	case TypeSlice:
 		typeKey := TypeToString(typeNode)
-		if _, exists := typeTable.originalSliceTypes[typeKey]; !exists {
-			typeTable.originalSliceTypes[typeKey] = typeNode
+		if _, exists := typeTable.sliceTypes[typeKey]; !exists {
+			typeTable.sliceTypes[typeKey] = &SliceTypeInfo{
+				Original: typeNode,
+				// Synthesized will be set later during transformation
+			}
 		}
 		// Also collect from the element type
 		collectSliceTypesFromType(typeNode.Child, typeTable)
@@ -3578,8 +3593,8 @@ func sanitizeTypeName(typeName string) string {
 // generateAllAppendFunctions creates append functions for all collected slice types
 func generateAllAppendFunctions(typeTable *TypeTable) []*ASTNode {
 	var generatedFunctions []*ASTNode
-	for _, sliceType := range typeTable.originalSliceTypes {
-		appendFunc := generateAppendFunction(sliceType)
+	for _, sliceInfo := range typeTable.sliceTypes {
+		appendFunc := generateAppendFunction(sliceInfo.Original)
 		generatedFunctions = append(generatedFunctions, appendFunc)
 	}
 	return generatedFunctions
