@@ -277,7 +277,7 @@ func main() {
 }
 ```
 ```compile-error
-error: append() cannot convert integer 256 to U8
+cannot convert integer 256 to U8
 ```
 
 ## Test: type mismatch Boolean to I64
@@ -290,7 +290,7 @@ func main() {
 }
 ```
 ```compile-error
-error: cannot assign Boolean to I64
+cannot assign Boolean to I64
 ```
 
 ## Test: non-ASCII characters in string literals should be rejected

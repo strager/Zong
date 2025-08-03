@@ -672,8 +672,8 @@ func TestCheckExpressionInteger(t *testing.T) {
 	}
 
 	// Check expression
-	err := CheckExpression(intNode, tc)
-	be.Err(t, err, nil)
+	CheckExpression(intNode, tc)
+	be.True(t, !tc.Errors.HasErrors())
 	be.Equal(t, TypeIntegerNode, intNode.TypeAST)
 }
 
@@ -695,8 +695,8 @@ func TestCheckExpressionVariableAssigned(t *testing.T) {
 	}
 
 	// Check expression
-	err = CheckExpression(varNode, tc)
-	be.Err(t, err, nil)
+	CheckExpression(varNode, tc)
+	be.True(t, !tc.Errors.HasErrors())
 	be.Equal(t, TypeI64, varNode.TypeAST)
 }
 
@@ -716,8 +716,8 @@ func TestCheckExpressionBinaryArithmetic(t *testing.T) {
 	}
 
 	// Check expression
-	err := CheckExpression(binaryNode, tc)
-	be.Err(t, err, nil)
+	CheckExpression(binaryNode, tc)
+	be.True(t, !tc.Errors.HasErrors())
 	be.Equal(t, TypeI64, binaryNode.TypeAST)
 }
 
@@ -737,8 +737,8 @@ func TestCheckExpressionBinaryComparison(t *testing.T) {
 	}
 
 	// Check expression
-	err := CheckExpression(binaryNode, tc)
-	be.Err(t, err, nil)
+	CheckExpression(binaryNode, tc)
+	be.True(t, !tc.Errors.HasErrors())
 	be.Equal(t, TypeBool, binaryNode.TypeAST) // Comparison returns Bool
 }
 
@@ -762,8 +762,8 @@ func TestCheckExpressionAddressOf(t *testing.T) {
 	}
 
 	// Check expression
-	err = CheckExpression(addrNode, tc)
-	be.Err(t, err, nil)
+	CheckExpression(addrNode, tc)
+	be.True(t, !tc.Errors.HasErrors())
 	be.Equal(t, TypePointer, addrNode.TypeAST.Kind)
 	be.Equal(t, TypeI64, addrNode.TypeAST.Child)
 }
@@ -789,8 +789,8 @@ func TestCheckExpressionDereference(t *testing.T) {
 	}
 
 	// Check expression
-	err = CheckExpression(derefNode, tc)
-	be.Err(t, err, nil)
+	CheckExpression(derefNode, tc)
+	be.True(t, !tc.Errors.HasErrors())
 	be.Equal(t, TypeI64, derefNode.TypeAST)
 }
 
@@ -809,8 +809,8 @@ func TestCheckExpressionFunctionCall(t *testing.T) {
 	}
 
 	// Check expression
-	err := CheckExpression(callNode, tc)
-	be.Err(t, err, nil)
+	CheckExpression(callNode, tc)
+	be.True(t, !tc.Errors.HasErrors())
 	be.Equal(t, TypeI64, callNode.TypeAST)
 }
 
@@ -828,8 +828,8 @@ func TestCheckAssignmentValid(t *testing.T) {
 	rhs := &ASTNode{Kind: NodeInteger, Integer: 42}
 
 	// Check assignment
-	err = CheckAssignment(lhs, rhs, tc)
-	be.Err(t, err, nil)
+	CheckAssignment(lhs, rhs, tc)
+	be.True(t, !tc.Errors.HasErrors())
 
 	// Verify variable is now assigned
 	be.Equal(t, true, symbol.Assigned)
@@ -857,8 +857,8 @@ func TestCheckAssignmentPointerDereference(t *testing.T) {
 	rhs := &ASTNode{Kind: NodeInteger, Integer: 42}
 
 	// Check assignment
-	err = CheckAssignment(lhs, rhs, tc)
-	be.Err(t, err, nil)
+	CheckAssignment(lhs, rhs, tc)
+	be.True(t, !tc.Errors.HasErrors())
 }
 
 func TestCheckProgramSuccess(t *testing.T) {
@@ -871,8 +871,8 @@ func TestCheckProgramSuccess(t *testing.T) {
 
 	// Build symbol table and check program
 	symbolTable := BuildSymbolTable(ast)
-	err := CheckProgram(ast, symbolTable.typeTable)
-	be.Err(t, err, nil)
+	errors := CheckProgram(ast, symbolTable.typeTable)
+	be.True(t, !errors.HasErrors())
 }
 
 func TestStringLiteralTypeChecking(t *testing.T) {
@@ -884,8 +884,8 @@ func TestStringLiteralTypeChecking(t *testing.T) {
 
 	// Build symbol table and run type checking
 	symbolTable := BuildSymbolTable(ast)
-	err := CheckProgram(ast, symbolTable.typeTable)
-	be.Err(t, err, nil) // Should not error
+	errors := CheckProgram(ast, symbolTable.typeTable)
+	be.True(t, !errors.HasErrors()) // Should not error
 
 	// Check that string literal has correct type
 	varDecl := ast.Children[0]

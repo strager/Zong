@@ -19,9 +19,24 @@ func main() {
 	l.NextToken()
 	ast := ParseProgram(l)
 
-	// Check for lexing/parsing errors
+	// Build symbol table for type checking
+	symbolTable := BuildSymbolTable(ast)
+
+	// Perform type checking to collect type errors
+	typeErrors := CheckProgram(ast, symbolTable.typeTable)
+
+	// Check for any errors (parsing or type checking)
+	hasErrors := false
 	if l.Errors.HasErrors() {
 		fmt.Printf("Parsing errors:\n%s\n", l.Errors.String())
+		hasErrors = true
+	}
+	if typeErrors.HasErrors() {
+		fmt.Printf("Type checking errors:\n%s\n", typeErrors.String())
+		hasErrors = true
+	}
+
+	if hasErrors {
 		os.Exit(1)
 	}
 

@@ -1061,9 +1061,27 @@ func assertCompileErrorMatch(t *testing.T, input string, expectedError string, i
 		return
 	}
 
-	// If parsing succeeded, try to compile to catch compilation errors
+	// If parsing succeeded, check for type errors and then try to compile
 	if ast != nil {
-		// Capture compilation errors (non-parser errors)
+		// Build symbol table and check for type errors
+		symbolTable := BuildSymbolTable(ast)
+		typeErrors := CheckProgram(ast, symbolTable.typeTable)
+
+		// Check for type errors first
+		if typeErrors.HasErrors() {
+			if expectedError == "" {
+				// Test passes - we expected some error and got one
+				return
+			}
+			// Check if any type error message contains the expected error
+			errorMsg := typeErrors.String()
+			if !strings.Contains(errorMsg, expectedError) {
+				t.Errorf("Compilation error mismatch:\n  Expected error containing: %q\n  Actual type errors: %q", expectedError, errorMsg)
+			}
+			return
+		}
+
+		// If no type errors, try WASM compilation to catch other compilation errors
 		defer func() {
 			if r := recover(); r != nil {
 				if expectedError == "" {

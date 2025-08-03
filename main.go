@@ -1772,9 +1772,9 @@ func CompileToWASM(ast *ASTNode) []byte {
 	functions := extractFunctions(ast)
 
 	// Perform type checking with original slice types
-	err := CheckProgram(ast, symbolTable.typeTable)
-	if err != nil {
-		panic(err.Error())
+	typeErrors := CheckProgram(ast, symbolTable.typeTable)
+	if typeErrors.HasErrors() {
+		panic("type checking failed: " + typeErrors.String())
 	}
 
 	// Collect slice types before transformation (when they're still slice types)
@@ -1859,14 +1859,10 @@ func isExpressionNode(node *ASTNode) bool {
 func compileLegacyExpression(ast *ASTNode, typeTable *TypeTable) []byte {
 	// Run type checking first
 	tc := NewTypeChecker(typeTable)
-	var err error
 	if isExpressionNode(ast) {
-		err = CheckExpression(ast, tc)
+		CheckExpression(ast, tc)
 	} else {
-		err = CheckStatement(ast, tc)
-	}
-	if err != nil {
-		panic(err) // For backward compatibility, panic on type errors
+		CheckStatement(ast, tc)
 	}
 
 	// Use same unified system
@@ -2726,20 +2722,19 @@ func IsIntegerCompatible(integerValue int64, targetType *TypeNode) bool {
 	return false
 }
 
-// ResolveIntegerType resolves an Integer type to a concrete type based on context
+// resolveIntegerType resolves an Integer type to a concrete type based on context
 // Returns error if the integer value doesn't fit in the target type
 //
 // Precondition: node.Kind == NodeInteger
-func ResolveIntegerType(node *ASTNode, targetType *TypeNode) error {
+func (tc *TypeChecker) resolveIntegerType(node *ASTNode, targetType *TypeNode) {
 	if node.Kind != NodeInteger || node.TypeAST.Kind != TypeInteger {
-		panic("ResolveIntegerType called with non-constant")
+		panic("resolveIntegerType called with non-constant")
 	}
 
 	if !IsIntegerCompatible(node.Integer, targetType) {
-		return fmt.Errorf("cannot convert integer %d to %s", node.Integer, TypeToString(targetType))
+		tc.AddError(fmt.Sprintf("cannot convert integer %d to %s", node.Integer, TypeToString(targetType)))
 	}
 	node.TypeAST = targetType
-	return nil
 }
 
 // isKnownUnsupportedType checks if a type name is a known unsupported built-in type
@@ -2874,7 +2869,7 @@ type SymbolTable struct {
 
 // TypeChecker holds state for type checking
 type TypeChecker struct {
-	errors    []string
+	Errors    *ErrorCollection
 	LoopDepth int        // Track loop nesting for break/continue validation
 	typeTable *TypeTable // Type synthesis and caching
 }
@@ -3041,8 +3036,8 @@ func validateCallArguments(
 	argNames []string, // parameter names (empty string for positional)
 	expectedParams []Parameter, // expected parameters/fields
 	callType string, // "function call" or "struct initialization"
-	tc *TypeChecker, // for type checking individual arguments
-) error {
+	tc *TypeChecker, // for type checking individual arguments and error reporting
+) {
 	// Check for duplicate argument names first (for better error messages) - use appropriate terminology
 	duplicateWord := "parameter"
 	if callType == "struct initialization" {
@@ -3052,7 +3047,8 @@ func validateCallArguments(
 	for _, argName := range argNames {
 		if argName != "" { // Skip positional arguments
 			if providedNames[argName] {
-				return fmt.Errorf("error: %s has duplicate %s '%s'", callType, duplicateWord, argName)
+				tc.AddError(fmt.Sprintf("error: %s has duplicate %s '%s'", callType, duplicateWord, argName))
+				return
 			}
 			providedNames[argName] = true
 		}
@@ -3064,7 +3060,8 @@ func validateCallArguments(
 		paramWord = "fields"
 	}
 	if len(argValues) != len(expectedParams) {
-		return fmt.Errorf("error: %s expects %d %s, got %d", callType, len(expectedParams), paramWord, len(argValues))
+		tc.AddError(fmt.Sprintf("error: %s expects %d %s, got %d", callType, len(expectedParams), paramWord, len(argValues)))
+		return
 	}
 
 	// Validate each argument
@@ -3088,37 +3085,32 @@ func validateCallArguments(
 				if callType == "struct initialization" {
 					unknownWord = "field"
 				}
-				return fmt.Errorf("error: %s has unknown %s '%s'", callType, unknownWord, argName)
+				tc.AddError(fmt.Sprintf("error: %s has unknown %s '%s'", callType, unknownWord, argName))
+				return
 			}
 		} else {
 			// Positional parameter
 			if i >= len(expectedParams) {
-				return fmt.Errorf("error: too many arguments for %s", callType)
+				tc.AddError(fmt.Sprintf("error: too many arguments for %s", callType))
+				return
 			}
 			expectedParam = &expectedParams[i]
 		}
 
 		// Type-check the argument
-		err := CheckExpression(argValue, tc)
-		if err != nil {
-			return fmt.Errorf("error: %s argument '%s' %v", callType, expectedParam.Name, err)
-		}
+		CheckExpression(argValue, tc)
 
 		// Check that argument type matches expected parameter type
 		valueType := argValue.TypeAST
 		if valueType.Kind == TypeInteger {
 			// Resolve Integer type based on expected parameter type
-			err := ResolveIntegerType(argValue, expectedParam.Type)
-			if err != nil {
-				return fmt.Errorf("error: %s field '%s' %v", callType, expectedParam.Name, err)
-			}
+			tc.resolveIntegerType(argValue, expectedParam.Type)
 		} else if !TypesEqual(valueType, expectedParam.Type) {
-			return fmt.Errorf("error: %s field '%s' expects type %s, got %s",
-				callType, expectedParam.Name, TypeToString(expectedParam.Type), TypeToString(valueType))
+			tc.AddError(fmt.Sprintf("error: %s field '%s' expects type %s, got %s",
+				callType, expectedParam.Name, TypeToString(expectedParam.Type), TypeToString(valueType)))
+			return
 		}
 	}
-
-	return nil
 }
 
 // DeclareStruct adds a struct declaration to the symbol table
@@ -3967,61 +3959,53 @@ func BuildSymbolTable(ast *ASTNode) *SymbolTable {
 // NewTypeChecker creates a new type checker with the given type table
 func NewTypeChecker(typeTable *TypeTable) *TypeChecker {
 	return &TypeChecker{
-		errors:    make([]string, 0),
+		Errors:    &ErrorCollection{},
 		typeTable: typeTable,
 	}
 }
 
+// AddError creates an Error with the given message and appends it to the TypeChecker's ErrorCollection.
+func (tc *TypeChecker) AddError(message string) {
+	tc.Errors.Append(Error{message: message})
+}
+
 // CheckProgram performs type checking on the entire AST
-func CheckProgram(ast *ASTNode, typeTable *TypeTable) error {
+func CheckProgram(ast *ASTNode, typeTable *TypeTable) *ErrorCollection {
 
 	tc := NewTypeChecker(typeTable)
 
-	err := CheckStatement(ast, tc)
-	if err != nil {
-		return err
-	}
+	CheckStatement(ast, tc)
 
-	// Return any accumulated errors
-	if len(tc.errors) > 0 {
-		return fmt.Errorf("type checking failed: %s", tc.errors[0])
-	}
-
-	return nil
+	// Return the error collection (may be empty)
+	return tc.Errors
 }
 
 // CheckStatement validates a statement node
-func CheckStatement(stmt *ASTNode, tc *TypeChecker) error {
+func CheckStatement(stmt *ASTNode, tc *TypeChecker) {
 
 	switch stmt.Kind {
 	case NodeVar:
 		// Variable declaration - validate type is provided
 		varType := stmt.TypeAST
 		if varType == nil {
-			return fmt.Errorf("error: variable declaration missing type")
+			tc.AddError("error: variable declaration missing type")
+			return
 		}
 
 		// If there's an initialization expression, type-check it
 		if len(stmt.Children) > 1 {
 			initExpr := stmt.Children[1]
-			err := CheckExpression(initExpr, tc)
-			if err != nil {
-				return err
-			}
+			CheckExpression(initExpr, tc)
 
 			// Ensure initialization expression type matches variable type or allow implicit conversion
 			initType := initExpr.TypeAST
-			if !TypesEqual(varType, initType) {
+			if initType != nil && !TypesEqual(varType, initType) {
 				// Try to resolve Integer type to match variable type
 				if initType.Kind == TypeInteger {
-					err := ResolveIntegerType(initExpr, varType)
-					if err != nil {
-						return err
-					}
-					// Type resolution succeeded, continue
+					tc.resolveIntegerType(initExpr, varType)
 				} else {
-					return fmt.Errorf("error: cannot initialize variable of type %s with value of type %s",
-						TypeToString(varType), TypeToString(initType))
+					tc.AddError(fmt.Sprintf("error: cannot initialize variable of type %s with value of type %s",
+						TypeToString(varType), TypeToString(initType)))
 				}
 			}
 		}
@@ -4032,57 +4016,39 @@ func CheckStatement(stmt *ASTNode, tc *TypeChecker) error {
 	case NodeBlock:
 		// Check all statements in the block
 		for _, child := range stmt.Children {
-			err := CheckStatement(child, tc)
-			if err != nil {
-				return err
-			}
+			CheckStatement(child, tc)
 		}
 
 	case NodeBinary:
 		// Check if this is an assignment statement
 		if stmt.Op == "=" {
-			return CheckAssignment(stmt.Children[0], stmt.Children[1], tc)
+			CheckAssignment(stmt.Children[0], stmt.Children[1], tc)
 		} else {
 			// Regular expression statement
-			err := CheckExpression(stmt, tc)
-			if err != nil {
-				return err
-			}
+			CheckExpression(stmt, tc)
 		}
 
 	case NodeCall, NodeIdent, NodeInteger, NodeDot, NodeUnary:
 		// Expression statement
-		err := CheckExpression(stmt, tc)
-		if err != nil {
-			return err
-		}
+		CheckExpression(stmt, tc)
 
 	case NodeReturn:
 		// TODO: Implement return type checking in the future
 		if len(stmt.Children) > 0 {
-			err := CheckExpression(stmt.Children[0], tc)
-			if err != nil {
-				return err
-			}
+			CheckExpression(stmt.Children[0], tc)
 
 			// For now, resolve Integer types to I64 in return statements
 			// TODO: Use actual function return type when proper return type checking is implemented
 			returnValueType := stmt.Children[0].TypeAST
-			if returnValueType.Kind == TypeInteger {
-				err := ResolveIntegerType(stmt.Children[0], TypeI64)
-				if err != nil {
-					return fmt.Errorf("error: return statement %v", err)
-				}
+			if returnValueType != nil && returnValueType.Kind == TypeInteger {
+				tc.resolveIntegerType(stmt.Children[0], TypeI64)
 			}
 		}
 
 	case NodeFunc:
 		// Function declaration - check the function body
 		for _, stmt := range stmt.Children {
-			err := CheckStatement(stmt, tc)
-			if err != nil {
-				return err
-			}
+			CheckStatement(stmt, tc)
 		}
 
 	case NodeIf:
@@ -4090,20 +4056,14 @@ func CheckStatement(stmt *ASTNode, tc *TypeChecker) error {
 		// Structure: [condition, then_block, condition2?, else_block2?, ...]
 
 		// Check condition (must be Boolean)
-		err := CheckExpression(stmt.Children[0], tc)
-		if err != nil {
-			return err
-		}
+		CheckExpression(stmt.Children[0], tc)
 		condType := stmt.Children[0].TypeAST
-		if !TypesEqual(condType, TypeBool) {
-			return fmt.Errorf("error: if condition must be Boolean, got %s", TypeToString(condType))
+		if condType != nil && !TypesEqual(condType, TypeBool) {
+			tc.AddError(fmt.Sprintf("error: if condition must be Boolean, got %s", TypeToString(condType)))
 		}
 
 		// Check then block
-		err = CheckStatement(stmt.Children[1], tc)
-		if err != nil {
-			return err
-		}
+		CheckStatement(stmt.Children[1], tc)
 
 		// Check else/else-if clauses
 		i := 2
@@ -4111,21 +4071,15 @@ func CheckStatement(stmt *ASTNode, tc *TypeChecker) error {
 			// Check condition (if not nil)
 			if stmt.Children[i] != nil {
 				// else-if condition
-				err := CheckExpression(stmt.Children[i], tc)
-				if err != nil {
-					return err
-				}
+				CheckExpression(stmt.Children[i], tc)
 				condType := stmt.Children[i].TypeAST
-				if !TypesEqual(condType, TypeBool) {
-					return fmt.Errorf("error: else-if condition must be Boolean, got %s", TypeToString(condType))
+				if condType != nil && !TypesEqual(condType, TypeBool) {
+					tc.AddError(fmt.Sprintf("error: else-if condition must be Boolean, got %s", TypeToString(condType)))
 				}
 			}
 
 			// Check block
-			err = CheckStatement(stmt.Children[i+1], tc)
-			if err != nil {
-				return err
-			}
+			CheckStatement(stmt.Children[i+1], tc)
 
 			i += 2
 		}
@@ -4134,46 +4088,34 @@ func CheckStatement(stmt *ASTNode, tc *TypeChecker) error {
 		// Check all statements in loop body
 		tc.EnterLoop()
 		for _, stmt := range stmt.Children {
-			err := CheckStatement(stmt, tc)
-			if err != nil {
-				tc.ExitLoop()
-				return err
-			}
+			CheckStatement(stmt, tc)
 		}
 		tc.ExitLoop()
-		return nil
 
 	case NodeBreak:
 		if !tc.InLoop() {
-			return fmt.Errorf("error: break statement outside of loop")
+			tc.AddError("error: break statement outside of loop")
 		}
-		return nil
 
 	case NodeContinue:
 		if !tc.InLoop() {
-			return fmt.Errorf("error: continue statement outside of loop")
+			tc.AddError("error: continue statement outside of loop")
 		}
-		return nil
 
 	default:
 		// Other statement types are valid for now
 	}
-
-	return nil
 }
 
-// CheckExpression validates an expression and stores type in expr.TypeAST
-
-func CheckExpression(expr *ASTNode, tc *TypeChecker) error {
+// CheckExpression validates an expression and stores type in expr.TypeAST (legacy)
+func CheckExpression(expr *ASTNode, tc *TypeChecker) {
 
 	switch expr.Kind {
 	case NodeInteger:
 		expr.TypeAST = TypeIntegerNode
-		return nil
 
 	case NodeBoolean:
 		expr.TypeAST = TypeBool
-		return nil
 
 	case NodeString:
 		// String literal has type U8[] (slice of U8)
@@ -4181,38 +4123,28 @@ func CheckExpression(expr *ASTNode, tc *TypeChecker) error {
 			Kind:  TypeSlice,
 			Child: TypeU8,
 		}
-		return nil
 
 	case NodeIdent:
 		// Variable reference - use cached symbol reference
 		if expr.Symbol == nil {
-			return fmt.Errorf("error: variable '%s' used before declaration", expr.String)
+			tc.AddError(fmt.Sprintf("error: variable '%s' used before declaration", expr.String))
+			return
 		}
 		if !expr.Symbol.Assigned {
-			return fmt.Errorf("error: variable '%s' used before assignment", expr.String)
+			tc.AddError(fmt.Sprintf("error: variable '%s' used before assignment", expr.String))
+			return
 		}
 		expr.TypeAST = expr.Symbol.Type
-		return nil
 
 	case NodeBinary:
 		if expr.Op == "=" {
 			// Assignment expression
-			err := CheckAssignmentExpression(expr.Children[0], expr.Children[1], tc)
-			if err != nil {
-				return err
-			}
+			CheckAssignmentExpression(expr.Children[0], expr.Children[1], tc)
 			// Assignment expression type is stored in the assignment expression itself
-			return nil
 		} else {
 			// Binary operation
-			err := CheckExpression(expr.Children[0], tc)
-			if err != nil {
-				return err
-			}
-			err = CheckExpression(expr.Children[1], tc)
-			if err != nil {
-				return err
-			}
+			CheckExpression(expr.Children[0], tc)
+			CheckExpression(expr.Children[1], tc)
 
 			// Get types from the type-checked children
 			leftType := expr.Children[0].TypeAST
@@ -4220,56 +4152,48 @@ func CheckExpression(expr *ASTNode, tc *TypeChecker) error {
 
 			// Resolve Integer types based on the other operand
 			var resultType *TypeNode
-			if leftType.Kind == TypeInteger && rightType.Kind != TypeInteger {
-				err := ResolveIntegerType(expr.Children[0], rightType)
-				if err != nil {
-					return err
+			if leftType != nil && rightType != nil {
+				if leftType.Kind == TypeInteger && rightType.Kind != TypeInteger {
+					tc.resolveIntegerType(expr.Children[0], rightType)
+					leftType = expr.Children[0].TypeAST
+					resultType = rightType
+				} else if rightType.Kind == TypeInteger && leftType.Kind != TypeInteger {
+					tc.resolveIntegerType(expr.Children[1], leftType)
+					rightType = expr.Children[1].TypeAST
+					resultType = leftType
+				} else if leftType.Kind == TypeInteger && rightType.Kind == TypeInteger {
+					// Both are Integer - resolve both to I64 and use I64 as result
+					tc.resolveIntegerType(expr.Children[0], TypeI64)
+					tc.resolveIntegerType(expr.Children[1], TypeI64)
+					leftType = TypeI64
+					rightType = TypeI64
+					resultType = TypeI64
+				} else if !TypesEqual(leftType, rightType) {
+					tc.AddError(fmt.Sprintf("error: type mismatch in binary operation: %s vs %s",
+						TypeToString(leftType), TypeToString(rightType)))
+					return
+				} else {
+					resultType = leftType
 				}
-				leftType = expr.Children[0].TypeAST
-				resultType = rightType
-			} else if rightType.Kind == TypeInteger && leftType.Kind != TypeInteger {
-				err := ResolveIntegerType(expr.Children[1], leftType)
-				if err != nil {
-					return err
-				}
-				rightType = expr.Children[1].TypeAST
-				resultType = leftType
-			} else if leftType.Kind == TypeInteger && rightType.Kind == TypeInteger {
-				// Both are Integer - resolve both to I64 and use I64 as result
-				err := ResolveIntegerType(expr.Children[0], TypeI64)
-				if err != nil {
-					return err
-				}
-				err = ResolveIntegerType(expr.Children[1], TypeI64)
-				if err != nil {
-					return err
-				}
-				leftType = TypeI64
-				rightType = TypeI64
-				resultType = TypeI64
-			} else if !TypesEqual(leftType, rightType) {
-				return fmt.Errorf("error: type mismatch in binary operation: %s vs %s",
-					TypeToString(leftType), TypeToString(rightType))
-			} else {
-				resultType = leftType
-			}
 
-			// Set result type based on operator
-			switch expr.Op {
-			case "==", "!=", "<", ">", "<=", ">=":
-				expr.TypeAST = TypeBool // Comparison operators return Boolean
-			case "+", "-", "*", "/", "%":
-				expr.TypeAST = resultType // Arithmetic operators return operand type
-			default:
-				return fmt.Errorf("error: unsupported binary operator '%s'", expr.Op)
+				// Set result type based on operator
+				switch expr.Op {
+				case "==", "!=", "<", ">", "<=", ">=":
+					expr.TypeAST = TypeBool // Comparison operators return Boolean
+				case "+", "-", "*", "/", "%":
+					expr.TypeAST = resultType // Arithmetic operators return operand type
+				default:
+					tc.AddError(fmt.Sprintf("error: unsupported binary operator '%s'", expr.Op))
+					return
+				}
 			}
-			return nil
 		}
 
 	case NodeCall:
 		// Function call or struct initialization validation
 		if len(expr.Children) == 0 || expr.Children[0].Kind != NodeIdent {
-			return fmt.Errorf("error: invalid function call")
+			tc.AddError("error: invalid function call")
+			return
 		}
 		funcName := expr.Children[0].String
 
@@ -4281,16 +4205,14 @@ func CheckExpression(expr *ASTNode, tc *TypeChecker) error {
 			// First, validate that all parameters are named (struct initialization requirement)
 			for _, paramName := range expr.ParameterNames {
 				if paramName == "" {
-					return fmt.Errorf("error: struct initialization requires named parameters for all fields")
+					tc.AddError("error: struct initialization requires named parameters for all fields")
+					return
 				}
 			}
 
 			// Use shared validation logic for arguments
 			argValues := expr.Children[1:] // Skip struct name
-			err := validateCallArguments(argValues, expr.ParameterNames, structType.Fields, "struct initialization", tc)
-			if err != nil {
-				return err
-			}
+			validateCallArguments(argValues, expr.ParameterNames, structType.Fields, "struct initialization", tc)
 
 			// Additional validation: ensure all struct fields are provided (struct initialization requirement)
 			providedFields := make(map[string]bool)
@@ -4299,109 +4221,93 @@ func CheckExpression(expr *ASTNode, tc *TypeChecker) error {
 			}
 			for _, field := range structType.Fields {
 				if !providedFields[field.Name] {
-					return fmt.Errorf("error: struct initialization missing required field '%s'", field.Name)
+					tc.AddError(fmt.Sprintf("error: struct initialization missing required field '%s'", field.Name))
+					return
 				}
 			}
 
 			// Set the expression type to the struct type
 			expr.TypeAST = structType
-			return nil
+			return
 		}
 
 		if funcName == "print" {
 			// Built-in print function
 			if len(expr.Children) != 2 {
-				return fmt.Errorf("error: print() function expects 1 argument")
+				tc.AddError("error: print() function expects 1 argument")
+				return
 			}
-			err := CheckExpression(expr.Children[1], tc)
-			if err != nil {
-				return err
-			}
+			CheckExpression(expr.Children[1], tc)
 
 			// Resolve Integer type to I64 for print function
 			argType := expr.Children[1].TypeAST
-			if argType.Kind == TypeInteger {
-				err := ResolveIntegerType(expr.Children[1], TypeI64)
-				if err != nil {
-					return fmt.Errorf("error: print() %v", err)
-				}
+			if argType != nil && argType.Kind == TypeInteger {
+				tc.resolveIntegerType(expr.Children[1], TypeI64)
 			}
 
 			expr.TypeAST = TypeI64 // print returns nothing, but use I64 for now
-			return nil
 		} else if funcName == "print_bytes" {
 			// Built-in print_bytes function
 			if len(expr.Children) != 2 {
-				return fmt.Errorf("error: print_bytes() function expects 1 argument")
+				tc.AddError("error: print_bytes() function expects 1 argument")
+				return
 			}
-			err := CheckExpression(expr.Children[1], tc)
-			if err != nil {
-				return err
-			}
+			CheckExpression(expr.Children[1], tc)
 
 			// Check that argument is a slice (U8[])
 			argType := expr.Children[1].TypeAST
-			if argType.Kind != TypeSlice {
-				return fmt.Errorf("error: print_bytes() expects a slice argument, got %s", TypeToString(argType))
+			if argType != nil && argType.Kind != TypeSlice {
+				tc.AddError(fmt.Sprintf("error: print_bytes() expects a slice argument, got %s", TypeToString(argType)))
+				return
 			}
 
 			expr.TypeAST = TypeI64 // print_bytes returns nothing, but use I64 for now
-			return nil
 		} else if funcName == "append" {
 			// Built-in append function
 			if len(expr.Children) != 3 {
-				return fmt.Errorf("error: append() function expects 2 arguments")
+				tc.AddError("error: append() function expects 2 arguments")
+				return
 			}
 
 			// Check first argument (slice pointer)
-			err := CheckExpression(expr.Children[1], tc)
-			if err != nil {
-				return err
-			}
+			CheckExpression(expr.Children[1], tc)
 			// Check second argument (value to append)
-			err = CheckExpression(expr.Children[2], tc)
-			if err != nil {
-				return err
-			}
+			CheckExpression(expr.Children[2], tc)
 
 			slicePtrType := expr.Children[1].TypeAST
 			valueType := expr.Children[2].TypeAST
 
 			// First argument must be a pointer to a slice
-			if slicePtrType.Kind != TypePointer || slicePtrType.Child.Kind != TypeSlice {
-				return fmt.Errorf("error: append() first argument must be pointer to slice, got %s", TypeToString(slicePtrType))
+			if slicePtrType != nil && (slicePtrType.Kind != TypePointer || slicePtrType.Child.Kind != TypeSlice) {
+				tc.AddError(fmt.Sprintf("error: append() first argument must be pointer to slice, got %s", TypeToString(slicePtrType)))
+				return
 			}
 
 			// Value type must match slice element type or allow implicit conversion
 			elementType := slicePtrType.Child.Child
 			if !TypesEqual(valueType, elementType) {
 				if valueType.Kind == TypeInteger {
-					err := ResolveIntegerType(expr.Children[2], elementType)
-					if err != nil {
-						return fmt.Errorf("error: append() %v", err)
-					}
+					tc.resolveIntegerType(expr.Children[2], elementType)
 				} else {
-					return fmt.Errorf("error: append() value type %s does not match slice element type %s",
-						TypeToString(valueType), TypeToString(elementType))
+					tc.AddError(fmt.Sprintf("error: append() value type %s does not match slice element type %s",
+						TypeToString(valueType), TypeToString(elementType)))
+					return
 				}
 			}
 
 			expr.TypeAST = TypeI64 // append returns nothing, but use I64 for now
-			return nil
 		} else {
 			// User-defined function
 			// Use the pre-resolved function from BuildSymbolTable
 			function := expr.ResolvedFunction
 			if function == nil {
-				return fmt.Errorf("error: unknown function '%s'", funcName)
+				tc.AddError(fmt.Sprintf("error: unknown function '%s'", funcName))
+				return
 			}
 
 			// Use shared validation logic for function call arguments
 			argValues := expr.Children[1:] // Skip function name
-			err := validateCallArguments(argValues, expr.ParameterNames, function.Parameters, "function call", tc)
-			if err != nil {
-				return err
-			}
+			validateCallArguments(argValues, expr.ParameterNames, function.Parameters, "function call", tc)
 
 			// Arguments will be reordered during code generation to preserve evaluation order
 
@@ -4411,19 +4317,16 @@ func CheckExpression(expr *ASTNode, tc *TypeChecker) error {
 			} else {
 				expr.TypeAST = TypeI64 // Void functions return I64 for now
 			}
-			return nil
 		}
 
 	case NodeDot:
 		// Field access: struct.field
 		if len(expr.Children) != 1 {
-			return fmt.Errorf("error: field access expects 1 base expression")
+			tc.AddError("error: field access expects 1 base expression")
+			return
 		}
 
-		err := CheckExpression(expr.Children[0], tc)
-		if err != nil {
-			return err
-		}
+		CheckExpression(expr.Children[0], tc)
 
 		// Get base type from the type-checked child
 		baseType := expr.Children[0].TypeAST
@@ -4443,7 +4346,8 @@ func CheckExpression(expr *ASTNode, tc *TypeChecker) error {
 			// Pointer-to-slice access (slice parameters)
 			structType = synthesizeSliceStruct(baseType.Child, tc.typeTable)
 		} else {
-			return fmt.Errorf("error: cannot access field of non-struct type %s", TypeToString(baseType))
+			tc.AddError(fmt.Sprintf("error: cannot access field of non-struct type %s", TypeToString(baseType)))
+			return
 		}
 
 		// Find the field in the struct
@@ -4453,71 +4357,63 @@ func CheckExpression(expr *ASTNode, tc *TypeChecker) error {
 			if field.Name == fieldName {
 				expr.TypeAST = field.Type
 				expr.FieldSymbol = field.Symbol // Store resolved field symbol
-				return nil
+				return
 			}
 		}
 
-		return fmt.Errorf("error: struct %s has no field named '%s'", structType.String, fieldName)
+		tc.AddError(fmt.Sprintf("error: struct %s has no field named '%s'", structType.String, fieldName))
+		return
 
 	case NodeUnary:
 		// Unary operations
 		if expr.Op == "&" {
 			// Address-of operator
 			if len(expr.Children) != 1 {
-				return fmt.Errorf("error: address-of operator expects 1 operand")
+				tc.AddError("error: address-of operator expects 1 operand")
+				return
 			}
 
-			err := CheckExpression(expr.Children[0], tc)
-			if err != nil {
-				return err
-			}
+			CheckExpression(expr.Children[0], tc)
 
 			// Get operand type from the type-checked child
 			operandType := expr.Children[0].TypeAST
 
 			// Return pointer type
 			expr.TypeAST = &TypeNode{Kind: TypePointer, Child: operandType}
-			return nil
 		} else if expr.Op == "*" {
 			// Dereference operator
 			if len(expr.Children) != 1 {
-				return fmt.Errorf("error: dereference operator expects 1 operand")
+				tc.AddError("error: dereference operator expects 1 operand")
+				return
 			}
 
-			err := CheckExpression(expr.Children[0], tc)
-			if err != nil {
-				return err
-			}
+			CheckExpression(expr.Children[0], tc)
 
 			// Get operand type from the type-checked child
 			operandType := expr.Children[0].TypeAST
 
 			// Operand must be a pointer type
 			if operandType.Kind != TypePointer {
-				return fmt.Errorf("error: cannot dereference non-pointer type %s", TypeToString(operandType))
+				tc.AddError(fmt.Sprintf("error: cannot dereference non-pointer type %s", TypeToString(operandType)))
+				return
 			}
 
 			// Return the pointed-to type
 			expr.TypeAST = operandType.Child
-			return nil
 		} else {
-			return fmt.Errorf("error: unsupported unary operator '%s'", expr.Op)
+			tc.AddError(fmt.Sprintf("error: unsupported unary operator '%s'", expr.Op))
+			return
 		}
 
 	case NodeIndex:
 		// Array/slice subscript operation
 		if len(expr.Children) != 2 {
-			return fmt.Errorf("error: subscript operator expects 2 operands")
+			tc.AddError("error: subscript operator expects 2 operands")
+			return
 		}
 
-		err := CheckExpression(expr.Children[0], tc)
-		if err != nil {
-			return err
-		}
-		err = CheckExpression(expr.Children[1], tc)
-		if err != nil {
-			return err
-		}
+		CheckExpression(expr.Children[0], tc)
+		CheckExpression(expr.Children[1], tc)
 
 		// Get base and index types from the type-checked children
 		baseType := expr.Children[0].TypeAST
@@ -4526,12 +4422,10 @@ func CheckExpression(expr *ASTNode, tc *TypeChecker) error {
 		// Index must be I64 or resolve Integer to I64
 		if !TypesEqual(indexType, TypeI64) {
 			if indexType.Kind == TypeInteger {
-				err := ResolveIntegerType(expr.Children[1], TypeI64)
-				if err != nil {
-					return fmt.Errorf("error: slice index %v", err)
-				}
+				tc.resolveIntegerType(expr.Children[1], TypeI64)
 			} else {
-				return fmt.Errorf("error: slice index must be I64, got %s", TypeToString(indexType))
+				tc.AddError(fmt.Sprintf("error: slice index must be I64, got %s", TypeToString(indexType)))
+				return
 			}
 		}
 
@@ -4544,25 +4438,23 @@ func CheckExpression(expr *ASTNode, tc *TypeChecker) error {
 			// Pointer-to-slice access (slice parameters)
 			elementType = baseType.Child.Child
 		} else {
-			return fmt.Errorf("error: cannot subscript non-slice type %s", TypeToString(baseType))
+			tc.AddError(fmt.Sprintf("error: cannot subscript non-slice type %s", TypeToString(baseType)))
+			return
 		}
 
 		// Return the element type of the slice
 		expr.TypeAST = elementType
-		return nil
 
 	default:
-		return fmt.Errorf("error: unsupported expression type '%s'", expr.Kind)
+		tc.AddError(fmt.Sprintf("error: unsupported expression type '%s'", expr.Kind))
+		return
 	}
 }
 
 // CheckAssignment validates an assignment statement
-func CheckAssignment(lhs, rhs *ASTNode, tc *TypeChecker) error {
+func CheckAssignment(lhs, rhs *ASTNode, tc *TypeChecker) {
 	// Validate RHS type first
-	err := CheckExpression(rhs, tc)
-	if err != nil {
-		return err
-	}
+	CheckExpression(rhs, tc)
 	rhsType := rhs.TypeAST
 
 	// Validate LHS is assignable
@@ -4571,7 +4463,8 @@ func CheckAssignment(lhs, rhs *ASTNode, tc *TypeChecker) error {
 	if lhs.Kind == NodeIdent {
 		// Direct variable assignment - use cached symbol reference
 		if lhs.Symbol == nil {
-			return fmt.Errorf("error: variable '%s' used before declaration", lhs.String)
+			tc.AddError(fmt.Sprintf("error: variable '%s' used before declaration", lhs.String))
+			return
 		}
 		lhsType = lhs.Symbol.Type
 
@@ -4583,70 +4476,55 @@ func CheckAssignment(lhs, rhs *ASTNode, tc *TypeChecker) error {
 
 	} else if lhs.Kind == NodeUnary && lhs.Op == "*" {
 		// Pointer dereference assignment (e.g., ptr* = value)
-		err := CheckExpression(lhs.Children[0], tc)
-		if err != nil {
-			return err
-		}
+		CheckExpression(lhs.Children[0], tc)
 		ptrType := lhs.Children[0].TypeAST
 
-		if ptrType.Kind != TypePointer {
-			return fmt.Errorf("error: cannot dereference non-pointer type %s", TypeToString(ptrType))
+		if ptrType != nil && ptrType.Kind != TypePointer {
+			tc.AddError(fmt.Sprintf("error: cannot dereference non-pointer type %s", TypeToString(ptrType)))
+			return
 		}
 
-		lhsType = ptrType.Child
+		if ptrType != nil {
+			lhsType = ptrType.Child
+		}
 
 		// Set the TypeAST for code generation
 		lhs.TypeAST = lhsType
 
 	} else if lhs.Kind == NodeDot {
 		// Field assignment (e.g., s.field = value)
-		err = CheckExpression(lhs, tc)
-		if err != nil {
-			return err
-		}
+		CheckExpression(lhs, tc)
 		lhsType = lhs.TypeAST
 
 	} else if lhs.Kind == NodeIndex {
 		// Slice index assignment (e.g., slice[0] = value)
-		err = CheckExpression(lhs, tc)
-		if err != nil {
-			return err
-		}
+		CheckExpression(lhs, tc)
 		lhsType = lhs.TypeAST
 
 	} else {
-		return fmt.Errorf("error: left side of assignment must be a variable, field access, or dereferenced pointer")
+		tc.AddError("error: left side of assignment must be a variable, field access, or dereferenced pointer")
+		return
 	}
 
 	// Ensure types match or allow implicit conversion
-	if !TypesEqual(lhsType, rhsType) {
+	if lhsType != nil && rhsType != nil && !TypesEqual(lhsType, rhsType) {
 		// Try to resolve Integer type to match LHS
 		if rhsType.Kind == TypeInteger {
-			err := ResolveIntegerType(rhs, lhsType)
-			if err != nil {
-				return err
-			}
-			// Type resolution succeeded, continue
+			tc.resolveIntegerType(rhs, lhsType)
 		} else {
-			return fmt.Errorf("error: cannot assign %s to %s",
-				TypeToString(rhsType), TypeToString(lhsType))
+			tc.AddError(fmt.Sprintf("error: cannot assign %s to %s",
+				TypeToString(rhsType), TypeToString(lhsType)))
 		}
 	}
-
-	return nil
 }
 
 // CheckAssignmentExpression validates an assignment expression
-func CheckAssignmentExpression(lhs, rhs *ASTNode, tc *TypeChecker) error {
-	err := CheckAssignment(lhs, rhs, tc)
-	if err != nil {
-		return err
-	}
+func CheckAssignmentExpression(lhs, rhs *ASTNode, tc *TypeChecker) {
+	CheckAssignment(lhs, rhs, tc)
 
 	// Assignment expression returns the type of the assigned value
 	// The assignment expression type should be set to the RHS type
 	lhs.TypeAST = rhs.TypeAST
-	return nil
 }
 
 // NextToken scans the next token and stores it in the lexer's state.
