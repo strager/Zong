@@ -540,6 +540,14 @@ func(arg1 arg2)
 
 ```
 
+## Test: function declaration missing parentheses
+```zong-program
+func test { print(42); }
+```
+```compile-error
+expected '(' after function name
+```
+
 ## Function Type Verification Tests (from type_verification_test.md)
 
 ## Test: function call type verification

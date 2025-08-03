@@ -19,6 +19,12 @@ func main() {
 	l.NextToken()
 	ast := ParseProgram(l)
 
+	// Check for lexing/parsing errors
+	if l.Errors.HasErrors() {
+		fmt.Printf("Parsing errors:\n%s\n", l.Errors.String())
+		os.Exit(1)
+	}
+
 	fmt.Printf("Input: %s\n", expression)
 	fmt.Printf("AST: %s\n", ToSExpr(ast))
 

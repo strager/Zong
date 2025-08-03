@@ -317,11 +317,11 @@ func main() {
 ```zong-program
 func main() {
     var x I64 = 42;
-    print(*x);
+    print(x*);
 }
 ```
 ```compile-error
-error: unsupported expression type ''
+error: cannot dereference non-pointer type I64
 ```
 
 ## Test: dereference non-pointer in assignment
@@ -329,11 +329,11 @@ error: unsupported expression type ''
 func main() {
     var x I64;
     x = 42;
-    print(*x);
+    print(x*);
 }
 ```
 ```compile-error
-error: unsupported expression type ''
+error: cannot dereference non-pointer type I64
 ```
 
 ## Pointer Type Verification Tests (from type_verification_test.md)

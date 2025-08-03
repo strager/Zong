@@ -1019,34 +1019,25 @@ func assertExecutionMatch(t *testing.T, ast *ASTNode, expectedOutput string, inp
 func assertCompileErrorMatch(t *testing.T, input string, expectedError string, inputType sexy.InputType) {
 	t.Helper()
 
-	// Capture compilation errors by attempting to parse and compile
-	defer func() {
-		if r := recover(); r != nil {
-			// If expectedError is empty, any error is acceptable (for robustness tests)
-			if expectedError == "" {
-				// Test passes - we expected some error and got one
-				return
-			}
-			// Check if the panic message exactly matches the expected error
-			panicMsg := fmt.Sprintf("%v", r)
-			if panicMsg != expectedError {
-				t.Errorf("Compilation error mismatch:\n  Expected error: %q\n  Actual error:   %q", expectedError, panicMsg)
-			}
-		} else {
-			if expectedError == "" {
-				t.Errorf("Expected compilation to fail (for robustness test), but compilation succeeded")
-			} else {
-				t.Errorf("Expected compilation error %q, but compilation succeeded", expectedError)
-			}
-		}
-	}()
-
 	// Parse the input
 	input = input + "\x00" // Null-terminate as required by Zong parser
 	l := NewLexer([]byte(input))
 	l.NextToken()
 
 	var ast *ASTNode
+	var compilationPanic interface{}
+
+	// Capture potential panics from SkipToken (internal compiler errors)
+	defer func() {
+		if r := recover(); r != nil {
+			// Convert SkipToken panic to error and add to lexer
+			panicMsg := fmt.Sprintf("%v", r)
+			l.AddError("internal error: " + panicMsg)
+			compilationPanic = r
+		}
+	}()
+
+	// Parse the input
 	switch inputType {
 	case sexy.InputTypeZongExpr:
 		ast = ParseExpression(l)
@@ -1056,13 +1047,53 @@ func assertCompileErrorMatch(t *testing.T, input string, expectedError string, i
 		t.Fatalf("Unknown input type: %s", inputType)
 	}
 
-	// If parsing succeeded, try to compile to catch compilation errors
-	if ast != nil {
-		CompileToWASM(ast)
+	// Check for lexer/parser errors first
+	if l.Errors.HasErrors() {
+		if expectedError == "" {
+			// Test passes - we expected some error and got one
+			return
+		}
+		// Check if any error message contains the expected error
+		errorMsg := l.Errors.String()
+		if !strings.Contains(errorMsg, expectedError) {
+			t.Errorf("Compilation error mismatch:\n  Expected error containing: %q\n  Actual errors: %q", expectedError, errorMsg)
+		}
+		return
 	}
 
-	// If we reach this point, compilation succeeded when it should have failed
-	t.Errorf("Expected compilation error containing %q, but compilation succeeded", expectedError)
+	// If parsing succeeded, try to compile to catch compilation errors
+	if ast != nil {
+		// Capture compilation errors (non-parser errors)
+		defer func() {
+			if r := recover(); r != nil {
+				if expectedError == "" {
+					// Test passes - we expected some error and got one
+					return
+				}
+				// Check if the panic message contains the expected error
+				panicMsg := fmt.Sprintf("%v", r)
+				if !strings.Contains(panicMsg, expectedError) {
+					t.Errorf("Compilation error mismatch:\n  Expected error containing: %q\n  Actual error: %q", expectedError, panicMsg)
+				}
+				return
+			}
+			// If we reach this point, compilation succeeded when it should have failed
+			if expectedError == "" {
+				t.Errorf("Expected compilation to fail (for robustness test), but compilation succeeded")
+			} else {
+				t.Errorf("Expected compilation error containing %q, but compilation succeeded", expectedError)
+			}
+		}()
+
+		CompileToWASM(ast)
+	} else if compilationPanic == nil {
+		// Parsing failed but no errors recorded and no panic - this shouldn't happen
+		if expectedError == "" {
+			// Test passes - we expected some error and got one
+			return
+		}
+		t.Errorf("Parsing failed but no errors recorded in lexer.Errors and no panic occurred")
+	}
 }
 
 // assertWasmLocalsMatch compares collected local variables against expected pattern

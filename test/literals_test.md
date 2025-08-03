@@ -301,6 +301,22 @@ func main() { var s U8[] = "héllo"; }
 error: non-ASCII characters are not supported in string literals
 ```
 
+## Test: unterminated string literal should be rejected
+```zong-program
+func main() { print("unterminated; }
+```
+```compile-error
+error: unterminated string literal
+```
+
+## Test: unexpected character should be rejected
+```zong-expr
+print(@invalid)
+```
+```compile-error
+error: unexpected character '@'
+```
+
 ## Test: variable not declared in expression
 ```zong-expr
 undefined

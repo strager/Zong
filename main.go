@@ -5,6 +5,41 @@ import (
 	"fmt"
 )
 
+type Error struct {
+	message string
+}
+
+type ErrorCollection struct {
+	errors []Error
+}
+
+func (ec *ErrorCollection) Append(error Error) {
+	ec.errors = append(ec.errors, error)
+}
+
+func (ec *ErrorCollection) HasErrors() bool {
+	return len(ec.errors) > 0
+}
+
+func (ec *ErrorCollection) Count() int {
+	return len(ec.errors)
+}
+
+func (ec *ErrorCollection) String() string {
+	if len(ec.errors) == 0 {
+		return ""
+	}
+
+	var result bytes.Buffer
+	for i, err := range ec.errors {
+		if i > 0 {
+			result.WriteString("\n")
+		}
+		result.WriteString(err.message)
+	}
+	return result.String()
+}
+
 // VarStorage represents how a variable is stored
 type VarStorage int
 
@@ -2380,14 +2415,23 @@ type Lexer struct {
 	CurrTokenType TokenType
 	CurrLiteral   string
 	CurrIntValue  int64 // only meaningful when CurrTokenType == INT
+
+	// Error collection
+	Errors *ErrorCollection
 }
 
 // NewLexer creates a new lexer with the given input (must end with a 0 byte).
 func NewLexer(input []byte) *Lexer {
 	return &Lexer{
-		input: input,
-		pos:   0,
+		input:  input,
+		pos:    0,
+		Errors: &ErrorCollection{},
 	}
+}
+
+// AddError creates an Error with the given message and appends it to the lexer's ErrorCollection.
+func (l *Lexer) AddError(message string) {
+	l.Errors.Append(Error{message: message})
 }
 
 // TokenType is the type of token (identifier, operator, literal, etc.).
@@ -4892,6 +4936,7 @@ func (l *Lexer) NextToken() {
 			l.CurrIntValue = val
 
 		} else {
+			l.AddError("error: unexpected character '" + string(c) + "'")
 			l.CurrTokenType = ILLEGAL
 			l.CurrLiteral = string(c)
 			l.pos++
@@ -4940,7 +4985,8 @@ func (l *Lexer) readNumber() (string, int64) {
 	start := l.pos
 	var val int64
 	for isDigit(l.input[l.pos]) {
-		val = val*10 + int64(l.input[l.pos]-'0')
+		digit := int64(l.input[l.pos] - '0')
+		val = val*10 + digit
 		l.pos++
 	}
 	return string(l.input[start:l.pos]), val
@@ -4949,13 +4995,20 @@ func (l *Lexer) readNumber() (string, int64) {
 func (l *Lexer) readString() string {
 	l.pos++ // skip opening "
 	start := l.pos
-	for l.input[l.pos] != '"' {
+	for l.input[l.pos] != '"' && l.input[l.pos] != 0 {
 		// Validate ASCII characters only
 		if l.input[l.pos] > 127 {
-			panic("error: non-ASCII characters are not supported in string literals")
+			l.AddError("error: non-ASCII characters are not supported in string literals")
+			// Continue parsing to recover
 		}
 		l.pos++
 	}
+
+	if l.input[l.pos] == 0 {
+		l.AddError("error: unterminated string literal")
+		return string(l.input[start:l.pos])
+	}
+
 	lit := string(l.input[start:l.pos])
 	l.pos++
 	return lit
@@ -4964,10 +5017,25 @@ func (l *Lexer) readString() string {
 func (l *Lexer) readCharLiteral() string {
 	start := l.pos
 	l.pos++ // Skip first '.
+
+	if l.input[l.pos] == 0 {
+		l.AddError("error: unterminated character literal")
+		return string(l.input[start:l.pos])
+	}
+
 	if l.input[l.pos] == '\\' {
 		l.pos++
+		if l.input[l.pos] == 0 {
+			l.AddError("error: unterminated character literal")
+			return string(l.input[start:l.pos])
+		}
 	}
 	l.pos++ // Skip the character.
+
+	if l.input[l.pos] != '\'' {
+		l.AddError("error: unterminated character literal")
+		return string(l.input[start:l.pos])
+	}
 	l.pos++ // Skip last '.
 	lit := string(l.input[start:l.pos])
 	return lit
@@ -5388,10 +5456,13 @@ func parsePrimary(l *Lexer) *ASTNode {
 		expr := parseExpressionWithPrecedence(l, 0)
 		if l.CurrTokenType == RPAREN {
 			l.SkipToken(RPAREN)
+		} else {
+			l.AddError("expected ')' after expression")
 		}
 		return expr
 
 	default:
+		l.AddError("unexpected token '" + string(l.CurrTokenType) + "' in expression")
 		// Return empty node for error case
 		return &ASTNode{}
 	}
@@ -5494,7 +5565,7 @@ func parseTypeExpression(l *Lexer) *TypeNode {
 				Child: resultType,
 			}
 		} else {
-			// Error: expected ']' after '['
+			l.AddError("expected ']' after '['")
 			return nil
 		}
 	}
@@ -5540,11 +5611,13 @@ func ParseStatement(l *Lexer) *ASTNode {
 	case STRUCT:
 		l.SkipToken(STRUCT)
 		if l.CurrTokenType != IDENT {
+			l.AddError("expected struct name")
 			return &ASTNode{} // error
 		}
 		structName := l.CurrLiteral
 		l.SkipToken(IDENT)
 		if l.CurrTokenType != LPAREN {
+			l.AddError("expected '(' after struct name")
 			return &ASTNode{} // error
 		}
 		l.SkipToken(LPAREN)
@@ -5741,30 +5814,33 @@ func parseFunctionDeclaration(l *Lexer) *ASTNode {
 
 	// Parse function name
 	if l.CurrTokenType != IDENT {
-		panic("Expected function name")
+		l.AddError("expected function name")
+		return &ASTNode{Kind: NodeFunc} // Return placeholder for error recovery
 	}
 	functionName := l.CurrLiteral
 	l.SkipToken(IDENT)
 
 	// Parse parameter list
 	if l.CurrTokenType != LPAREN {
-		panic("Expected '(' after function name")
+		l.AddError("expected '(' after function name")
+		return &ASTNode{Kind: NodeFunc}
 	}
 	l.SkipToken(LPAREN)
 
 	// Use shared parameter parsing logic for function parameters
 	paramList := parseParameterList(l, RPAREN, true) // allow positional params
 	if len(paramList) == 0 && l.CurrTokenType != RPAREN {
-		panic("Error parsing function parameters")
+		l.AddError("error parsing function parameters")
 	}
 
 	// Use parsed parameters directly (now unified with struct fields)
 	parameters := paramList
 
 	if l.CurrTokenType != RPAREN {
-		panic("Expected ')' after parameter list")
+		l.AddError("expected ')' after parameter list")
+	} else {
+		l.SkipToken(RPAREN)
 	}
-	l.SkipToken(RPAREN)
 
 	// Parse optional return type
 	var returnType *TypeNode
@@ -5772,13 +5848,14 @@ func parseFunctionDeclaration(l *Lexer) *ASTNode {
 		l.SkipToken(COLON)
 		returnType = parseTypeExpression(l)
 		if returnType == nil {
-			panic("Expected return type after ':'")
+			l.AddError("expected return type after ':'")
 		}
 	}
 
 	// Parse function body
 	if l.CurrTokenType != LBRACE {
-		panic("Expected '{' for function body")
+		l.AddError("expected '{' for function body")
+		return &ASTNode{Kind: NodeFunc, FunctionName: functionName, Parameters: parameters, ReturnType: returnType}
 	}
 	l.SkipToken(LBRACE)
 	var statements []*ASTNode

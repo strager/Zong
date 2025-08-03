@@ -559,7 +559,7 @@ undefined symbol 'undefinedVar'
 ## Test: address of undefined variable
 ```zong-program
 func main() {
-    var ptr I64* = &undefinedVar;
+    var ptr I64* = undefinedVar&;
 }
 ```
 ```compile-error
