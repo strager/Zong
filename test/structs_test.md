@@ -420,6 +420,7 @@ func main() {
 ```
 ```compile-error
 error: struct initialization expects 2 fields, got 1
+error: struct initialization missing required field 'y'
 ```
 
 ## Test: struct initialization missing all fields
@@ -431,6 +432,7 @@ error: struct initialization expects 2 fields, got 1
 ```
 ```compile-error
 error: struct initialization expects 2 fields, got 0
+error: struct initialization missing required field 'x'
 ```
 
 ## Test: struct initialization with unknown field
@@ -475,6 +477,7 @@ error: struct initialization field 'x' expects type I64, got Boolean
 ```
 ```compile-error
 error: struct initialization has unknown field 'z'
+error: struct initialization missing required field 'y'
 ```
 
 ## Test: struct initialization with non-existent struct
@@ -484,7 +487,7 @@ error: struct initialization has unknown field 'z'
 	}
 ```
 ```compile-error
-undefined symbol 'FakeStruct'
+error: undefined symbol 'FakeStruct'
 ```
 
 ## Test: struct initialization without named parameters

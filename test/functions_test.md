@@ -511,7 +511,7 @@ func main() {
 nonExistentFunction()
 ```
 ```compile-error
-undefined symbol 'nonExistentFunction'
+error: undefined symbol 'nonExistentFunction'
 ```
 
 ## Test: unknown function in call
@@ -519,7 +519,7 @@ undefined symbol 'nonExistentFunction'
 unknown(42)
 ```
 ```compile-error
-undefined symbol 'unknown'
+error: undefined symbol 'unknown'
 ```
 
 ## Test: print with no arguments

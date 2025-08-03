@@ -1042,10 +1042,10 @@ func assertCompileErrorMatch(t *testing.T, input string, expectedError string, i
 			// Test passes - we expected some error and got one
 			return
 		}
-		// Check if any error message contains the expected error
+		// Check if any error message exactly matches the expected error
 		errorMsg := l.Errors.String()
-		if !strings.Contains(errorMsg, expectedError) {
-			t.Errorf("Compilation error mismatch:\n  Expected error containing: %q\n  Actual errors: %q", expectedError, errorMsg)
+		if strings.TrimSpace(errorMsg) != strings.TrimSpace(expectedError) {
+			t.Errorf("Compilation error mismatch:\n  Expected error: %q\n  Actual errors: %q", expectedError, errorMsg)
 		}
 		return
 	}
@@ -1060,10 +1060,10 @@ func assertCompileErrorMatch(t *testing.T, input string, expectedError string, i
 				t.Errorf("Unexpected symbol resolution errors: %s", symbolTable.Errors.String())
 				return
 			}
-			// Check if any error message contains the expected error
+			// Check if any error message exactly matches the expected error
 			errorMsg := symbolTable.Errors.String()
-			if !strings.Contains(errorMsg, expectedError) {
-				t.Errorf("Symbol resolution error mismatch:\n  Expected error containing: %q\n  Actual errors: %q", expectedError, errorMsg)
+			if strings.TrimSpace(errorMsg) != strings.TrimSpace(expectedError) {
+				t.Errorf("Symbol resolution error mismatch:\n  Expected error: %q\n  Actual errors: %q", expectedError, errorMsg)
 			}
 			return
 		}
@@ -1075,10 +1075,10 @@ func assertCompileErrorMatch(t *testing.T, input string, expectedError string, i
 				// Test passes - we expected some error and got one
 				return
 			}
-			// Check if any type error message contains the expected error
+			// Check if any type error message exactly matches the expected error
 			errorMsg := typeErrors.String()
-			if !strings.Contains(errorMsg, expectedError) {
-				t.Errorf("Compilation error mismatch:\n  Expected error containing: %q\n  Actual type errors: %q", expectedError, errorMsg)
+			if strings.TrimSpace(errorMsg) != strings.TrimSpace(expectedError) {
+				t.Errorf("Compilation error mismatch:\n  Expected error: %q\n  Actual type errors: %q", expectedError, errorMsg)
 			}
 			return
 		}

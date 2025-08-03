@@ -299,6 +299,7 @@ func main() { var s U8[] = "héllo"; }
 ```
 ```compile-error
 error: non-ASCII characters are not supported in string literals
+error: non-ASCII characters are not supported in string literals
 ```
 
 ## Test: unterminated string literal should be rejected
@@ -315,6 +316,7 @@ print(@invalid)
 ```
 ```compile-error
 error: unexpected character '@'
+unexpected token 'ILLEGAL' in expression
 ```
 
 ## Test: variable not declared in expression
@@ -322,7 +324,7 @@ error: unexpected character '@'
 undefined
 ```
 ```compile-error
-undefined symbol 'undefined'
+error: undefined symbol 'undefined'
 ```
 
 ## Comprehensive Literal Expression Tests (from parsing_comprehensive_test.md)

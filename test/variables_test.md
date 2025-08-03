@@ -488,7 +488,7 @@ func main() {
 undefinedVar
 ```
 ```compile-error
-undefined symbol 'undefinedVar'
+error: undefined symbol 'undefinedVar'
 ```
 
 ## Test: variable used before assignment
@@ -521,7 +521,7 @@ func main() {
 }
 ```
 ```compile-error
-undefined symbol 'undefined'
+error: undefined symbol 'undefined'
 ```
 
 ## Test: program with variable used before assignment
@@ -553,7 +553,7 @@ func main() {
 }
 ```
 ```compile-error
-undefined symbol 'undefinedVar'
+error: undefined symbol 'undefinedVar'
 ```
 
 ## Test: address of undefined variable
@@ -563,7 +563,7 @@ func main() {
 }
 ```
 ```compile-error
-undefined symbol 'undefinedVar'
+error: undefined symbol 'undefinedVar'
 ```
 
 ## Variable Parser Robustness Tests (from parser_robustness_test.md)
