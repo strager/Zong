@@ -3305,7 +3305,7 @@ func synthesizeSliceStruct(sliceType *TypeNode, typeTable *TypeTable) *TypeNode 
 	sliceName := TypeToString(sliceType)
 
 	// Check if we already have a synthesized struct for this slice type
-	if sliceInfo, exists := typeTable.sliceTypes[sliceName]; exists && sliceInfo.Synthesized != nil {
+	if sliceInfo, exists := typeTable.sliceTypes[sliceName]; exists {
 		return sliceInfo.Synthesized
 	}
 
@@ -3319,14 +3319,9 @@ func synthesizeSliceStruct(sliceType *TypeNode, typeTable *TypeTable) *TypeNode 
 	}
 
 	// Cache the synthesized struct to ensure symbol consistency
-	if sliceInfo, exists := typeTable.sliceTypes[sliceName]; exists {
-		sliceInfo.Synthesized = synthesized
-	} else {
-		// Create new entry if it doesn't exist (shouldn't happen normally)
-		typeTable.sliceTypes[sliceName] = &SliceTypeInfo{
-			Original:    sliceType,
-			Synthesized: synthesized,
-		}
+	typeTable.sliceTypes[sliceName] = &SliceTypeInfo{
+		Original:    sliceType,
+		Synthesized: synthesized,
 	}
 
 	return synthesized
@@ -3452,13 +3447,7 @@ func collectSliceTypesFromType(typeNode *TypeNode, typeTable *TypeTable) {
 
 	switch typeNode.Kind {
 	case TypeSlice:
-		typeKey := TypeToString(typeNode)
-		if _, exists := typeTable.sliceTypes[typeKey]; !exists {
-			typeTable.sliceTypes[typeKey] = &SliceTypeInfo{
-				Original: typeNode,
-				// Synthesized will be set later during transformation
-			}
-		}
+		synthesizeSliceStruct(typeNode, typeTable)
 		// Also collect from the element type
 		collectSliceTypesFromType(typeNode.Child, typeTable)
 	case TypePointer:
