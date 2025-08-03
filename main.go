@@ -223,14 +223,10 @@ var globalFunctionMap map[string]int
 // Global slice type registry for generating append functions
 var globalSliceTypes map[string]*TypeNode
 
-// Global cache for synthesized slice struct types to ensure symbol consistency
-var synthesizedSliceStructs map[string]*TypeNode
-
 func initTypeRegistry() {
 	globalTypeRegistry = []FunctionType{}
 	globalTypeMap = make(map[string]int)
 	globalSliceTypes = make(map[string]*TypeNode)
-	synthesizedSliceStructs = make(map[string]*TypeNode)
 
 	// Type 0: print function (i64) -> ()
 	printType := FunctionType{
@@ -1733,7 +1729,7 @@ func CompileToWASM(ast *ASTNode) []byte {
 	functions := extractFunctions(ast)
 
 	// Perform type checking with original slice types
-	err := CheckProgram(ast)
+	err := CheckProgram(ast, symbolTable.typeTable)
 	if err != nil {
 		panic(err.Error())
 	}
@@ -1766,7 +1762,7 @@ func CompileToWASM(ast *ASTNode) []byte {
 	// Check if this is legacy expression compilation (no functions)
 	if len(functions) == 0 {
 		// Legacy path for single expressions
-		return compileLegacyExpression(ast)
+		return compileLegacyExpression(ast, symbolTable.typeTable)
 	}
 
 	// Emit WASM module header and sections in streaming fashion
@@ -1817,9 +1813,9 @@ func isExpressionNode(node *ASTNode) bool {
 }
 
 // compileLegacyExpression compiles single expressions (backward compatibility)
-func compileLegacyExpression(ast *ASTNode) []byte {
+func compileLegacyExpression(ast *ASTNode, typeTable *TypeTable) []byte {
 	// Run type checking first
-	tc := NewTypeChecker()
+	tc := NewTypeChecker(typeTable)
 	var err error
 	if isExpressionNode(ast) {
 		err = CheckExpression(ast, tc)
@@ -2797,18 +2793,32 @@ type Scope struct {
 	symbols map[string]*SymbolInfo // All symbols (variables, functions, structs) in this scope
 }
 
+// TypeTable manages type synthesis and caching
+type TypeTable struct {
+	synthesizedSliceStructs map[string]*TypeNode // Cache for synthesized slice struct types
+}
+
+// NewTypeTable creates a new type table
+func NewTypeTable() *TypeTable {
+	return &TypeTable{
+		synthesizedSliceStructs: make(map[string]*TypeNode),
+	}
+}
+
 // SymbolTable tracks variable declarations and assignments with hierarchical scoping
 type SymbolTable struct {
 	currentScope   *Scope
 	unresolvedRefs []UnresolvedReference
 	allFunctions   []FunctionInfo // Global list for WASM index assignment
 	allScopes      []*Scope       // Keep track of all scopes for traversal
+	typeTable      *TypeTable     // Type synthesis and caching
 }
 
 // TypeChecker holds state for type checking
 type TypeChecker struct {
 	errors    []string
-	LoopDepth int // Track loop nesting for break/continue validation
+	LoopDepth int        // Track loop nesting for break/continue validation
+	typeTable *TypeTable // Type synthesis and caching
 }
 
 func (tc *TypeChecker) EnterLoop() {
@@ -2835,6 +2845,7 @@ func NewSymbolTable() *SymbolTable {
 		unresolvedRefs: make([]UnresolvedReference, 0),
 		allFunctions:   make([]FunctionInfo, 0),
 		allScopes:      []*Scope{globalScope},
+		typeTable:      NewTypeTable(),
 	}
 
 	// Add built-in functions
@@ -3283,7 +3294,7 @@ func ConvertStructASTToType(structAST *ASTNode) *TypeNode {
 }
 
 // synthesizeSliceStruct converts a slice type to its internal struct representation
-func synthesizeSliceStruct(sliceType *TypeNode) *TypeNode {
+func synthesizeSliceStruct(sliceType *TypeNode, typeTable *TypeTable) *TypeNode {
 	if sliceType.Kind != TypeSlice {
 		panic("Expected TypeSlice")
 	}
@@ -3292,7 +3303,7 @@ func synthesizeSliceStruct(sliceType *TypeNode) *TypeNode {
 	sliceName := TypeToString(sliceType)
 
 	// Check if we already have a synthesized struct for this slice type
-	if cachedStruct, exists := synthesizedSliceStructs[sliceName]; exists {
+	if cachedStruct, exists := typeTable.synthesizedSliceStructs[sliceName]; exists {
 		return cachedStruct
 	}
 
@@ -3306,7 +3317,7 @@ func synthesizeSliceStruct(sliceType *TypeNode) *TypeNode {
 	}
 
 	// Cache the synthesized struct to ensure symbol consistency
-	synthesizedSliceStructs[sliceName] = synthesized
+	typeTable.synthesizedSliceStructs[sliceName] = synthesized
 
 	return synthesized
 }
@@ -3345,7 +3356,7 @@ func transformTypeNodeSlices(typeNode **TypeNode, symbolTable *SymbolTable) {
 		transformTypeNodeSlices(&(*typeNode).Child, symbolTable)
 
 		// Use synthesizeSliceStruct to convert slice to struct
-		*typeNode = synthesizeSliceStruct(*typeNode)
+		*typeNode = synthesizeSliceStruct(*typeNode, symbolTable.typeTable)
 	case TypePointer:
 		transformTypeNodeSlices(&(*typeNode).Child, symbolTable)
 	case TypeStruct:
@@ -3895,17 +3906,18 @@ func BuildSymbolTable(ast *ASTNode) *SymbolTable {
 	return st
 }
 
-// NewTypeChecker creates a new type checker with the given symbol table
-func NewTypeChecker() *TypeChecker {
+// NewTypeChecker creates a new type checker with the given type table
+func NewTypeChecker(typeTable *TypeTable) *TypeChecker {
 	return &TypeChecker{
-		errors: make([]string, 0),
+		errors:    make([]string, 0),
+		typeTable: typeTable,
 	}
 }
 
 // CheckProgram performs type checking on the entire AST
-func CheckProgram(ast *ASTNode) error {
+func CheckProgram(ast *ASTNode, typeTable *TypeTable) error {
 
-	tc := NewTypeChecker()
+	tc := NewTypeChecker(typeTable)
 
 	err := CheckStatement(ast, tc)
 	if err != nil {
@@ -4368,10 +4380,10 @@ func CheckExpression(expr *ASTNode, tc *TypeChecker) error {
 			structType = baseType.Child
 		} else if baseType.Kind == TypeSlice {
 			// Slice access - synthesize the internal struct representation
-			structType = synthesizeSliceStruct(baseType)
+			structType = synthesizeSliceStruct(baseType, tc.typeTable)
 		} else if baseType.Kind == TypePointer && baseType.Child.Kind == TypeSlice {
 			// Pointer-to-slice access (slice parameters)
-			structType = synthesizeSliceStruct(baseType.Child)
+			structType = synthesizeSliceStruct(baseType.Child, tc.typeTable)
 		} else {
 			return fmt.Errorf("error: cannot access field of non-struct type %s", TypeToString(baseType))
 		}

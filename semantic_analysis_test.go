@@ -638,7 +638,8 @@ func TestStructSymbolTable(t *testing.T) {
 // =============================================================================
 
 func TestCheckExpressionInteger(t *testing.T) {
-	tc := NewTypeChecker()
+	typeTable := NewTypeTable()
+	tc := NewTypeChecker(typeTable)
 
 	// Create integer node
 	intNode := &ASTNode{
@@ -658,7 +659,8 @@ func TestCheckExpressionVariableAssigned(t *testing.T) {
 	be.Err(t, err, nil)
 	symbol.Assigned = true
 
-	tc := NewTypeChecker()
+	typeTable := NewTypeTable()
+	tc := NewTypeChecker(typeTable)
 
 	// Create variable reference node with symbol reference
 	varNode := &ASTNode{
@@ -674,7 +676,8 @@ func TestCheckExpressionVariableAssigned(t *testing.T) {
 }
 
 func TestCheckExpressionBinaryArithmetic(t *testing.T) {
-	tc := NewTypeChecker()
+	typeTable := NewTypeTable()
+	tc := NewTypeChecker(typeTable)
 
 	// Create binary expression: 42 + 10
 	binaryNode := &ASTNode{
@@ -693,7 +696,8 @@ func TestCheckExpressionBinaryArithmetic(t *testing.T) {
 }
 
 func TestCheckExpressionBinaryComparison(t *testing.T) {
-	tc := NewTypeChecker()
+	typeTable := NewTypeTable()
+	tc := NewTypeChecker(typeTable)
 
 	// Create binary expression: 42 == 10
 	binaryNode := &ASTNode{
@@ -717,7 +721,8 @@ func TestCheckExpressionAddressOf(t *testing.T) {
 	be.Err(t, err, nil)
 	symbol.Assigned = true
 
-	tc := NewTypeChecker()
+	typeTable := NewTypeTable()
+	tc := NewTypeChecker(typeTable)
 
 	// Create address-of expression: x& with symbol reference
 	addrNode := &ASTNode{
@@ -742,7 +747,8 @@ func TestCheckExpressionDereference(t *testing.T) {
 	be.Err(t, err, nil)
 	symbol.Assigned = true
 
-	tc := NewTypeChecker()
+	typeTable := NewTypeTable()
+	tc := NewTypeChecker(typeTable)
 
 	// Create dereference expression: ptr* with symbol reference
 	derefNode := &ASTNode{
@@ -760,7 +766,8 @@ func TestCheckExpressionDereference(t *testing.T) {
 }
 
 func TestCheckExpressionFunctionCall(t *testing.T) {
-	tc := NewTypeChecker()
+	typeTable := NewTypeTable()
+	tc := NewTypeChecker(typeTable)
 
 	// Create function call: print(42)
 	callNode := &ASTNode{
@@ -782,7 +789,8 @@ func TestCheckAssignmentValid(t *testing.T) {
 	symbol, err := st.DeclareVariable("x", TypeI64)
 	be.Err(t, err, nil)
 
-	tc := NewTypeChecker()
+	typeTable := NewTypeTable()
+	tc := NewTypeChecker(typeTable)
 
 	// Create assignment nodes: x = 42 with symbol reference
 	lhs := &ASTNode{Kind: NodeIdent, String: "x", Symbol: symbol}
@@ -803,7 +811,8 @@ func TestCheckAssignmentPointerDereference(t *testing.T) {
 	be.Err(t, err, nil)
 	symbol.Assigned = true
 
-	tc := NewTypeChecker()
+	typeTable := NewTypeTable()
+	tc := NewTypeChecker(typeTable)
 
 	// Create assignment nodes: ptr* = 42 with symbol reference
 	lhs := &ASTNode{
@@ -828,8 +837,8 @@ func TestCheckProgramSuccess(t *testing.T) {
 	ast := ParseStatement(l)
 
 	// Build symbol table and check program
-	_ = BuildSymbolTable(ast)
-	err := CheckProgram(ast)
+	symbolTable := BuildSymbolTable(ast)
+	err := CheckProgram(ast, symbolTable.typeTable)
 	be.Err(t, err, nil)
 }
 
@@ -840,8 +849,8 @@ func TestStringLiteralTypeChecking(t *testing.T) {
 	ast := ParseProgram(l)
 
 	// Build symbol table and run type checking
-	_ = BuildSymbolTable(ast)
-	err := CheckProgram(ast)
+	symbolTable := BuildSymbolTable(ast)
+	err := CheckProgram(ast, symbolTable.typeTable)
 	be.Err(t, err, nil) // Should not error
 
 	// Check that string literal has correct type
