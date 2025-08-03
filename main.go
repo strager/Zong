@@ -220,13 +220,9 @@ var globalTypeMap map[string]int
 var globalFunctionRegistry []string
 var globalFunctionMap map[string]int
 
-// Global slice type registry for generating append functions
-var globalSliceTypes map[string]*TypeNode
-
 func initTypeRegistry() {
 	globalTypeRegistry = []FunctionType{}
 	globalTypeMap = make(map[string]int)
-	globalSliceTypes = make(map[string]*TypeNode)
 
 	// Type 0: print function (i64) -> ()
 	printType := FunctionType{
@@ -1735,8 +1731,8 @@ func CompileToWASM(ast *ASTNode) []byte {
 	}
 
 	// Collect slice types before transformation (when they're still slice types)
-	collectSliceTypes(ast)
-	generatedAppendFunctions := generateAllAppendFunctions()
+	collectSliceTypes(ast, symbolTable.typeTable)
+	generatedAppendFunctions := generateAllAppendFunctions(symbolTable.typeTable)
 
 	// Apply slice-to-struct transformation pass after type checking and slice collection
 	transformSlicesToStructs(ast, symbolTable)
@@ -2796,12 +2792,14 @@ type Scope struct {
 // TypeTable manages type synthesis and caching
 type TypeTable struct {
 	synthesizedSliceStructs map[string]*TypeNode // Cache for synthesized slice struct types
+	originalSliceTypes      map[string]*TypeNode // Registry of original slice types for code generation
 }
 
 // NewTypeTable creates a new type table
 func NewTypeTable() *TypeTable {
 	return &TypeTable{
 		synthesizedSliceStructs: make(map[string]*TypeNode),
+		originalSliceTypes:      make(map[string]*TypeNode),
 	}
 }
 
@@ -3418,24 +3416,24 @@ func transformASTSlices(node *ASTNode, symbolTable *SymbolTable) {
 }
 
 // collectSliceTypes traverses the AST to find all slice types used
-func collectSliceTypes(node *ASTNode) {
+func collectSliceTypes(node *ASTNode, typeTable *TypeTable) {
 	if node == nil {
 		return
 	}
 
 	// Collect slice types from the node's type
 	if node.TypeAST != nil {
-		collectSliceTypesFromType(node.TypeAST)
+		collectSliceTypesFromType(node.TypeAST, typeTable)
 	}
 
 	// Recursively process children
 	for _, child := range node.Children {
-		collectSliceTypes(child)
+		collectSliceTypes(child, typeTable)
 	}
 }
 
 // collectSliceTypesFromType recursively collects slice types from a type node
-func collectSliceTypesFromType(typeNode *TypeNode) {
+func collectSliceTypesFromType(typeNode *TypeNode, typeTable *TypeTable) {
 	if typeNode == nil {
 		return
 	}
@@ -3443,16 +3441,16 @@ func collectSliceTypesFromType(typeNode *TypeNode) {
 	switch typeNode.Kind {
 	case TypeSlice:
 		typeKey := TypeToString(typeNode)
-		if _, exists := globalSliceTypes[typeKey]; !exists {
-			globalSliceTypes[typeKey] = typeNode
+		if _, exists := typeTable.originalSliceTypes[typeKey]; !exists {
+			typeTable.originalSliceTypes[typeKey] = typeNode
 		}
 		// Also collect from the element type
-		collectSliceTypesFromType(typeNode.Child)
+		collectSliceTypesFromType(typeNode.Child, typeTable)
 	case TypePointer:
-		collectSliceTypesFromType(typeNode.Child)
+		collectSliceTypesFromType(typeNode.Child, typeTable)
 	case TypeStruct:
 		for _, field := range typeNode.Fields {
-			collectSliceTypesFromType(field.Type)
+			collectSliceTypesFromType(field.Type, typeTable)
 		}
 	}
 }
@@ -3578,9 +3576,9 @@ func sanitizeTypeName(typeName string) string {
 }
 
 // generateAllAppendFunctions creates append functions for all collected slice types
-func generateAllAppendFunctions() []*ASTNode {
+func generateAllAppendFunctions(typeTable *TypeTable) []*ASTNode {
 	var generatedFunctions []*ASTNode
-	for _, sliceType := range globalSliceTypes {
+	for _, sliceType := range typeTable.originalSliceTypes {
 		appendFunc := generateAppendFunction(sliceType)
 		generatedFunctions = append(generatedFunctions, appendFunc)
 	}
