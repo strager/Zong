@@ -212,63 +212,75 @@ func EmitGlobalSection(buf *bytes.Buffer, dataSize uint32) {
 	writeBytes(buf, sectionBuf.Bytes())
 }
 
-// Global type registry for consistent type indices
-var globalTypeRegistry []FunctionType
-var globalTypeMap map[string]int
+// WASMContext holds state for WASM code generation
+type WASMContext struct {
+	TypeRegistry     []FunctionType
+	TypeMap          map[string]int
+	FunctionRegistry []string
+	FunctionMap      map[string]int
+	StringAddresses  map[string]uint32
+}
 
-// Global function registry for consistent function indices
-var globalFunctionRegistry []string
-var globalFunctionMap map[string]int
+// NewWASMContext creates a new WASM context
+func NewWASMContext() *WASMContext {
+	return &WASMContext{
+		TypeRegistry:     []FunctionType{},
+		TypeMap:          make(map[string]int),
+		FunctionRegistry: []string{},
+		FunctionMap:      make(map[string]int),
+		StringAddresses:  make(map[string]uint32),
+	}
+}
 
-func initTypeRegistry() {
-	globalTypeRegistry = []FunctionType{}
-	globalTypeMap = make(map[string]int)
+func (ctx *WASMContext) initTypeRegistry() {
+	ctx.TypeRegistry = []FunctionType{}
+	ctx.TypeMap = make(map[string]int)
 
 	// Type 0: print function (i64) -> ()
 	printType := FunctionType{
 		Parameters: []byte{0x7E}, // i64
 		Results:    []byte{},     // void
 	}
-	globalTypeRegistry = append(globalTypeRegistry, printType)
-	globalTypeMap["(i64)->()"] = 0
+	ctx.TypeRegistry = append(ctx.TypeRegistry, printType)
+	ctx.TypeMap["(i64)->()"] = 0
 
 	// Type 1: print_bytes function (i32) -> ()
 	printBytesType := FunctionType{
 		Parameters: []byte{0x7F}, // i32 (slice pointer)
 		Results:    []byte{},     // void
 	}
-	globalTypeRegistry = append(globalTypeRegistry, printBytesType)
-	globalTypeMap["(i32)->()"] = 1
+	ctx.TypeRegistry = append(ctx.TypeRegistry, printBytesType)
+	ctx.TypeMap["(i32)->()"] = 1
 }
 
-func initFunctionRegistry(functions []*ASTNode) {
-	globalFunctionRegistry = []string{}
-	globalFunctionMap = make(map[string]int)
+func (ctx *WASMContext) initFunctionRegistry(functions []*ASTNode) {
+	ctx.FunctionRegistry = []string{}
+	ctx.FunctionMap = make(map[string]int)
 
 	// Function 0 is print (imported)
-	globalFunctionRegistry = append(globalFunctionRegistry, "print")
-	globalFunctionMap["print"] = 0
+	ctx.FunctionRegistry = append(ctx.FunctionRegistry, "print")
+	ctx.FunctionMap["print"] = 0
 
 	// Function 1 is print_bytes (imported)
-	globalFunctionRegistry = append(globalFunctionRegistry, "print_bytes")
-	globalFunctionMap["print_bytes"] = 1
+	ctx.FunctionRegistry = append(ctx.FunctionRegistry, "print_bytes")
+	ctx.FunctionMap["print_bytes"] = 1
 
 	// Add user functions starting from index 2
 	for _, fn := range functions {
-		index := len(globalFunctionRegistry)
-		globalFunctionRegistry = append(globalFunctionRegistry, fn.FunctionName)
-		globalFunctionMap[fn.FunctionName] = index
+		index := len(ctx.FunctionRegistry)
+		ctx.FunctionRegistry = append(ctx.FunctionRegistry, fn.FunctionName)
+		ctx.FunctionMap[fn.FunctionName] = index
 	}
 }
 
-func EmitTypeSection(buf *bytes.Buffer, functions []*ASTNode) {
+func (ctx *WASMContext) EmitTypeSection(buf *bytes.Buffer, functions []*ASTNode) {
 	writeByte(buf, 0x01) // type section id
 
 	var sectionBuf bytes.Buffer
 
 	// Initialize registries
-	initTypeRegistry()
-	initFunctionRegistry(functions)
+	ctx.initTypeRegistry()
+	ctx.initFunctionRegistry(functions)
 
 	if len(functions) == 0 {
 		// Legacy path - add main function type (void -> void)
@@ -276,22 +288,22 @@ func EmitTypeSection(buf *bytes.Buffer, functions []*ASTNode) {
 			Parameters: []byte{},
 			Results:    []byte{},
 		}
-		globalTypeRegistry = append(globalTypeRegistry, mainType)
+		ctx.TypeRegistry = append(ctx.TypeRegistry, mainType)
 	} else {
 		// Register types for user functions
 		for _, fn := range functions {
 			sig := generateFunctionSignature(fn)
-			if _, exists := globalTypeMap[sig]; !exists {
-				globalTypeMap[sig] = len(globalTypeRegistry)
-				globalTypeRegistry = append(globalTypeRegistry, createFunctionType(fn))
+			if _, exists := ctx.TypeMap[sig]; !exists {
+				ctx.TypeMap[sig] = len(ctx.TypeRegistry)
+				ctx.TypeRegistry = append(ctx.TypeRegistry, createFunctionType(fn))
 			}
 		}
 	}
 
-	writeLEB128(&sectionBuf, uint32(len(globalTypeRegistry)))
+	writeLEB128(&sectionBuf, uint32(len(ctx.TypeRegistry)))
 
 	// Emit each function type
-	for _, funcType := range globalTypeRegistry {
+	for _, funcType := range ctx.TypeRegistry {
 		writeByte(&sectionBuf, 0x60) // func type
 		writeLEB128(&sectionBuf, uint32(len(funcType.Parameters)))
 		for _, param := range funcType.Parameters {
@@ -392,7 +404,7 @@ func wasmTypeString(typeNode *TypeNode) string {
 	panic("Unsupported type for WASM: " + TypeToString(typeNode))
 }
 
-func EmitFunctionSection(buf *bytes.Buffer, functions []*ASTNode) {
+func (ctx *WASMContext) EmitFunctionSection(buf *bytes.Buffer, functions []*ASTNode) {
 	writeByte(buf, 0x03) // function section id
 
 	var sectionBuf bytes.Buffer
@@ -406,7 +418,7 @@ func EmitFunctionSection(buf *bytes.Buffer, functions []*ASTNode) {
 
 		// For each function, emit its type index
 		for _, fn := range functions {
-			typeIndex := findFunctionTypeIndex(fn)
+			typeIndex := ctx.findFunctionTypeIndex(fn)
 			writeLEB128(&sectionBuf, uint32(typeIndex))
 		}
 	}
@@ -416,23 +428,23 @@ func EmitFunctionSection(buf *bytes.Buffer, functions []*ASTNode) {
 }
 
 // findFunctionTypeIndex finds the type index for a function
-func findFunctionTypeIndex(fn *ASTNode) int {
+func (ctx *WASMContext) findFunctionTypeIndex(fn *ASTNode) int {
 	sig := generateFunctionSignature(fn)
-	if index, exists := globalTypeMap[sig]; exists {
+	if index, exists := ctx.TypeMap[sig]; exists {
 		return index
 	}
 	panic("Function type not found in registry: " + sig)
 }
 
 // findUserFunctionIndex finds the WASM index for a user-defined function
-func findUserFunctionIndex(functionName string) int {
-	if index, exists := globalFunctionMap[functionName]; exists {
+func (ctx *WASMContext) findUserFunctionIndex(functionName string) int {
+	if index, exists := ctx.FunctionMap[functionName]; exists {
 		return index
 	}
 	panic("Function not found in registry: " + functionName)
 }
 
-func EmitExportSection(buf *bytes.Buffer) {
+func (ctx *WASMContext) EmitExportSection(buf *bytes.Buffer) {
 	writeByte(buf, 0x07) // export section id
 
 	var sectionBuf bytes.Buffer
@@ -447,8 +459,8 @@ func EmitExportSection(buf *bytes.Buffer) {
 
 	// Find main function index - fallback to index 1 if main not found
 	var mainIndex int
-	if globalFunctionMap != nil {
-		if index, exists := globalFunctionMap["main"]; exists {
+	if ctx.FunctionMap != nil {
+		if index, exists := ctx.FunctionMap["main"]; exists {
 			mainIndex = index
 		} else {
 			// Legacy fallback for single-expression tests
@@ -474,7 +486,7 @@ func EmitExportSection(buf *bytes.Buffer) {
 	writeBytes(buf, sectionBuf.Bytes())
 }
 
-func EmitCodeSection(buf *bytes.Buffer, functions []*ASTNode) {
+func (ctx *WASMContext) EmitCodeSection(buf *bytes.Buffer, functions []*ASTNode) {
 	writeByte(buf, 0x0A) // code section id
 
 	var sectionBuf bytes.Buffer
@@ -482,7 +494,7 @@ func EmitCodeSection(buf *bytes.Buffer, functions []*ASTNode) {
 
 	// Emit each function body
 	for _, fn := range functions {
-		emitSingleFunction(&sectionBuf, fn)
+		ctx.emitSingleFunction(&sectionBuf, fn)
 	}
 
 	writeLEB128(buf, uint32(sectionBuf.Len()))
@@ -490,7 +502,7 @@ func EmitCodeSection(buf *bytes.Buffer, functions []*ASTNode) {
 }
 
 // emitSingleFunction emits the code for a single function
-func emitSingleFunction(buf *bytes.Buffer, fn *ASTNode) {
+func (ctx *WASMContext) emitSingleFunction(buf *bytes.Buffer, fn *ASTNode) {
 	// Check if this is a generated append function
 	if isGeneratedAppendFunction(fn.FunctionName) {
 		emitAppendFunctionBody(buf, fn)
@@ -513,7 +525,7 @@ func emitSingleFunction(buf *bytes.Buffer, fn *ASTNode) {
 
 	// Generate function body
 	for _, stmt := range fn.Children {
-		EmitStatement(&bodyBuf, stmt, localCtx)
+		ctx.EmitStatement(&bodyBuf, stmt, localCtx)
 	}
 	writeByte(&bodyBuf, END) // end instruction
 
@@ -703,7 +715,7 @@ func EmitDataSection(buf *bytes.Buffer, dataSection *DataSection) {
 }
 
 // EmitStatement generates WASM bytecode for statements
-func EmitStatement(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
+func (ctx *WASMContext) EmitStatement(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 	switch node.Kind {
 	case NodeVar:
 		// Variable declarations don't generate runtime code for the declaration itself
@@ -728,7 +740,7 @@ func EmitStatement(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 			}
 
 			// Emit the assignment
-			EmitExpression(buf, assignmentNode, localCtx)
+			ctx.EmitExpression(buf, assignmentNode, localCtx)
 		}
 		break
 
@@ -740,18 +752,18 @@ func EmitStatement(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 	case NodeBlock:
 		// Emit all statements in the block
 		for _, stmt := range node.Children {
-			EmitStatement(buf, stmt, localCtx)
+			ctx.EmitStatement(buf, stmt, localCtx)
 		}
 
 	case NodeCall:
 		// Handle expression statements (e.g., print calls)
-		EmitExpression(buf, node, localCtx)
+		ctx.EmitExpression(buf, node, localCtx)
 
 	case NodeReturn:
 		// Return statement
 		if len(node.Children) > 0 {
 			// Function returns a value - emit the expression
-			EmitExpression(buf, node.Children[0], localCtx)
+			ctx.EmitExpression(buf, node.Children[0], localCtx)
 		}
 		// WASM return instruction (implicitly returns the value on stack)
 		writeByte(buf, 0x0F) // RETURN opcode
@@ -761,7 +773,7 @@ func EmitStatement(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 		// Structure: [condition, then_block, condition2?, else_block2?, ...]
 
 		// Emit condition for initial if
-		EmitExpression(buf, node.Children[0], localCtx)
+		ctx.EmitExpression(buf, node.Children[0], localCtx)
 		// Convert I64 Bool conditions to I32 for WASM if instruction
 		if TypesEqual(node.Children[0].TypeAST, TypeBool) {
 			writeByte(buf, I32_WRAP_I64) // Convert I64 to I32
@@ -774,7 +786,7 @@ func EmitStatement(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 		// Increment control depth for entire if statement
 		localCtx.ControlDepth++
 		// Emit then block
-		EmitStatement(buf, node.Children[1], localCtx)
+		ctx.EmitStatement(buf, node.Children[1], localCtx)
 
 		// Handle else/else-if clauses
 		i := 2
@@ -784,7 +796,7 @@ func EmitStatement(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 			// Check if this is an else-if (condition is not nil) or final else (condition is nil)
 			if node.Children[i] != nil {
 				// else-if: emit condition and start new if block
-				EmitExpression(buf, node.Children[i], localCtx)
+				ctx.EmitExpression(buf, node.Children[i], localCtx)
 				// Convert I64 Bool conditions to I32 for WASM if instruction
 				if TypesEqual(node.Children[i].TypeAST, TypeBool) {
 					writeByte(buf, I32_WRAP_I64) // Convert I64 to I32
@@ -793,11 +805,11 @@ func EmitStatement(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 				writeByte(buf, 0x40) // block type: void
 
 				// Emit the else-if block
-				EmitStatement(buf, node.Children[i+1], localCtx)
+				ctx.EmitStatement(buf, node.Children[i+1], localCtx)
 				i += 2
 			} else {
 				// final else: emit else block directly
-				EmitStatement(buf, node.Children[i+1], localCtx)
+				ctx.EmitStatement(buf, node.Children[i+1], localCtx)
 				break
 			}
 		}
@@ -818,7 +830,7 @@ func EmitStatement(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 
 	case NodeBinary:
 		// Handle binary operations (mainly assignments)
-		EmitExpression(buf, node, localCtx)
+		ctx.EmitExpression(buf, node, localCtx)
 
 	case NodeLoop:
 		// Save current control depth for this loop's break targeting
@@ -834,7 +846,7 @@ func EmitStatement(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 
 		// Emit loop body
 		for _, stmt := range node.Children {
-			EmitStatement(buf, stmt, localCtx)
+			ctx.EmitStatement(buf, stmt, localCtx)
 		}
 
 		// Emit branch back to loop start (this makes it an infinite loop until break)
@@ -874,7 +886,7 @@ func EmitStatement(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 
 	default:
 		// For now, treat unknown statements as expressions
-		EmitExpression(buf, node, localCtx)
+		ctx.EmitExpression(buf, node, localCtx)
 	}
 }
 
@@ -929,7 +941,7 @@ func getStructTypeFromBase(baseType *TypeNode) *TypeNode {
 	}
 }
 
-func EmitExpression(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
+func (ctx *WASMContext) EmitExpression(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 	// Handle assignment specially, then delegate to EmitExpressionR for other cases
 	if node.Kind == NodeBinary && node.Op == "=" {
 		// Assignment: LHS = RHS
@@ -948,7 +960,7 @@ func EmitExpression(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 
 			if targetLocal.Storage == VarStorageLocal || targetLocal.Storage == VarStorageParameterLocal {
 				// Local variable - emit local.set
-				EmitExpressionR(buf, rhs, localCtx) // RHS value
+				ctx.EmitExpressionR(buf, rhs, localCtx) // RHS value
 				writeByte(buf, LOCAL_SET)
 				writeLEB128(buf, targetLocal.Address)
 				return
@@ -961,8 +973,8 @@ func EmitExpression(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 		}
 
 		// Non-local storage - get address and store based on type
-		EmitExpressionL(buf, lhs, localCtx) // Get address
-		EmitExpressionR(buf, rhs, localCtx) // Get value
+		ctx.EmitExpressionL(buf, lhs, localCtx) // Get address
+		ctx.EmitExpressionR(buf, rhs, localCtx) // Get value
 
 		// Stack is now: [address_i32, value]
 		emitValueStoreToMemory(buf, lhs.TypeAST)
@@ -970,7 +982,7 @@ func EmitExpression(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 	}
 
 	// For all non-assignment expressions, delegate to EmitExpressionR
-	EmitExpressionR(buf, node, localCtx)
+	ctx.EmitExpressionR(buf, node, localCtx)
 }
 
 // Precondition: WASM stack should be: [address_i32, value]
@@ -1044,7 +1056,7 @@ func emitValueLoadFromMemory(buf *bytes.Buffer, ty *TypeNode) {
 
 // EmitExpressionL emits code for lvalue expressions (expressions that can be assigned to or addressed)
 // These expressions produce an address on the stack where a value can be stored or loaded from
-func EmitExpressionL(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
+func (ctx *WASMContext) EmitExpressionL(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 	switch node.Kind {
 	case NodeIdent:
 		// Variable reference - emit address
@@ -1080,7 +1092,7 @@ func EmitExpressionL(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 	case NodeUnary:
 		if node.Op == "*" {
 			// Pointer dereference - the pointer value is the address
-			EmitExpressionR(buf, node.Children[0], localCtx)
+			ctx.EmitExpressionR(buf, node.Children[0], localCtx)
 		} else {
 			panic("Cannot use unary operator " + node.Op + " as lvalue")
 		}
@@ -1090,7 +1102,7 @@ func EmitExpressionL(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 		baseExpr := node.Children[0]
 		fieldName := node.FieldName
 
-		EmitExpressionL(buf, baseExpr, localCtx)
+		ctx.EmitExpressionL(buf, baseExpr, localCtx)
 
 		// Calculate and add field offset using symbol-based approach
 		var fieldOffset uint32
@@ -1119,7 +1131,7 @@ func EmitExpressionL(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 		indexExpr := node.Children[1]
 
 		// Get slice base address (the slice struct itself)
-		EmitExpressionL(buf, sliceExpr, localCtx)
+		ctx.EmitExpressionL(buf, sliceExpr, localCtx)
 
 		// Load the items field (which is a pointer to the elements)
 		// items field is at offset 0 in the slice struct
@@ -1128,7 +1140,7 @@ func EmitExpressionL(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 		writeByte(buf, 0x00)     // offset 0 (items field)
 
 		// Get the index value
-		EmitExpressionR(buf, indexExpr, localCtx)
+		ctx.EmitExpressionR(buf, indexExpr, localCtx)
 
 		// Convert index from I64 to I32 for address calculation
 		writeByte(buf, I32_WRAP_I64)
@@ -1148,7 +1160,7 @@ func EmitExpressionL(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 		// Check if this is a struct-returning function call
 		if node.Kind == NodeCall && node.TypeAST.Kind == TypeStruct {
 			// Function call returning struct - it already returns the correct address
-			EmitExpressionR(buf, node, localCtx)
+			ctx.EmitExpressionR(buf, node, localCtx)
 			return
 		}
 
@@ -1158,7 +1170,7 @@ func EmitExpressionL(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 		writeLEB128(buf, 0) // tstack global index
 
 		// Evaluate the rvalue to get its value on stack
-		EmitExpressionR(buf, node, localCtx)
+		ctx.EmitExpressionR(buf, node, localCtx)
 		// Stack: [tstack_addr, value]
 
 		// Store the value to tstack based on its type
@@ -1206,7 +1218,7 @@ func EmitExpressionL(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 
 // EmitExpressionR emits code for rvalue expressions (expressions that produce values)
 // These expressions produce a value on the stack that can be consumed
-func EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
+func (ctx *WASMContext) EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 	if node.TypeAST != nil && node.TypeAST.Kind == TypeInteger {
 		panic("Unresolved Integer type in WASM generation: " + ToSExpr(node))
 	}
@@ -1246,7 +1258,7 @@ func EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 			writeLEB128(buf, targetLocal.Address)
 		} else {
 			// Stack variable
-			EmitExpressionL(buf, node, localCtx)
+			ctx.EmitExpressionL(buf, node, localCtx)
 			emitValueLoadFromMemory(buf, targetLocal.Symbol.Type)
 		}
 
@@ -1257,8 +1269,8 @@ func EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 		}
 
 		// Binary operators (non-assignment)
-		EmitExpressionR(buf, node.Children[0], localCtx) // LHS
-		EmitExpressionR(buf, node.Children[1], localCtx) // RHS
+		ctx.EmitExpressionR(buf, node.Children[0], localCtx) // LHS
+		ctx.EmitExpressionR(buf, node.Children[1], localCtx) // RHS
 
 		// Emit the appropriate operation based on operand types
 		leftType := node.Children[0].TypeAST
@@ -1321,7 +1333,7 @@ func EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 				}
 
 				// Emit the field value
-				EmitExpressionR(buf, fieldValueNode, localCtx)
+				ctx.EmitExpressionR(buf, fieldValueNode, localCtx)
 
 				// Store the value at the memory address (address + offset already computed)
 				emitValueStoreToMemory(buf, field.Type)
@@ -1348,7 +1360,7 @@ func EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 			}
 			// Emit argument
 			arg := node.Children[1]
-			EmitExpressionR(buf, arg, localCtx)
+			ctx.EmitExpressionR(buf, arg, localCtx)
 
 			// Convert i32 results to i64 for print
 			if arg.Kind == NodeUnary && arg.Op == "&" {
@@ -1369,7 +1381,7 @@ func EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 			}
 			// Emit argument (slice address)
 			arg := node.Children[1]
-			EmitExpressionL(buf, arg, localCtx) // Get slice address (pointer to slice struct)
+			ctx.EmitExpressionL(buf, arg, localCtx) // Get slice address (pointer to slice struct)
 
 			// Call print_bytes
 			writeByte(buf, CALL)
@@ -1405,11 +1417,11 @@ func EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 			appendFunctionName := "append_" + sanitizeTypeName(TypeToString(elementType))
 
 			// Emit arguments
-			EmitExpressionR(buf, slicePtrArg, localCtx)
-			EmitExpressionR(buf, valueArg, localCtx)
+			ctx.EmitExpressionR(buf, slicePtrArg, localCtx)
+			ctx.EmitExpressionR(buf, valueArg, localCtx)
 
 			// Call the generated append function
-			functionIndex, exists := globalFunctionMap[appendFunctionName]
+			functionIndex, exists := ctx.FunctionMap[appendFunctionName]
 			if !exists {
 				panic("Generated append function not found: " + appendFunctionName)
 			}
@@ -1435,14 +1447,14 @@ func EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 					tempIndices[i] = 0 // Mark as tstack
 				} else if isWASMI64Type(arg.TypeAST) {
 					// Evaluate argument and store in i64 temporary
-					EmitExpressionR(buf, arg, localCtx)
+					ctx.EmitExpressionR(buf, arg, localCtx)
 					writeByte(buf, LOCAL_SET)
 					writeLEB128(buf, tempI64Index)
 					tempIndices[i] = tempI64Index
 					tempI64Index++
 				} else if isWASMI32Type(arg.TypeAST) {
 					// Evaluate argument and store in i32 temporary
-					EmitExpressionR(buf, arg, localCtx)
+					ctx.EmitExpressionR(buf, arg, localCtx)
 					writeByte(buf, LOCAL_SET)
 					writeLEB128(buf, tempI32Index)
 					tempIndices[i] = tempI32Index
@@ -1499,7 +1511,7 @@ func EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 					writeLEB128(buf, 0) // tstack global index
 
 					// Get source address (the struct we're copying)
-					EmitExpressionR(buf, arg, localCtx)
+					ctx.EmitExpressionR(buf, arg, localCtx)
 
 					// Push size for memory.copy
 					writeByte(buf, I32_CONST)
@@ -1530,7 +1542,7 @@ func EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 			}
 
 			// Find function index and call
-			functionIndex := findUserFunctionIndex(functionName)
+			functionIndex := ctx.findUserFunctionIndex(functionName)
 			writeByte(buf, CALL)
 			writeLEB128(buf, uint32(functionIndex))
 		}
@@ -1538,11 +1550,11 @@ func EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 	case NodeUnary:
 		if node.Op == "&" {
 			// Address-of operator
-			EmitExpressionL(buf, node.Children[0], localCtx)
+			ctx.EmitExpressionL(buf, node.Children[0], localCtx)
 			// Address is returned as i32 (standard for pointers in WASM)
 		} else if node.Op == "*" {
 			// Pointer dereference
-			EmitExpressionR(buf, node.Children[0], localCtx) // Get pointer value (address as i32)
+			ctx.EmitExpressionR(buf, node.Children[0], localCtx) // Get pointer value (address as i32)
 			// Load value from the address (i32 address is already correct for memory operations)
 			writeByte(buf, I64_LOAD)
 			writeByte(buf, 0x03) // alignment
@@ -1554,7 +1566,7 @@ func EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 
 	case NodeDot:
 		// Generate field address using EmitExpressionL
-		EmitExpressionL(buf, node, localCtx)
+		ctx.EmitExpressionL(buf, node, localCtx)
 
 		// Get the final field type to determine how to load it
 		finalFieldType := getFinalFieldType(node)
@@ -1574,7 +1586,7 @@ func EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 
 	case NodeIndex:
 		// Slice subscript operation - load value from computed address
-		EmitExpressionL(buf, node, localCtx) // Get address of slice element
+		ctx.EmitExpressionL(buf, node, localCtx) // Get address of slice element
 
 		// Load the value from the address based on element type
 		elementType := node.TypeAST // TypeAST should be the element type from type checking
@@ -1607,7 +1619,7 @@ func EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
 	case NodeString:
 		// String literal creates a slice structure on tstack
 		stringContent := node.String
-		stringAddress := findStringAddress(stringContent)
+		stringAddress := ctx.findStringAddress(stringContent)
 		stringLength := uint32(len(stringContent))
 
 		// Get current tstack pointer (this will be our slice address)
@@ -1747,10 +1759,10 @@ func CompileToWASM(ast *ASTNode) []byte {
 		TotalSize: calculateDataSectionSize(strings),
 	}
 
-	// Initialize global string addresses map
-	globalStringAddresses = make(map[string]uint32)
+	// Create WASM context and initialize string addresses
+	ctx := NewWASMContext()
 	for _, str := range strings {
-		globalStringAddresses[str.Content] = str.Address
+		ctx.StringAddresses[str.Content] = str.Address
 	}
 
 	var buf bytes.Buffer
@@ -1763,13 +1775,13 @@ func CompileToWASM(ast *ASTNode) []byte {
 
 	// Emit WASM module header and sections in streaming fashion
 	EmitWASMHeader(&buf)
-	EmitTypeSection(&buf, functions)               // function type definitions
+	ctx.EmitTypeSection(&buf, functions)           // function type definitions
 	EmitImportSection(&buf)                        // print function import
-	EmitFunctionSection(&buf, functions)           // declare all functions
+	ctx.EmitFunctionSection(&buf, functions)       // declare all functions
 	EmitMemorySection(&buf)                        // memory for tstack operations
 	EmitGlobalSection(&buf, dataSection.TotalSize) // tstack global with initial value
-	EmitExportSection(&buf)                        // export main function
-	EmitCodeSection(&buf, functions)               // all function bodies
+	ctx.EmitExportSection(&buf)                    // export main function
+	ctx.EmitCodeSection(&buf, functions)           // all function bodies
 	EmitDataSection(&buf, dataSection)             // string literal data
 
 	return buf.Bytes()
@@ -1825,6 +1837,9 @@ func compileLegacyExpression(ast *ASTNode, typeTable *TypeTable) []byte {
 	// Use same unified system
 	localCtx := BuildLocalContext(ast, nil)
 
+	// Create WASM context for legacy expressions
+	ctx := NewWASMContext()
+
 	// Generate function body
 	var bodyBuf bytes.Buffer
 
@@ -1833,18 +1848,18 @@ func compileLegacyExpression(ast *ASTNode, typeTable *TypeTable) []byte {
 	if localCtx.FrameSize > 0 {
 		EmitFrameSetupFromContext(&bodyBuf, localCtx)
 	}
-	EmitStatement(&bodyBuf, ast, localCtx)
+	ctx.EmitStatement(&bodyBuf, ast, localCtx)
 	writeByte(&bodyBuf, END) // end instruction
 
 	// Build the full WASM module
 	var buf bytes.Buffer
 	EmitWASMHeader(&buf)
-	EmitTypeSection(&buf, []*ASTNode{}) // empty functions for legacy
+	ctx.EmitTypeSection(&buf, []*ASTNode{}) // empty functions for legacy
 	EmitImportSection(&buf)
-	EmitFunctionSection(&buf, []*ASTNode{}) // empty functions for legacy
+	ctx.EmitFunctionSection(&buf, []*ASTNode{}) // empty functions for legacy
 	EmitMemorySection(&buf)
 	EmitGlobalSection(&buf, 0) // tstack global with initial value 0 for legacy
-	EmitExportSection(&buf)
+	ctx.EmitExportSection(&buf)
 
 	// Emit code section with single function
 	writeByte(&buf, 0x0A) // code section id
@@ -2299,7 +2314,7 @@ func EmitFrameSetupFromContext(buf *bytes.Buffer, localCtx *LocalContext) {
 }
 
 // EmitAddressOf generates code for address-of operations
-func EmitAddressOf(buf *bytes.Buffer, operand *ASTNode, localCtx *LocalContext) {
+func (ctx *WASMContext) EmitAddressOf(buf *bytes.Buffer, operand *ASTNode, localCtx *LocalContext) {
 	if operand.Kind == NodeIdent {
 		// Lvalue case: &variable
 		// Find the variable in locals
@@ -2336,7 +2351,7 @@ func EmitAddressOf(buf *bytes.Buffer, operand *ASTNode, localCtx *LocalContext) 
 		writeLEB128(buf, 0)        // tstack global index (0)
 
 		// Evaluate expression to get value: Stack: [result_addr, store_addr_i32, value]
-		EmitExpression(buf, operand, localCtx)
+		ctx.EmitExpression(buf, operand, localCtx)
 
 		// Store value at address: i64.store expects [address, value]
 		writeByte(buf, I64_STORE) // i64.store -> Stack: [result_addr]
@@ -2549,9 +2564,6 @@ var (
 	TypeIntegerNode = &TypeNode{Kind: TypeInteger, String: "Integer"}
 	TypeBool        = &TypeNode{Kind: TypeBuiltin, String: "Boolean"}
 )
-
-// Global map to store string addresses during compilation
-var globalStringAddresses map[string]uint32
 
 // String literal data structures for WASM data section
 type StringLiteral struct {
@@ -3523,11 +3535,11 @@ func calculateDataSectionSize(strings []StringLiteral) uint32 {
 }
 
 // findStringAddress looks up a string's address in the global string map
-func findStringAddress(content string) uint32 {
-	if globalStringAddresses == nil {
+func (ctx *WASMContext) findStringAddress(content string) uint32 {
+	if ctx.StringAddresses == nil {
 		panic("String addresses not initialized during compilation")
 	}
-	address, exists := globalStringAddresses[content]
+	address, exists := ctx.StringAddresses[content]
 	if !exists {
 		panic("String address not found: " + content)
 	}

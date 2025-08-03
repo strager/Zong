@@ -109,7 +109,8 @@ func TestEmitImportSection(t *testing.T) {
 func TestEmitFunctionSection(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer
-	EmitFunctionSection(&buf, []*ASTNode{}) // empty functions list
+	ctx := NewWASMContext()
+	ctx.EmitFunctionSection(&buf, []*ASTNode{}) // empty functions list
 
 	result := buf.Bytes()
 
@@ -120,7 +121,8 @@ func TestEmitFunctionSection(t *testing.T) {
 func TestEmitExportSection(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer
-	EmitExportSection(&buf)
+	ctx := NewWASMContext()
+	ctx.EmitExportSection(&buf)
 
 	result := buf.Bytes()
 
@@ -177,7 +179,8 @@ func TestEmitExpression(t *testing.T) {
 			localCtx := &LocalContext{
 				Variables: []LocalVarInfo{},
 			}
-			EmitExpression(&buf, test.ast, localCtx)
+			ctx := NewWASMContext()
+			ctx.EmitExpression(&buf, test.ast, localCtx)
 			be.True(t, bytes.Equal(buf.Bytes(), test.expected))
 		})
 	}
@@ -232,7 +235,8 @@ func TestEmitAddressOfNonAddressedVariable(t *testing.T) {
 		Symbol: symbol,
 	}
 
-	EmitAddressOf(&buf, operand, localCtx)
+	ctx := NewWASMContext()
+	ctx.EmitAddressOf(&buf, operand, localCtx)
 }
 
 // =============================================================================
@@ -324,16 +328,13 @@ func TestGlobalStringAddresses(t *testing.T) {
 	l.NextToken()
 	ast := ParseProgram(l)
 
-	// Compile to populate global string addresses
-	CompileToWASM(ast)
+	// Collect string literals directly
+	strings := collectStringLiterals(ast)
 
-	// Check that global string addresses were populated
-	be.True(t, globalStringAddresses != nil)
-	be.True(t, len(globalStringAddresses) > 0)
-
-	address, exists := globalStringAddresses["test"]
-	be.True(t, exists)
-	be.Equal(t, address, uint32(0)) // First string should be at address 0
+	// Check that we found the expected string directly
+	be.Equal(t, len(strings), 1)
+	be.Equal(t, strings[0].Content, "test")
+	be.Equal(t, strings[0].Address, uint32(0)) // First string should be at address 0
 }
 
 func TestMultipleStringAddresses(t *testing.T) {
@@ -342,13 +343,27 @@ func TestMultipleStringAddresses(t *testing.T) {
 	l.NextToken()
 	ast := ParseProgram(l)
 
-	CompileToWASM(ast)
+	// Collect string literals directly
+	strings := collectStringLiterals(ast)
 
-	firstAddr, exists1 := globalStringAddresses["first"]
-	secondAddr, exists2 := globalStringAddresses["second"]
+	// Check that we found both strings and they have different addresses
+	be.Equal(t, len(strings), 2)
 
-	be.True(t, exists1)
-	be.True(t, exists2)
+	var firstAddr, secondAddr uint32
+	var foundFirst, foundSecond bool
+
+	for _, str := range strings {
+		if str.Content == "first" {
+			firstAddr = str.Address
+			foundFirst = true
+		} else if str.Content == "second" {
+			secondAddr = str.Address
+			foundSecond = true
+		}
+	}
+
+	be.True(t, foundFirst)
+	be.True(t, foundSecond)
 	be.True(t, firstAddr != secondAddr) // Should have different addresses
 }
 
@@ -365,13 +380,13 @@ func TestEmptyString(t *testing.T) {
 		}
 	}()
 
-	wasmBytes := CompileToWASM(ast)
-	be.True(t, len(wasmBytes) > 0)
+	// Collect string literals directly
+	strings := collectStringLiterals(ast)
 
-	// Check that empty string is recorded
-	address, exists := globalStringAddresses[""]
-	be.True(t, exists)
-	be.Equal(t, address, uint32(0)) // Empty string should be at address 0
+	// Check that empty string is recorded directly
+	be.Equal(t, len(strings), 1)
+	be.Equal(t, strings[0].Content, "")
+	be.Equal(t, strings[0].Address, uint32(0)) // Empty string should be at address 0
 }
 
 // =============================================================================
