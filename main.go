@@ -4858,10 +4858,12 @@ func (l *Lexer) readNumber() (string, int64) {
 func (l *Lexer) readString() string {
 	l.pos++ // skip opening "
 	start := l.pos
+	nonASCIIErrorReported := false
 	for l.input[l.pos] != '"' && l.input[l.pos] != 0 {
 		// Validate ASCII characters only
-		if l.input[l.pos] > 127 {
+		if l.input[l.pos] > 127 && !nonASCIIErrorReported {
 			l.AddError("error: non-ASCII characters are not supported in string literals")
+			nonASCIIErrorReported = true
 			// Continue parsing to recover
 		}
 		l.pos++
