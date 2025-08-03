@@ -599,3 +599,45 @@ func main() {
 ```execute
 0
 ```
+
+# Assignment Error Tests
+
+Tests for various invalid assignment target scenarios.
+
+### Test: function call as assignment target
+```zong-expr
+print(42) = 10
+```
+```compile-error
+error: left side of assignment must be a variable, field access, or dereferenced pointer
+```
+
+### Test: binary expression as assignment target
+```zong-expr
+(1 + 2) = 10
+```
+```compile-error
+error: left side of assignment must be a variable, field access, or dereferenced pointer
+```
+
+### Test: address-of as assignment target
+```zong-program
+func main() {
+    var x I64;
+    x& = 42;
+}
+```
+```compile-error
+error: left side of assignment must be a variable, field access, or dereferenced pointer
+```
+
+### Test: logical NOT as assignment target
+```zong-program
+func main() {
+    var x Boolean;
+    !x = true;
+}
+```
+```compile-error
+error: left side of assignment must be a variable, field access, or dereferenced pointer
+```
