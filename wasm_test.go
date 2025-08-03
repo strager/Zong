@@ -449,6 +449,20 @@ func executeWasm(t *testing.T, wasmBytes []byte) (string, error) {
 	return executeWasmFromFile(t, wasmFile)
 }
 
+// Execute WASM with input data provided to stdin
+func executeWasmWithInput(t *testing.T, wasmBytes []byte, inputData string) (string, error) {
+	// Create a temporary WASM file
+	tempDir := t.TempDir()
+	wasmFile := filepath.Join(tempDir, "test.wasm")
+
+	err := os.WriteFile(wasmFile, wasmBytes, 0644)
+	if err != nil {
+		return "", fmt.Errorf("failed to write WASM file: %v", err)
+	}
+
+	return executeWasmFromFileWithInput(t, wasmFile, inputData)
+}
+
 // Helper function that executes WASM and provides debug info if the result doesn't match expected
 func executeWasmAndVerify(t *testing.T, wasmBytes []byte, expected string) {
 	t.Helper()
@@ -497,6 +511,43 @@ func executeWasmFromFile(t *testing.T, wasmFile string) (string, error) {
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	if err != nil {
+		return "", fmt.Errorf("WASM execution failed: %v\nStderr: %s", err, stderr.String())
+	}
+
+	return stdout.String(), nil
+}
+
+// Execute WASM from an existing file with input data provided to stdin
+func executeWasmFromFileWithInput(t *testing.T, wasmFile string, inputData string) (string, error) {
+	// Build the Rust runtime if it doesn't exist
+	runtimeBinary := "./wasmruntime/target/release/wasmruntime"
+	if _, err := os.Stat(runtimeBinary); os.IsNotExist(err) {
+		t.Log("Building Rust wasmruntime...")
+		buildCmd := exec.Command("cargo", "build", "--release")
+		buildCmd.Dir = "./wasmruntime"
+		buildOutput, buildErr := buildCmd.CombinedOutput()
+		if buildErr != nil {
+			return "", fmt.Errorf("failed to build Rust runtime: %v\nOutput: %s", buildErr, buildOutput)
+		}
+	}
+
+	// Execute the WASM file with the Rust runtime, providing input via stdin
+	cmd := exec.Command(runtimeBinary, wasmFile)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	// If input data is provided, pipe it to stdin
+	if inputData != "" {
+		// Ensure input data ends with newline for read_line() to work properly
+		if !strings.HasSuffix(inputData, "\n") {
+			inputData += "\n"
+		}
+		cmd.Stdin = strings.NewReader(inputData)
+	}
 
 	err := cmd.Run()
 	if err != nil {

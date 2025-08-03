@@ -177,7 +177,7 @@ func EmitImportSection(buf *bytes.Buffer) {
 
 	// Build section content in temporary buffer to calculate size
 	var sectionBuf bytes.Buffer
-	writeLEB128(&sectionBuf, 2) // 2 imports: print and print_bytes functions
+	writeLEB128(&sectionBuf, 3) // 3 imports: print, print_bytes, and read_line functions
 
 	// Import 1: print function
 	// Module name "env"
@@ -208,6 +208,21 @@ func EmitImportSection(buf *bytes.Buffer) {
 
 	// Type index (1)
 	writeLEB128(&sectionBuf, 1)
+
+	// Import 3: read_line function
+	// Module name "env"
+	writeLEB128(&sectionBuf, 3) // length of "env"
+	writeBytes(&sectionBuf, []byte("env"))
+
+	// Import name "read_line"
+	writeLEB128(&sectionBuf, 9) // length of "read_line"
+	writeBytes(&sectionBuf, []byte("read_line"))
+
+	// Import kind: function (0x00)
+	writeByte(&sectionBuf, 0x00)
+
+	// Type index (2)
+	writeLEB128(&sectionBuf, 2)
 
 	// Write section size and content
 	writeLEB128(buf, uint32(sectionBuf.Len()))
@@ -286,6 +301,14 @@ func (ctx *WASMContext) initTypeRegistry() {
 	}
 	ctx.TypeRegistry = append(ctx.TypeRegistry, printBytesType)
 	ctx.TypeMap["(i32)->()"] = 1
+
+	// Type 2: read_line function (i32) -> ()
+	readLineType := FunctionType{
+		Parameters: []byte{0x7F}, // i32 (destination address for slice)
+		Results:    []byte{},     // void
+	}
+	ctx.TypeRegistry = append(ctx.TypeRegistry, readLineType)
+	ctx.TypeMap["(i32)->()"] = 2
 }
 
 func (ctx *WASMContext) initFunctionRegistry(functions []*ASTNode) {
@@ -300,7 +323,11 @@ func (ctx *WASMContext) initFunctionRegistry(functions []*ASTNode) {
 	ctx.FunctionRegistry = append(ctx.FunctionRegistry, "print_bytes")
 	ctx.FunctionMap["print_bytes"] = 1
 
-	// Add user functions starting from index 2
+	// Function 2 is read_line (imported)
+	ctx.FunctionRegistry = append(ctx.FunctionRegistry, "read_line")
+	ctx.FunctionMap["read_line"] = 2
+
+	// Add user functions starting from index 3
 	for _, fn := range functions {
 		index := len(ctx.FunctionRegistry)
 		ctx.FunctionRegistry = append(ctx.FunctionRegistry, fn.FunctionName)
@@ -447,7 +474,7 @@ func (ctx *WASMContext) EmitFunctionSection(buf *bytes.Buffer, functions []*ASTN
 	if len(functions) == 0 {
 		// Legacy path - emit single main function
 		writeLEB128(&sectionBuf, 1) // 1 function
-		writeLEB128(&sectionBuf, 2) // type index 2 (void -> void) - after print (0) and print_bytes (1)
+		writeLEB128(&sectionBuf, 3) // type index 3 (void -> void) - after print (0), print_bytes (1), and read_line (2)
 	} else {
 		writeLEB128(&sectionBuf, uint32(len(functions))) // number of functions
 
@@ -483,7 +510,7 @@ func (ctx *WASMContext) EmitExportSection(buf *bytes.Buffer) {
 	writeByte(buf, 0x07) // export section id
 
 	var sectionBuf bytes.Buffer
-	writeLEB128(&sectionBuf, 2) // 2 exports: main function and memory
+	writeLEB128(&sectionBuf, 3) // 3 exports: main function, memory, and tstack global
 
 	// Export 1: main function
 	writeLEB128(&sectionBuf, 4) // length of "main"
@@ -499,11 +526,11 @@ func (ctx *WASMContext) EmitExportSection(buf *bytes.Buffer) {
 			mainIndex = index
 		} else {
 			// Legacy fallback for single-expression tests
-			mainIndex = 2 // print=0, print_bytes=1, main=2
+			mainIndex = 3 // print=0, print_bytes=1, read_line=2, main=3
 		}
 	} else {
 		// Legacy fallback when no function registry
-		mainIndex = 2 // print=0, print_bytes=1, main=2
+		mainIndex = 3 // print=0, print_bytes=1, read_line=2, main=3
 	}
 	writeLEB128(&sectionBuf, uint32(mainIndex))
 
@@ -515,6 +542,16 @@ func (ctx *WASMContext) EmitExportSection(buf *bytes.Buffer) {
 	writeByte(&sectionBuf, 0x02)
 
 	// Memory index 0 (first memory)
+	writeLEB128(&sectionBuf, 0)
+
+	// Export 3: tstack global
+	writeLEB128(&sectionBuf, 6) // length of "tstack"
+	writeBytes(&sectionBuf, []byte("tstack"))
+
+	// Export kind: global (0x03)
+	writeByte(&sectionBuf, 0x03)
+
+	// Global index 0 (first global - tstack)
 	writeLEB128(&sectionBuf, 0)
 
 	writeLEB128(buf, uint32(sectionBuf.Len()))
@@ -1421,6 +1458,36 @@ func (ctx *WASMContext) EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localC
 			// Call print_bytes
 			writeByte(buf, CALL)
 			writeLEB128(buf, 1) // function index 1 (print_bytes import)
+		} else if functionName == "read_line" {
+			// Built-in read_line function
+			if len(node.Children) != 1 {
+				panic("read_line() function expects no arguments")
+			}
+
+			// read_line returns a struct (slice), so allocate space on tstack
+			// Get current tstack pointer (this will be the return address)
+			writeByte(buf, GLOBAL_GET)
+			writeLEB128(buf, 0) // tstack global index
+
+			// Duplicate the address for the function call
+			writeByte(buf, GLOBAL_GET)
+			writeLEB128(buf, 0) // tstack global index
+
+			// Update tstack pointer (advance by slice size: 16 bytes)
+			writeByte(buf, GLOBAL_GET)
+			writeLEB128(buf, 0) // tstack global index
+			writeByte(buf, I32_CONST)
+			writeLEB128(buf, 16) // slice size (pointer + length)
+			writeByte(buf, I32_ADD)
+			writeByte(buf, GLOBAL_SET)
+			writeLEB128(buf, 0) // tstack global index
+
+			// Call read_line with destination address as parameter
+			// Stack: [return_addr, dest_addr]
+			writeByte(buf, CALL)
+			writeLEB128(buf, 2) // function index 2 (read_line import)
+
+			// Stack now has: [return_addr] - the address where the slice was stored
 		} else if functionName == "append" {
 			// Call the generated append function for this slice type
 			if len(node.Children) != 3 {
@@ -2053,7 +2120,7 @@ func (ctx *LocalContext) analyzeFunctionCallTemporaries(node *ASTNode) {
 
 	// Skip built-in functions (print, append, etc.) - they don't need reordering
 	funcName := node.Children[0].String
-	if funcName == "print" || funcName == "print_bytes" || funcName == "append" {
+	if funcName == "print" || funcName == "print_bytes" || funcName == "read_line" || funcName == "append" {
 		return
 	}
 
@@ -2937,6 +3004,21 @@ func NewSymbolTable() *SymbolTable {
 	}
 	globalScope.symbols["print_bytes"] = printBytesSymbol
 
+	// read_line function (WASM index 2)
+	readLineFunc := FunctionInfo{
+		Name:       "read_line",
+		Parameters: []Parameter{},                             // No parameters
+		ReturnType: &TypeNode{Kind: TypeSlice, Child: TypeU8}, // Returns U8[]
+		WasmIndex:  2,
+	}
+	readLineSymbol := &SymbolInfo{
+		Name:         "read_line",
+		Type:         &TypeNode{Kind: TypeSlice, Child: TypeU8},
+		Kind:         SymbolFunction,
+		FunctionInfo: &readLineFunc,
+	}
+	globalScope.symbols["read_line"] = readLineSymbol
+
 	// append function (generic builtin)
 	appendFunc := FunctionInfo{
 		Name: "append",
@@ -3175,7 +3257,7 @@ func (st *SymbolTable) DeclareFunction(name string, parameters []Parameter, retu
 	st.validateParameterList(parameters, "function "+name)
 
 	// Assign WASM index (builtin functions like print start at 0, user functions follow)
-	wasmIndex := uint32(2 + len(st.allFunctions)) // print is at index 0, print_bytes is at index 1
+	wasmIndex := uint32(3 + len(st.allFunctions)) // print=0, print_bytes=1, read_line=2
 
 	// Create function info
 	funcInfo := FunctionInfo{
@@ -4247,6 +4329,15 @@ func CheckExpression(expr *ASTNode, tc *TypeChecker) {
 			}
 
 			expr.TypeAST = TypeI64 // print_bytes returns nothing, but use I64 for now
+		} else if funcName == "read_line" {
+			// Built-in read_line function
+			if len(expr.Children) != 1 {
+				tc.AddError("error: read_line() function expects no arguments")
+				return
+			}
+
+			// read_line returns U8[]
+			expr.TypeAST = &TypeNode{Kind: TypeSlice, Child: TypeU8}
 		} else if funcName == "append" {
 			// Built-in append function
 			if len(expr.Children) != 3 {

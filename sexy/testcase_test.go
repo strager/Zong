@@ -392,6 +392,38 @@ func TestExtractTestCases_ErrorInSecondTest(t *testing.T) {
 
 // This test removed - we now error on unknown fence languages
 
+func TestExtractTestCases_InputFence(t *testing.T) {
+	markdown := `## Test: input fence test
+` + "```zong-program" + `
+func main() {
+    var line U8[] = read_line();
+    print_bytes(line);
+}
+` + "```" + `
+` + "```input" + `
+hello world
+
+` + "```" + `
+` + "```execute" + `
+hello world
+` + "```"
+
+	testCases, err := ExtractTestCases(markdown)
+	be.Err(t, err, nil)
+	be.Equal(t, len(testCases), 1)
+
+	tc := testCases[0]
+	be.Equal(t, tc.Name, "input fence test")
+	be.Equal(t, tc.Input, "func main() {\n    var line U8[] = read_line();\n    print_bytes(line);\n}")
+	be.Equal(t, tc.InputType, InputTypeZongProgram)
+	be.Equal(t, tc.InputData, "hello world\n\n")
+	be.Equal(t, len(tc.Assertions), 1)
+
+	// Only assertion should be execute
+	be.Equal(t, tc.Assertions[0].Type, AssertionTypeExecute)
+	be.Equal(t, tc.Assertions[0].Content, "hello world")
+}
+
 func TestExtractTestCases_ComplexSexyExpressions(t *testing.T) {
 	markdown := `## Test: complex expression
 ` + "```zong-expr" + `

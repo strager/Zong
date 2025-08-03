@@ -28,6 +28,7 @@ const (
 	AssertionTypeExecute      AssertionType = "execute"
 	AssertionTypeCompileError AssertionType = "compile-error"
 	AssertionTypeWasmLocals   AssertionType = "wasm-locals"
+	AssertionTypeInput        AssertionType = "input"
 )
 
 // Assertion represents a single assertion in a Sexy test
@@ -42,6 +43,7 @@ type TestCase struct {
 	Name       string      // The test name from the heading (after "Test: ")
 	Input      string      // The raw input code from the input fence
 	InputType  InputType   // The type of input fence (zong-expr, zong-program)
+	InputData  string      // The stdin input data from input fence (if any)
 	Assertions []Assertion // All assertions for this test case
 }
 
@@ -114,23 +116,32 @@ func ExtractTestCases(markdownContent string) ([]TestCase, error) {
 				if currentTestCase.Input != "" {
 					return ast.WalkStop, fmt.Errorf("line %d: multiple input fences found in test '%s'", lineNum, currentTestCase.Name)
 				}
-				currentTestCase.Input = content
+				currentTestCase.Input = strings.TrimRight(content, "\n")
 				currentTestCase.InputType = InputType(language)
 			} else if isAssertionFence(language) {
-				assertion := Assertion{
-					Type:    AssertionType(language),
-					Content: content,
-				}
-
-				if assertion.Type != AssertionTypeExecute && assertion.Type != AssertionTypeCompileError {
-					parsedSexy, parseErr := Parse(content)
-					if parseErr != nil {
-						return ast.WalkStop, fmt.Errorf("line %d: failed to parse Sexy assertion in test '%s': %w", lineNum, currentTestCase.Name, parseErr)
+				if language == string(AssertionTypeInput) {
+					// Handle input fence - store input data for execution tests
+					if currentTestCase.InputData != "" {
+						return ast.WalkStop, fmt.Errorf("line %d: multiple input fences found in test '%s'", lineNum, currentTestCase.Name)
 					}
-					assertion.ParsedSexy = parsedSexy
-				}
+					currentTestCase.InputData = content
+				} else {
+					// Handle other assertion fences
+					assertion := Assertion{
+						Type:    AssertionType(language),
+						Content: strings.TrimRight(content, "\n"),
+					}
 
-				currentTestCase.Assertions = append(currentTestCase.Assertions, assertion)
+					if assertion.Type != AssertionTypeExecute && assertion.Type != AssertionTypeCompileError {
+						parsedSexy, parseErr := Parse(assertion.Content)
+						if parseErr != nil {
+							return ast.WalkStop, fmt.Errorf("line %d: failed to parse Sexy assertion in test '%s': %w", lineNum, currentTestCase.Name, parseErr)
+						}
+						assertion.ParsedSexy = parsedSexy
+					}
+
+					currentTestCase.Assertions = append(currentTestCase.Assertions, assertion)
+				}
 			}
 		}
 
@@ -177,7 +188,7 @@ func extractCodeBlockContent(codeBlock *ast.FencedCodeBlock, source []byte) stri
 		buf.Write(line.Value(source))
 	}
 
-	return strings.TrimRight(buf.String(), "\n")
+	return buf.String()
 }
 
 // isInputFence checks if the language indicates an input fence
@@ -192,7 +203,8 @@ func isAssertionFence(language string) bool {
 		language == string(AssertionTypeTypes) ||
 		language == string(AssertionTypeExecute) ||
 		language == string(AssertionTypeCompileError) ||
-		language == string(AssertionTypeWasmLocals)
+		language == string(AssertionTypeWasmLocals) ||
+		language == string(AssertionTypeInput)
 }
 
 // validateTestCase ensures a test case has both input and at least one assertion
@@ -208,6 +220,9 @@ func validateTestCase(testCase *TestCase, source []byte) error {
 
 // getLineNumber calculates the line number of a given AST node
 func getLineNumber(node ast.Node, source []byte) int {
+	if node.Lines().Len() == 0 {
+		return 1
+	}
 	// Count newlines before the node's start position
 	startPos := node.Lines().At(0).Start
 	lineNum := 1

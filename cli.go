@@ -330,6 +330,7 @@ func executeWasmFile(wasmFile string) error {
 
 	// Execute the WASM file
 	cmd := exec.Command(runtimeBinary, wasmFile)
+	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()

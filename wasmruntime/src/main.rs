@@ -63,9 +63,72 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         },
     );
 
-    // Create imports array - order must match WASM import order: print, print_bytes functions
+    // Create the read_line function that will be imported by the WASM module
+    let read_line_func = Func::new(
+        &mut store,
+        FuncType::new(&engine, [ValType::I32], []),
+        |mut caller, params, _results| {
+            use std::io::{self, BufRead};
+            
+            // Get destination address from parameter
+            let dest_addr = params[0].unwrap_i32() as usize;
+            
+            // Read a line from stdin
+            let stdin = io::stdin();
+            let mut line = String::new();
+            match stdin.lock().read_line(&mut line) {
+                Ok(_) => {
+                    // Convert to bytes
+                    let input_bytes = line.as_bytes();
+                    let input_len = input_bytes.len() as u64;
+                    
+                    // Get memory and tstack global
+                    let memory = caller.get_export("memory").unwrap().into_memory().unwrap();
+                    let tstack_global = caller.get_export("tstack").unwrap().into_global().unwrap();
+                    let current_tstack = tstack_global.get(&mut caller).unwrap_i32() as usize;
+                    
+                    // Allocate space for input bytes on tstack
+                    let input_ptr = current_tstack as u32;
+                    
+                    // Write input bytes to tstack
+                    memory.data_mut(&mut caller)[current_tstack..current_tstack + input_bytes.len()]
+                        .copy_from_slice(input_bytes);
+                    
+                    // Update tstack global to point past the input bytes
+                    let new_tstack = (current_tstack + input_bytes.len()) as i32;
+                    tstack_global.set(&mut caller, new_tstack.into()).unwrap();
+                    
+                    // Write slice structure to the destination address: [items_ptr: i32 at offset 0, length: i64 at offset 8]
+                    let data = memory.data_mut(&mut caller);
+                    
+                    // items_ptr (i32) at offset 0
+                    data[dest_addr..dest_addr + 4].copy_from_slice(&input_ptr.to_le_bytes());
+                    
+                    // length (i64) at offset 8
+                    data[dest_addr + 8..dest_addr + 16].copy_from_slice(&input_len.to_le_bytes());
+                    
+                    Ok(())
+                },
+                Err(_) => {
+                    // On error, write empty slice to destination
+                    let memory = caller.get_export("memory").unwrap().into_memory().unwrap();
+                    let data = memory.data_mut(&mut caller);
+                    
+                    // items_ptr = 0 (null pointer)
+                    data[dest_addr..dest_addr + 4].copy_from_slice(&0u32.to_le_bytes());
+                    
+                    // length = 0
+                    data[dest_addr + 8..dest_addr + 16].copy_from_slice(&0u64.to_le_bytes());
+                    
+                    Ok(())
+                }
+            }
+        },
+    );
+
+    // Create imports array - order must match WASM import order: print, print_bytes, read_line functions
     // tstack global is now defined in the WASM module itself, not imported
-    let imports = [print_func.into(), print_bytes_func.into()];
+    let imports = [print_func.into(), print_bytes_func.into(), read_line_func.into()];
 
     // Instantiate the module
     let instance = Instance::new(&mut store, &module, &imports)?;

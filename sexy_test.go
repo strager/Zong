@@ -75,7 +75,7 @@ func TestSexyAllTests(t *testing.T) {
 							if assertion.Type == sexy.AssertionTypeAST {
 								assertPatternMatch(t, ast, assertion.ParsedSexy, "root")
 							} else if assertion.Type == sexy.AssertionTypeExecute {
-								assertExecutionMatch(t, ast, assertion.Content, tc.InputType)
+								assertExecutionMatch(t, ast, assertion.Content, tc.InputType, tc.InputData)
 							} else if assertion.Type == sexy.AssertionTypeCompileError {
 								assertCompileErrorMatch(t, tc.Input, assertion.Content, tc.InputType)
 							} else if assertion.Type == sexy.AssertionTypeWasmLocals {
@@ -986,7 +986,7 @@ func assertContinueMatch(t *testing.T, zongAST *ASTNode, sexyPattern *sexy.Node,
 }
 
 // assertExecutionMatch compiles and executes the given AST, comparing output to expected result
-func assertExecutionMatch(t *testing.T, ast *ASTNode, expectedOutput string, inputType sexy.InputType) {
+func assertExecutionMatch(t *testing.T, ast *ASTNode, expectedOutput string, inputType sexy.InputType, inputData string) {
 	t.Helper()
 
 	// Compile the AST to WASM
@@ -996,7 +996,7 @@ func assertExecutionMatch(t *testing.T, ast *ASTNode, expectedOutput string, inp
 	}
 
 	// Execute the WASM and capture output
-	actualOutput, err := executeWasm(t, wasmBytes)
+	actualOutput, err := executeWasmWithInput(t, wasmBytes, inputData)
 	if err != nil {
 		t.Fatalf("WASM execution failed: %v", err)
 	}
