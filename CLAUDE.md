@@ -48,8 +48,8 @@ go build -o zong .
 In tests, use the github.com/nalgeon/be package:
 
 ```go
-func be.Equal[T any](tb testing.TB, got T, wants ...T)
-func be.Err(tb testing.TB, got error, wants ...any)
+func be.Equal[T any](tb testing.TB, got T, wants T)
+func be.Err(tb testing.TB, got error, wants any)
 func be.True(tb testing.TB, got bool)
 ```
 
