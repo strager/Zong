@@ -641,3 +641,183 @@ func main() {
 ```compile-error
 error: left side of assignment must be a variable, field access, or dereferenced pointer
 ```
+
+## Logical Operators
+
+## Test: logical AND parsing
+```zong-expr
+true && false
+```
+```ast
+(binary "&&" true false)
+```
+
+## Test: logical OR parsing
+```zong-expr
+true || false
+```
+```ast
+(binary "||" true false)
+```
+
+## Test: logical AND with variables
+```zong-expr
+x && y
+```
+```ast
+(binary "&&" (var "x") (var "y"))
+```
+
+## Test: logical OR with variables
+```zong-expr
+x || y
+```
+```ast
+(binary "||" (var "x") (var "y"))
+```
+
+## Test: logical AND precedence over OR
+```zong-expr
+x || y && z
+```
+```ast
+(binary "||" (var "x") (binary "&&" (var "y") (var "z")))
+```
+
+## Test: logical operators with comparison
+```zong-expr
+x > 5 && y < 10
+```
+```ast
+(binary "&&" (binary ">" (var "x") 5) (binary "<" (var "y") 10))
+```
+
+## Test: logical operators with parentheses
+```zong-expr
+(x || y) && z
+```
+```ast
+(binary "&&" (binary "||" (var "x") (var "y")) (var "z"))
+```
+
+## Test: nested logical operators
+```zong-expr
+a && b || c && d
+```
+```ast
+(binary "||" (binary "&&" (var "a") (var "b")) (binary "&&" (var "c") (var "d")))
+```
+
+## Test: logical NOT with AND
+```zong-expr
+!x && y
+```
+```ast
+(binary "&&" (unary "!" (var "x")) (var "y"))
+```
+
+## Test: logical NOT with OR
+```zong-expr
+!x || y
+```
+```ast
+(binary "||" (unary "!" (var "x")) (var "y"))
+```
+
+## Logical Operator Execution Tests
+
+## Test: logical AND true true
+```zong-expr
+print(true && true)
+```
+```execute
+1
+```
+
+## Test: logical AND true false
+```zong-expr
+print(true && false)
+```
+```execute
+0
+```
+
+## Test: logical AND false true
+```zong-expr
+print(false && true)
+```
+```execute
+0
+```
+
+## Test: logical AND false false
+```zong-expr
+print(false && false)
+```
+```execute
+0
+```
+
+## Test: logical OR true true
+```zong-expr
+print(true || true)
+```
+```execute
+1
+```
+
+## Test: logical OR true false
+```zong-expr
+print(true || false)
+```
+```execute
+1
+```
+
+## Test: logical OR false true
+```zong-expr
+print(false || true)
+```
+```execute
+1
+```
+
+## Test: logical OR false false
+```zong-expr
+print(false || false)
+```
+```execute
+0
+```
+
+## Test: complex logical expression
+```zong-expr
+print((5 > 3) && (2 < 4))
+```
+```execute
+1
+```
+
+## Test: logical with comparison false
+```zong-expr
+print((5 < 3) || (2 > 4))
+```
+```execute
+0
+```
+
+## Test: logical NOT with AND execution
+```zong-expr
+print(!false && true)
+```
+```execute
+1
+```
+
+## Test: logical NOT with OR execution
+```zong-expr
+print(!true || false)
+```
+```execute
+0
+```

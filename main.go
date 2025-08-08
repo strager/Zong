@@ -1340,7 +1340,35 @@ func (ctx *WASMContext) EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localC
 			panic("Assignment cannot be used as rvalue")
 		}
 
-		// Binary operators (non-assignment)
+		if node.Op == "&&" {
+			// Logical AND with short-circuiting:
+			// if (left) { return right; } else { return 0; }
+			ctx.EmitExpressionR(buf, node.Children[0], localCtx) // Evaluate left operand (i64)
+			writeByte(buf, I32_WRAP_I64)                         // Convert i64 to i32 for if condition
+			writeByte(buf, WASM_IF)                              // if (left is truthy)
+			writeByte(buf, 0x7E)                                 // result type: i64
+			ctx.EmitExpressionR(buf, node.Children[1], localCtx) // evaluate and return right operand
+			writeByte(buf, WASM_ELSE)                            // else
+			writeByte(buf, I64_CONST)                            // return false (0)
+			writeLEB128Signed(buf, 0)
+			writeByte(buf, END) // end if
+			return
+		} else if node.Op == "||" {
+			// Logical OR with short-circuiting:
+			// if (left) { return 1; } else { return right; }
+			ctx.EmitExpressionR(buf, node.Children[0], localCtx) // Evaluate left operand (i64)
+			writeByte(buf, I32_WRAP_I64)                         // Convert i64 to i32 for if condition
+			writeByte(buf, WASM_IF)                              // if (left is truthy)
+			writeByte(buf, 0x7E)                                 // result type: i64
+			writeByte(buf, I64_CONST)                            // return true (1)
+			writeLEB128Signed(buf, 1)
+			writeByte(buf, WASM_ELSE)                            // else
+			ctx.EmitExpressionR(buf, node.Children[1], localCtx) // evaluate and return right operand
+			writeByte(buf, END)                                  // end if
+			return
+		}
+
+		// Binary operators (non-assignment, non-logical)
 		ctx.EmitExpressionR(buf, node.Children[0], localCtx) // LHS
 		ctx.EmitExpressionR(buf, node.Children[1], localCtx) // RHS
 
@@ -1662,8 +1690,11 @@ func (ctx *WASMContext) EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localC
 			writeByte(buf, 0x03) // alignment
 			writeByte(buf, 0x00) // offset
 		} else if node.Op == "!" {
-			// Logical not operation
-			panic("Unary not operator (!) not yet implemented")
+			// Logical NOT operation: 1 - value (where value is 0 or 1)
+			writeByte(buf, I64_CONST)
+			writeLEB128Signed(buf, 1)
+			ctx.EmitExpressionR(buf, node.Children[0], localCtx) // Get boolean value (0 or 1)
+			writeByte(buf, I64_SUB)                              // 1 - value gives us the NOT
 		}
 
 	case NodeDot:
@@ -4247,6 +4278,17 @@ func CheckExpression(expr *ASTNode, tc *TypeChecker) {
 				switch expr.Op {
 				case "==", "!=", "<", ">", "<=", ">=":
 					expr.TypeAST = TypeBool // Comparison operators return Boolean
+				case "&&", "||":
+					// Logical operators require Boolean operands and return Boolean
+					if !TypesEqual(leftType, TypeBool) {
+						tc.AddError(fmt.Sprintf("error: logical operator '%s' requires Boolean left operand, got %s", expr.Op, TypeToString(leftType)))
+						return
+					}
+					if !TypesEqual(rightType, TypeBool) {
+						tc.AddError(fmt.Sprintf("error: logical operator '%s' requires Boolean right operand, got %s", expr.Op, TypeToString(rightType)))
+						return
+					}
+					expr.TypeAST = TypeBool // Logical operators return Boolean
 				case "+", "-", "*", "/", "%":
 					expr.TypeAST = resultType // Arithmetic operators return operand type
 				default:
@@ -4476,6 +4518,26 @@ func CheckExpression(expr *ASTNode, tc *TypeChecker) {
 
 			// Return the pointed-to type
 			expr.TypeAST = operandType.Child
+		} else if expr.Op == "!" {
+			// Logical NOT operator
+			if len(expr.Children) != 1 {
+				tc.AddError("error: logical NOT operator expects 1 operand")
+				return
+			}
+
+			CheckExpression(expr.Children[0], tc)
+
+			// Get operand type from the type-checked child
+			operandType := expr.Children[0].TypeAST
+
+			// Operand must be Boolean type
+			if !TypesEqual(operandType, TypeBool) {
+				tc.AddError(fmt.Sprintf("error: logical NOT operator requires Boolean operand, got %s", TypeToString(operandType)))
+				return
+			}
+
+			// Return Boolean type
+			expr.TypeAST = TypeBool
 		} else {
 			tc.AddError(fmt.Sprintf("error: unsupported unary operator '%s'", expr.Op))
 			return
@@ -5187,18 +5249,22 @@ func precedence(tokenType TokenType) int {
 	switch tokenType {
 	case ASSIGN:
 		return 1 // assignment has very low precedence
-	case EQ, NOT_EQ, LT, GT, LE, GE:
+	case OR: // logical OR has low precedence
 		return 2
-	case PLUS, MINUS:
+	case AND: // logical AND has higher precedence than OR
 		return 3
-	case ASTERISK, SLASH, PERCENT:
+	case EQ, NOT_EQ, LT, GT, LE, GE:
 		return 4
+	case PLUS, MINUS:
+		return 5
+	case ASTERISK, SLASH, PERCENT:
+		return 6
 	case LBRACKET, LPAREN: // subscript and function call operators
-		return 5 // highest precedence (postfix)
+		return 7 // highest precedence (postfix)
 	case BIT_AND: // postfix address-of operator
-		return 5 // highest precedence (postfix)
+		return 7 // highest precedence (postfix)
 	case DOT: // field access operator
-		return 5 // highest precedence (postfix)
+		return 7 // highest precedence (postfix)
 	default:
 		return 0 // not an operator
 	}
@@ -5221,7 +5287,7 @@ func parseExpressionWithPrecedence(l *Lexer, minPrec int) *ASTNode {
 	// Handle unary operators first
 	if l.CurrTokenType == BANG {
 		l.SkipToken(BANG)                              // consume '!'
-		operand := parseExpressionWithPrecedence(l, 3) // Same as multiplication, less than postfix
+		operand := parseExpressionWithPrecedence(l, 5) // Same as multiplication, less than postfix
 		left = &ASTNode{
 			Kind:     NodeUnary,
 			Op:       "!",
@@ -5293,7 +5359,7 @@ func parseExpressionWithPrecedence(l *Lexer, minPrec int) *ASTNode {
 				Children:       append([]*ASTNode{left}, args...),
 				ParameterNames: paramNames,
 			}
-		} else if l.CurrTokenType == ASTERISK && minPrec <= 5 {
+		} else if l.CurrTokenType == ASTERISK && minPrec <= 7 {
 			// Handle postfix dereference operator: expr*
 			// Check if next token suggests this should be binary instead
 			nextToken := l.PeekToken()
