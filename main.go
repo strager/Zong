@@ -4066,17 +4066,17 @@ func BuildSymbolTable(ast *ASTNode) *SymbolTable {
 			if len(node.Children) > 0 && node.Children[0].Kind == NodeIdent {
 				funcName := node.Children[0].String
 
-				// First, try to look up as a function
-				function := st.LookupFunction(funcName)
-				if function != nil {
-					// Store resolved function in AST node
-					node.ResolvedFunction = function
-				} else {
-					// If not a function, try to look up as a struct type
+				if isUpperCase(funcName) {
 					structType := st.LookupStruct(funcName)
 					if structType != nil {
 						// Store resolved struct type in AST node for struct initialization
 						node.ResolvedStruct = structType
+					}
+				} else {
+					function := st.LookupFunction(funcName)
+					if function != nil {
+						// Store resolved function in AST node
+						node.ResolvedFunction = function
 					}
 				}
 				// Note: We don't panic on missing functions/structs here since that's handled during type checking
