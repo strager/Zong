@@ -1,0 +1,324 @@
+// Tic Tac Toe game implementation
+// Two players take turns placing X and O on a 3x3 grid
+
+struct GameBoard(
+    cells: I64[],     // 9 cells: 0=empty, 88=X, 79=O
+    currentPlayer: I64,  // 88=X, 79=O
+    gameOver: Boolean,
+    winner: I64       // 0=no winner, 88=X wins, 79=O wins, 84=tie (T)
+);
+
+func initBoard(): GameBoard {
+    var cells I64[];
+    var i I64 = 0;
+    loop {
+        if i >= 9 {
+            break;
+        }
+        
+        append(cells&, 0);  // Empty cell
+        i = i + 1;
+    }
+    
+    var board GameBoard = GameBoard(
+        cells: cells,
+        currentPlayer: 88,  // X goes first
+        gameOver: false,
+        winner: 0
+    );
+    
+    return board;
+}
+
+func printBoard(board: GameBoard) {
+    var space U8[] = " ";
+    var pipe U8[] = "|"
+    var newlineEnd U8[];
+    append(newlineEnd&, 10);
+    
+    var row I64 = 0;
+    loop {
+        if row >= 3 {
+            break;
+        }
+        
+        var col I64 = 0;
+        print_bytes(space);
+        loop {
+            if col >= 3 {
+                break;
+            }
+            
+            var index I64 = row * 3 + col;
+            var cell I64 = board.cells[index];
+            
+            if cell == 0 {
+                // Print position number (1-9)
+                if index == 0 {
+                    var one U8[] = "1";
+                    print_bytes(one);
+                } else if index == 1 {
+                    var two U8[] = "2";
+                    print_bytes(two);
+                } else if index == 2 {
+                    var three U8[] = "3";
+                    print_bytes(three);
+                } else if index == 3 {
+                    var four U8[] = "4";
+                    print_bytes(four);
+                } else if index == 4 {
+                    var five U8[] = "5";
+                    print_bytes(five);
+                } else if index == 5 {
+                    var six U8[] = "6";
+                    print_bytes(six);
+                } else if index == 6 {
+                    var seven U8[] = "7";
+                    print_bytes(seven);
+                } else if index == 7 {
+                    var eight U8[] = "8";
+                    print_bytes(eight);
+                } else {
+                    var nine U8[] = "9";
+                    print_bytes(nine);
+                }
+            } else {
+                // Print X or O
+                if cell == 88 {  // X
+                    var X U8[] = "X";
+                    print_bytes(X);
+                } else {
+                    var O U8[] = "O";
+                    print_bytes(O);
+                }
+            }
+            
+            if col < 2 {
+                var sep U8[] = " | ";
+                print_bytes(sep);
+            }
+            
+            col = col + 1;
+        }
+        
+        if row < 2 {
+            print_bytes(newlineEnd);
+            var line U8[] = "---+---+---";
+            print_bytes(line);
+        }
+        
+        print_bytes(newlineEnd);
+        
+        row = row + 1;
+    }
+}
+
+func isCellEmpty(board: GameBoard, position: I64): Boolean {
+    if position < 0 {
+        return false;
+    }
+    if position >= 9 {
+        return false;
+    }
+    
+    return board.cells[position] == 0;
+}
+
+func makeMove(board: GameBoard, position: I64): GameBoard {
+    if isCellEmpty(board, position) == false {
+        return board;
+    }
+    
+    board.cells[position] = board.currentPlayer;
+    
+    // Switch players
+    if board.currentPlayer == 88 {  // X
+        board.currentPlayer = 79;   // O
+    } else {
+        board.currentPlayer = 88;   // X
+    }
+    
+    return board;
+}
+
+func checkWinner(board: GameBoard): I64 {
+    // Check rows
+    var row I64 = 0;
+    loop {
+        if row >= 3 {
+            break;
+        }
+        
+        var index I64 = row * 3;
+        if board.cells[index] != 0 {
+            if board.cells[index] == board.cells[index + 1] {
+                if board.cells[index] == board.cells[index + 2] {
+                    return board.cells[index];
+                }
+            }
+        }
+        
+        row = row + 1;
+    }
+    
+    // Check columns
+    var col I64 = 0;
+    loop {
+        if col >= 3 {
+            break;
+        }
+        
+        if board.cells[col] != 0 {
+            if board.cells[col] == board.cells[col + 3] {
+                if board.cells[col] == board.cells[col + 6] {
+                    return board.cells[col];
+                }
+            }
+        }
+        
+        col = col + 1;
+    }
+    
+    // Check diagonals
+    if board.cells[0] != 0 {
+        if board.cells[0] == board.cells[4] {
+            if board.cells[0] == board.cells[8] {
+                return board.cells[0];
+            }
+        }
+    }
+    
+    if board.cells[2] != 0 {
+        if board.cells[2] == board.cells[4] {
+            if board.cells[2] == board.cells[6] {
+                return board.cells[2];
+            }
+        }
+    }
+    
+    // Check for tie
+    var emptyCells I64 = 0;
+    var i I64 = 0;
+    loop {
+        if i >= 9 {
+            break;
+        }
+        
+        if board.cells[i] == 0 {
+            emptyCells = emptyCells + 1;
+        }
+        
+        i = i + 1;
+    }
+    
+    if emptyCells == 0 {
+        return 84;  // T for tie
+    }
+    
+    return 0;  // No winner yet
+}
+
+func updateGameState(board: GameBoard): GameBoard {
+    var winner I64 = checkWinner(board);
+    
+    if winner != 0 {
+        board.gameOver = true;
+        board.winner = winner;
+    }
+    
+    return board;
+}
+
+func main() {
+    var board GameBoard = initBoard();
+    
+    var newline U8[];
+    append(newline&, 10);
+    var title U8[] = "Tic Tac Toe";
+    print_bytes(title);
+    print_bytes(newline);
+    
+    // Interactive game loop
+    loop {
+        if board.gameOver {
+            break;
+        }
+        
+        printBoard(board);
+        
+        var player U8[] = "Player ";
+        print_bytes(player);
+        // Print current player
+        if board.currentPlayer == 88 {  // X
+            var X U8[] = "X";
+            print_bytes(X);
+        } else {
+            var O U8[] = "O";
+            print_bytes(O);
+        }
+        var prompt U8[] = " enter position (1-9): ";
+        print_bytes(prompt);
+        
+        // Read input from user
+        var input U8[] = read_line();
+        
+        // Parse position from input (expect single digit 1-9)
+        var position I64 = 10;  // Invalid position marker
+        if input.length > 0 {
+            var firstChar U8 = input[0];
+            if firstChar == 49 {  // '1'
+                position = 0;
+            } else if firstChar == 50 {  // '2'
+                position = 1;
+            } else if firstChar == 51 {  // '3'
+                position = 2;
+            } else if firstChar == 52 {  // '4'
+                position = 3;
+            } else if firstChar == 53 {  // '5'
+                position = 4;
+            } else if firstChar == 54 {  // '6'
+                position = 5;
+            } else if firstChar == 55 {  // '7'
+                position = 6;
+            } else if firstChar == 56 {  // '8'
+                position = 7;
+            } else if firstChar == 57 {  // '9'
+                position = 8;
+            }
+        }
+        
+        // Validate and make move
+        if position < 9 {
+            if isCellEmpty(board, position) {
+                board = makeMove(board, position);
+                board = updateGameState(board);
+            } else {
+                var invalid U8[] = "Position already taken! Try again.";
+                print_bytes(invalid);
+                print_bytes(newline);
+            }
+        } else {
+            var invalid U8[] = "Invalid input! Please enter a number 1-9.";
+            print_bytes(invalid);
+            print_bytes(newline);
+        }
+    }
+    
+    // Print final board
+    printBoard(board);
+    
+    // Print result
+    if board.winner == 88 {  // X
+        var wins U8[] = "X Wins!";
+        print_bytes(wins);
+        print_bytes(newline);
+    } else if board.winner == 79 {  // O
+        var wins U8[] = "O Wins!";
+        print_bytes(wins);
+        print_bytes(newline);
+    } else if board.winner == 84 {  // T for tie
+        var tie U8[] = "It's a Tie!";
+        print_bytes(tie);
+        print_bytes(newline);
+    }
+}

@@ -1,0 +1,408 @@
+// Hangman game implementation
+// Player tries to guess a word letter by letter
+
+struct GameState(
+    word: U8[],
+    guessed: U8[],
+    wrongGuesses: I64,
+    maxWrongGuesses: I64
+);
+
+func initGame(): GameState {
+    // Hard-coded word for simplicity: "ZONG"
+    var word U8[];
+    append(word&, 90);  // Z
+    append(word&, 79);  // O
+    append(word&, 78);  // N
+    append(word&, 71);  // G
+    
+    var guessed U8[];
+    
+    var game GameState = GameState(
+        word: word,
+        guessed: guessed,
+        wrongGuesses: 0,
+        maxWrongGuesses: 6
+    );
+    
+    return game;
+}
+
+func hasGuessedLetter(game: GameState, letter: U8): Boolean {
+    var i I64 = 0;
+    loop {
+        if i >= game.guessed.length {
+            break;
+        }
+        
+        if game.guessed[i] == letter {
+            return true;
+        }
+        
+        i = i + 1;
+    }
+    
+    return false;
+}
+
+func isLetterInWord(game: GameState, letter: U8): Boolean {
+    var i I64 = 0;
+    loop {
+        if i >= game.word.length {
+            break;
+        }
+        
+        if game.word[i] == letter {
+            return true;
+        }
+        
+        i = i + 1;
+    }
+    
+    return false;
+}
+
+func makeGuess(game: GameState, letter: U8): GameState {
+    // Check if already guessed
+    if hasGuessedLetter(game, letter) {
+        return game;  // No change
+    }
+    
+    // Add to guessed letters
+    append(game.guessed&, letter);
+    
+    // Check if letter is in word
+    if isLetterInWord(game, letter) == false {
+        // Wrong guess
+        game.wrongGuesses = game.wrongGuesses + 1;
+    }
+    
+    return game;
+}
+
+func isWordGuessed(game: GameState): Boolean {
+    var i I64 = 0;
+    loop {
+        if i >= game.word.length {
+            break;
+        }
+        
+        if hasGuessedLetter(game, game.word[i]) == false {
+            return false;
+        }
+        
+        i = i + 1;
+    }
+    
+    return true;
+}
+
+func isGameOver(game: GameState): Boolean {
+    if game.wrongGuesses >= game.maxWrongGuesses {
+        return true;
+    }
+    
+    if isWordGuessed(game) {
+        return true;
+    }
+    
+    return false;
+}
+
+func printGameState(game: GameState) {
+    var word U8[] = "Word: ";
+    print_bytes(word);
+    
+    // Print word with guessed letters revealed
+    var i I64 = 0;
+    loop {
+        if i >= game.word.length {
+            break;
+        }
+        
+        if hasGuessedLetter(game, game.word[i]) {
+            // Print character based on ASCII value
+            var char U8 = game.word[i];
+            if char == 90 {  // Z
+                var Z U8[] = "Z";
+                print_bytes(Z);
+            } else if char == 79 {  // O
+                var O U8[] = "O";
+                print_bytes(O);
+            } else if char == 78 {  // N
+                var N U8[] = "N";
+                print_bytes(N);
+            } else if char == 71 {  // G
+                var G U8[] = "G";
+                print_bytes(G);
+            }
+        } else {
+            var underscore U8[] = "_";
+            print_bytes(underscore);
+        }
+        
+        var space U8[] = " ";
+        print_bytes(space);
+        
+        i = i + 1;
+    }
+    
+    // Print wrong guesses count
+    var wrong U8[] = "Wrong: ";
+    print_bytes(wrong);
+    // Print wrong guesses as single digits (0-6)
+    if game.wrongGuesses == 0 {
+        var zero U8[] = "0";
+        print_bytes(zero);
+    } else if game.wrongGuesses == 1 {
+        var one U8[] = "1";
+        print_bytes(one);
+    } else if game.wrongGuesses == 2 {
+        var two U8[] = "2";
+        print_bytes(two);
+    } else if game.wrongGuesses == 3 {
+        var three U8[] = "3";
+        print_bytes(three);
+    } else if game.wrongGuesses == 4 {
+        var four U8[] = "4";
+        print_bytes(four);
+    } else if game.wrongGuesses == 5 {
+        var five U8[] = "5";
+        print_bytes(five);
+    } else {
+        var six U8[] = "6";
+        print_bytes(six);
+    }
+    var slash U8[] = "/";
+    print_bytes(slash);
+    var maxSix U8[] = "6";
+    print_bytes(maxSix);
+    var newline2 U8[];
+    append(newline2&, 10);
+    print_bytes(newline2);
+}
+
+func convertToUppercase(letter: U8): U8 {
+    // Convert lowercase to uppercase (a-z to A-Z)
+    if letter >= 97 && letter <= 122 {  // 'a' to 'z'
+        return letter - 32;  // Convert to uppercase
+    }
+    return letter;
+}
+
+func isValidLetter(letter: U8): Boolean {
+    // Check if it's A-Z
+    if letter >= 65 && letter <= 90 {
+        return true;
+    }
+    return false;
+}
+
+func printFullWord(game: GameState) {
+    var i I64 = 0;
+    loop {
+        if i >= game.word.length {
+            break;
+        }
+        
+        var char U8 = game.word[i];
+        if char == 90 {  // Z
+            var Z U8[] = "Z";
+            print_bytes(Z);
+        } else if char == 79 {  // O
+            var O U8[] = "O";
+            print_bytes(O);
+        } else if char == 78 {  // N
+            var N U8[] = "N";
+            print_bytes(N);
+        } else if char == 71 {  // G
+            var G U8[] = "G";
+            print_bytes(G);
+        }
+        
+        i = i + 1;
+    }
+}
+
+func main() {
+    var game GameState = initGame();
+    
+    var title U8[] = "HANGMAN GAME";
+    print_bytes(title);
+    var newline1 U8[];
+    append(newline1&, 10);
+    print_bytes(newline1);
+    
+    var instructions U8[] = "Guess the word letter by letter!";
+    print_bytes(instructions);
+    var newline2 U8[];
+    append(newline2&, 10);
+    print_bytes(newline2);
+    
+    loop {
+        if isGameOver(game) {
+            break;
+        }
+        
+        printGameState(game);
+        
+        var prompt U8[] = "Enter a letter (A-Z): ";
+        print_bytes(prompt);
+        
+        var input U8[] = read_line();
+        
+        var validInput Boolean = true;
+        
+        // Validate input
+        if input.length == 0 {
+            var empty U8[] = "Please enter a letter!";
+            print_bytes(empty);
+            var newline3 U8[];
+            append(newline3&, 10);
+            print_bytes(newline3);
+            validInput = false;
+        }
+        
+        var firstChar U8 = 0;
+        var letter U8 = 0;
+        
+        if validInput {
+            firstChar = input[0];
+            letter = convertToUppercase(firstChar);
+            
+            if isValidLetter(letter) == false {
+                var invalid U8[] = "Invalid input! Please enter a letter A-Z.";
+                print_bytes(invalid);
+                var newline4 U8[];
+                append(newline4&, 10);
+                print_bytes(newline4);
+                validInput = false;
+            }
+        }
+        
+        if validInput {
+            if hasGuessedLetter(game, letter) {
+                var already U8[] = "You already guessed that letter!";
+                print_bytes(already);
+                var newline5 U8[];
+                append(newline5&, 10);
+                print_bytes(newline5);
+                validInput = false;
+            }
+        }
+        
+        if validInput {
+            var oldWrongGuesses I64 = game.wrongGuesses;
+            game = makeGuess(game, letter);
+            var wasCorrect Boolean = game.wrongGuesses == oldWrongGuesses;
+        
+            var guess U8[] = "Guess: ";
+            print_bytes(guess);
+            // Print letter based on ASCII value
+            if letter == 65 {  // A
+            var A U8[] = "A";
+            print_bytes(A);
+        } else if letter == 66 {  // B
+            var B U8[] = "B";
+            print_bytes(B);
+        } else if letter == 67 {  // C
+            var C U8[] = "C";
+            print_bytes(C);
+        } else if letter == 68 {  // D
+            var D U8[] = "D";
+            print_bytes(D);
+        } else if letter == 69 {  // E
+            var E U8[] = "E";
+            print_bytes(E);
+        } else if letter == 70 {  // F
+            var F U8[] = "F";
+            print_bytes(F);
+        } else if letter == 71 {  // G
+            var G U8[] = "G";
+            print_bytes(G);
+        } else if letter == 72 {  // H
+            var H U8[] = "H";
+            print_bytes(H);
+        } else if letter == 73 {  // I
+            var I U8[] = "I";
+            print_bytes(I);
+        } else if letter == 74 {  // J
+            var J U8[] = "J";
+            print_bytes(J);
+        } else if letter == 75 {  // K
+            var K U8[] = "K";
+            print_bytes(K);
+        } else if letter == 76 {  // L
+            var L U8[] = "L";
+            print_bytes(L);
+        } else if letter == 77 {  // M
+            var M U8[] = "M";
+            print_bytes(M);
+        } else if letter == 78 {  // N
+            var N U8[] = "N";
+            print_bytes(N);
+        } else if letter == 79 {  // O
+            var O U8[] = "O";
+            print_bytes(O);
+        } else if letter == 80 {  // P
+            var P U8[] = "P";
+            print_bytes(P);
+        } else if letter == 81 {  // Q
+            var Q U8[] = "Q";
+            print_bytes(Q);
+        } else if letter == 82 {  // R
+            var R U8[] = "R";
+            print_bytes(R);
+        } else if letter == 83 {  // S
+            var S U8[] = "S";
+            print_bytes(S);
+        } else if letter == 84 {  // T
+            var T U8[] = "T";
+            print_bytes(T);
+        } else if letter == 85 {  // U
+            var U U8[] = "U";
+            print_bytes(U);
+        } else if letter == 86 {  // V
+            var V U8[] = "V";
+            print_bytes(V);
+        } else if letter == 87 {  // W
+            var W U8[] = "W";
+            print_bytes(W);
+        } else if letter == 88 {  // X
+            var X U8[] = "X";
+            print_bytes(X);
+        } else if letter == 89 {  // Y
+            var Y U8[] = "Y";
+            print_bytes(Y);
+        } else if letter == 90 {  // Z
+            var Z U8[] = "Z";
+            print_bytes(Z);
+            }
+        
+            if wasCorrect {
+                var correct U8[] = " - Correct!";
+                print_bytes(correct);
+            } else {
+                var wrong U8[] = " - Wrong!";
+                print_bytes(wrong);
+            }
+            var newline6 U8[];
+            append(newline6&, 10);
+            print_bytes(newline6);
+        }
+    }
+    
+    // Print final result
+    if isWordGuessed(game) {
+        var win U8[] = "You Win! The word was: ";
+        print_bytes(win);
+        printFullWord(game);
+    } else {
+        var lose U8[] = "Game Over! The word was: ";
+        print_bytes(lose);
+        printFullWord(game);
+    }
+    var newline4 U8[];
+    append(newline4&, 10);
+    print_bytes(newline4);
+}
