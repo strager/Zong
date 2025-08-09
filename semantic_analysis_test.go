@@ -460,8 +460,8 @@ func TestBuildSymbolTableWithPointers(t *testing.T) {
 
 func TestBuildSymbolTableIgnoresUnsupportedTypes(t *testing.T) {
 	t.Parallel()
-	// Parse: { var x I64; var y string; }
-	input := []byte("{ var x I64; var y string; }\x00")
+	// Parse: { var x I64; var y String; }
+	input := []byte("{ var x I64; var y String; }\x00")
 	l := NewLexer(input)
 	l.NextToken()
 	ast := ParseStatement(l)

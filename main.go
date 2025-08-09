@@ -2585,10 +2585,11 @@ const (
 	EOF     = "EOF"
 
 	// Identifiers + literals
-	IDENT  = "IDENT" // main, foo, _bar
-	INT    = "INT"   // 12345
-	STRING = "STRING"
-	CHAR   = "CHAR"
+	UPPER_IDENT = "UPPER_IDENT" // Main, Point, MyType
+	LOWER_IDENT = "LOWER_IDENT" // main, foo, _bar
+	INT         = "INT"         // 12345
+	STRING      = "STRING"
+	CHAR        = "CHAR"
 
 	// Operators
 	ASSIGN   = "="
@@ -2885,7 +2886,7 @@ func (tc *TypeChecker) resolveIntegerType(node *ASTNode, targetType *TypeNode) {
 // isKnownUnsupportedType checks if a type name is a known unsupported built-in type
 func isKnownUnsupportedType(name string) bool {
 	switch name {
-	case "string", "int", "float64", "byte", "rune", "uint64", "int32", "uint32":
+	case "string", "int", "float64", "byte", "rune", "uint64", "int32", "uint32", "String":
 		return true
 	default:
 		return false
@@ -4985,7 +4986,12 @@ func (l *Lexer) NextToken() {
 			} else if lit == "false" {
 				l.CurrTokenType = FALSE
 			} else {
-				l.CurrTokenType = IDENT
+				// Determine token type based on first character case
+				if isUpperCase(lit) {
+					l.CurrTokenType = UPPER_IDENT
+				} else {
+					l.CurrTokenType = LOWER_IDENT
+				}
 			}
 			l.CurrLiteral = lit
 
@@ -5031,6 +5037,14 @@ func (l *Lexer) skipBlockComment() {
 	if l.input[l.pos] == '*' && l.input[l.pos+1] == '/' {
 		l.pos += 2 // skip */
 	}
+}
+
+// isUpperCase checks if the first character of a name is uppercase
+func isUpperCase(name string) bool {
+	if len(name) == 0 {
+		return false
+	}
+	return name[0] >= 'A' && name[0] <= 'Z'
 }
 
 func (l *Lexer) readIdentifier() string {
@@ -5395,13 +5409,13 @@ func parseExpressionWithPrecedence(l *Lexer, minPrec int) *ASTNode {
 				var paramName string
 
 				// Check for named parameter (identifier followed by colon)
-				if l.CurrTokenType == IDENT {
+				if l.CurrTokenType == LOWER_IDENT {
 					// Look ahead to see if there's a colon after the identifier
 					identName := l.CurrLiteral
 					if l.PeekToken() == COLON {
 						// This is a named parameter: name: value
 						paramName = identName
-						l.SkipToken(IDENT)
+						l.SkipToken(LOWER_IDENT)
 						l.SkipToken(COLON)
 					} else {
 						paramName = ""
@@ -5434,7 +5448,7 @@ func parseExpressionWithPrecedence(l *Lexer, minPrec int) *ASTNode {
 			// Handle postfix dereference operator: expr*
 			// Check if next token suggests this should be binary instead
 			nextToken := l.PeekToken()
-			if nextToken == IDENT || nextToken == INT || nextToken == LPAREN || nextToken == LBRACKET {
+			if nextToken == LOWER_IDENT || nextToken == UPPER_IDENT || nextToken == INT || nextToken == LPAREN || nextToken == LBRACKET {
 				// Treat as binary multiplication - fall through to binary operator handling
 				op := l.CurrLiteral
 				prec := precedence(l.CurrTokenType)
@@ -5465,11 +5479,11 @@ func parseExpressionWithPrecedence(l *Lexer, minPrec int) *ASTNode {
 		} else if l.CurrTokenType == DOT {
 			// Handle field access operator: expr.field
 			l.SkipToken(DOT)
-			if l.CurrTokenType != IDENT {
+			if l.CurrTokenType != LOWER_IDENT {
 				break // error - expecting field name
 			}
 			fieldName := l.CurrLiteral
-			l.SkipToken(IDENT)
+			l.SkipToken(LOWER_IDENT)
 			left = &ASTNode{
 				Kind:      NodeDot,
 				FieldName: fieldName,
@@ -5536,12 +5550,21 @@ func parsePrimary(l *Lexer) *ASTNode {
 		l.SkipToken(STRING)
 		return node
 
-	case IDENT:
+	case LOWER_IDENT:
 		node := &ASTNode{
 			Kind:   NodeIdent,
 			String: l.CurrLiteral,
 		}
-		l.SkipToken(IDENT)
+		l.SkipToken(LOWER_IDENT)
+		return node
+
+	case UPPER_IDENT:
+		// This could be a struct constructor call
+		node := &ASTNode{
+			Kind:   NodeIdent,
+			String: l.CurrLiteral,
+		}
+		l.SkipToken(UPPER_IDENT)
 		return node
 
 	case LPAREN:
@@ -5574,21 +5597,26 @@ func parseParameterList(l *Lexer, endToken TokenType, allowPositional bool) []Pa
 		isPositional := false
 		var paramName string
 
-		if allowPositional && l.CurrTokenType == IDENT && l.CurrLiteral == "_" {
+		if allowPositional && l.CurrTokenType == LOWER_IDENT && l.CurrLiteral == "_" {
 			// Positional parameter: _ name: Type (functions only)
 			isPositional = true
-			l.SkipToken(IDENT) // skip the "_"
-			if l.CurrTokenType != IDENT {
+			l.SkipToken(LOWER_IDENT) // skip the "_"
+			if l.CurrTokenType != LOWER_IDENT {
 				// Return empty slice on error - caller should check
 				return []Parameter{}
 			}
 			paramName = l.CurrLiteral
-			l.SkipToken(IDENT)
-		} else if l.CurrTokenType == IDENT {
+			l.SkipToken(LOWER_IDENT)
+		} else if l.CurrTokenType == LOWER_IDENT {
 			// Named parameter: name: Type
 			paramName = l.CurrLiteral
-			l.SkipToken(IDENT)
+			l.SkipToken(LOWER_IDENT)
 		} else {
+			// Error: unexpected token where parameter name expected
+			// Advance to try to recover and prevent infinite loops
+			if l.CurrTokenType != endToken && l.CurrTokenType != EOF {
+				l.NextToken()
+			}
 			// Return empty slice on error - caller should check
 			return []Parameter{}
 		}
@@ -5626,13 +5654,14 @@ func parseParameterList(l *Lexer, endToken TokenType, allowPositional bool) []Pa
 
 // parseTypeExpression parses a type expression and returns a TypeNode
 func parseTypeExpression(l *Lexer) *TypeNode {
-	if l.CurrTokenType != IDENT {
+	// All types must start with uppercase (built-ins and user-defined)
+	if l.CurrTokenType != UPPER_IDENT {
 		return nil
 	}
 
 	// Parse base type
 	baseTypeName := l.CurrLiteral
-	l.SkipToken(IDENT)
+	l.SkipToken(UPPER_IDENT)
 
 	baseType := getBuiltinType(baseTypeName)
 	if baseType == nil {
@@ -5703,12 +5732,12 @@ func ParseStatement(l *Lexer) *ASTNode {
 	switch l.CurrTokenType {
 	case STRUCT:
 		l.SkipToken(STRUCT)
-		if l.CurrTokenType != IDENT {
-			l.AddError("expected struct name")
+		if l.CurrTokenType != UPPER_IDENT {
+			l.AddError("expected struct name (must start with uppercase letter)")
 			return &ASTNode{} // error
 		}
 		structName := l.CurrLiteral
-		l.SkipToken(IDENT)
+		l.SkipToken(UPPER_IDENT)
 		if l.CurrTokenType != LPAREN {
 			l.AddError("expected '(' after struct name")
 			return &ASTNode{} // error
@@ -5771,15 +5800,17 @@ func ParseStatement(l *Lexer) *ASTNode {
 
 	case VAR:
 		l.SkipToken(VAR)
-		if l.CurrTokenType != IDENT {
+		if l.CurrTokenType != LOWER_IDENT {
+			l.AddError("expected variable name (must start with lowercase letter)")
 			return &ASTNode{} // error
 		}
 		varName := &ASTNode{
 			Kind:   NodeIdent,
 			String: l.CurrLiteral,
 		}
-		l.SkipToken(IDENT)
-		if l.CurrTokenType != IDENT && l.CurrTokenType != LBRACKET {
+		l.SkipToken(LOWER_IDENT)
+		if l.CurrTokenType != UPPER_IDENT && l.CurrTokenType != LBRACKET {
+			l.AddError("expected type name (must start with uppercase letter)")
 			return &ASTNode{} // error - expecting type
 		}
 
@@ -5906,12 +5937,18 @@ func parseFunctionDeclaration(l *Lexer) *ASTNode {
 	l.SkipToken(FUNC) // consume 'func'
 
 	// Parse function name
-	if l.CurrTokenType != IDENT {
-		l.AddError("expected function name")
+	var functionName string
+	if l.CurrTokenType == LOWER_IDENT {
+		functionName = l.CurrLiteral
+		l.SkipToken(LOWER_IDENT)
+	} else if l.CurrTokenType == UPPER_IDENT {
+		l.AddError("expected function name (must start with lowercase letter)")
+		functionName = l.CurrLiteral
+		l.SkipToken(UPPER_IDENT) // Treat as function name but continue parsing
+	} else {
+		l.AddError("expected function name (must start with lowercase letter)")
 		return &ASTNode{Kind: NodeFunc} // Return placeholder for error recovery
 	}
-	functionName := l.CurrLiteral
-	l.SkipToken(IDENT)
 
 	// Parse parameter list
 	if l.CurrTokenType != LPAREN {

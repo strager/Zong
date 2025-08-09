@@ -633,10 +633,10 @@ loop ;
 
 ## Test: block with variable and return
 ```zong-program
-{ var x int; return x; }
+{ var x I64; return x; }
 ```
 ```ast
-[(block [(var-decl "x" "int") (return (var "x"))])]
+[(block [(var-decl "x" "I64") (return (var "x"))])]
 ```
 
 ## Test: nested empty blocks
@@ -649,10 +649,10 @@ loop ;
 
 ## Test: complex if statement with nested blocks
 ```zong-program
-if x > 0 { var y int; return y + 1; }
+if x > 0 { var y I64; return y + 1; }
 ```
 ```ast
-[(if (binary ">" (var "x") 0) [(var-decl "y" "int") (return (binary "+" (var "y") 1))])]
+[(if (binary ">" (var "x") 0) [(var-decl "y" "I64") (return (binary "+" (var "y") 1))])]
 ```
 
 ## Test: loop with break and continue

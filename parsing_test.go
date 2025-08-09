@@ -31,11 +31,18 @@ func TestIntLiteral(t *testing.T) {
 	be.Equal(t, l.CurrIntValue, int64(12345))
 }
 
-func TestIdentifier(t *testing.T) {
+func TestLowerIdentifier(t *testing.T) {
 	t.Parallel()
 	l := lexInput("foobar")
-	be.Equal(t, l.CurrTokenType, IDENT)
+	be.Equal(t, l.CurrTokenType, LOWER_IDENT)
 	be.Equal(t, l.CurrLiteral, "foobar")
+}
+
+func TestUpperIdentifier(t *testing.T) {
+	t.Parallel()
+	l := lexInput("Foobar")
+	be.Equal(t, l.CurrTokenType, UPPER_IDENT)
+	be.Equal(t, l.CurrLiteral, "Foobar")
 }
 
 func TestStringLiteral(t *testing.T) {
@@ -165,11 +172,11 @@ func TestMultipleTokens(t *testing.T) {
 		literal string
 	}{
 		{FUNC, "func"},
-		{IDENT, "main"},
+		{LOWER_IDENT, "main"},
 		{LPAREN, "("},
 		{RPAREN, ")"},
 		{LBRACE, "{"},
-		{IDENT, "x"},
+		{LOWER_IDENT, "x"},
 		{DECLARE, ":="},
 		{INT, "42"},
 		{SEMICOLON, ";"},
@@ -193,11 +200,11 @@ func TestLineComment(t *testing.T) {
 	l := NewLexer(input)
 
 	l.NextToken()
-	be.Equal(t, l.CurrTokenType, IDENT)
+	be.Equal(t, l.CurrTokenType, LOWER_IDENT)
 	be.Equal(t, l.CurrLiteral, "x")
 
 	l.NextToken()
-	be.Equal(t, l.CurrTokenType, IDENT)
+	be.Equal(t, l.CurrTokenType, LOWER_IDENT)
 	be.Equal(t, l.CurrLiteral, "y")
 
 	l.NextToken()
@@ -210,11 +217,11 @@ func TestBlockComment(t *testing.T) {
 	l := NewLexer(input)
 
 	l.NextToken()
-	be.Equal(t, l.CurrTokenType, IDENT)
+	be.Equal(t, l.CurrTokenType, LOWER_IDENT)
 	be.Equal(t, l.CurrLiteral, "x")
 
 	l.NextToken()
-	be.Equal(t, l.CurrTokenType, IDENT)
+	be.Equal(t, l.CurrTokenType, LOWER_IDENT)
 	be.Equal(t, l.CurrLiteral, "y")
 
 	l.NextToken()
@@ -226,7 +233,7 @@ func TestCommentsWithTokens(t *testing.T) {
 	input := []byte("func // comment\n main() /* comment */ {\x00")
 	l := NewLexer(input)
 
-	expectedTokens := []TokenType{FUNC, IDENT, LPAREN, RPAREN, LBRACE, EOF}
+	expectedTokens := []TokenType{FUNC, LOWER_IDENT, LPAREN, RPAREN, LBRACE, EOF}
 	expectedLiterals := []string{"func", "main", "(", ")", "{", ""}
 
 	for i, expected := range expectedTokens {
@@ -254,11 +261,11 @@ func TestWhitespace(t *testing.T) {
 		l := NewLexer(input)
 
 		l.NextToken()
-		be.Equal(t, l.CurrTokenType, IDENT)
+		be.Equal(t, l.CurrTokenType, LOWER_IDENT)
 		be.Equal(t, l.CurrLiteral, "x")
 
 		l.NextToken()
-		be.Equal(t, l.CurrTokenType, IDENT)
+		be.Equal(t, l.CurrTokenType, LOWER_IDENT)
 		be.Equal(t, l.CurrLiteral, "y")
 
 		l.NextToken()
@@ -411,7 +418,7 @@ func TestOperatorBoundaries(t *testing.T) {
 func TestUnterminatedBlockComment(t *testing.T) {
 	t.Parallel()
 	l := lexInput("x /* unterminated comment")
-	be.Equal(t, l.CurrTokenType, IDENT)
+	be.Equal(t, l.CurrTokenType, LOWER_IDENT)
 	be.Equal(t, l.CurrLiteral, "x")
 
 	l.NextToken()
@@ -449,7 +456,7 @@ func TestSkipToken(t *testing.T) {
 
 		be.Equal(t, INT, l.CurrTokenType)
 
-		l.SkipToken(IDENT) // Should panic - wrong token type
+		l.SkipToken(LOWER_IDENT) // Should panic - wrong token type
 	})
 }
 

@@ -14,18 +14,18 @@ myVar
 
 ## Test: variable declaration with type
 ```zong-program
-var x int;
+var x I64;
 ```
 ```ast
-[(var-decl "x" "int")]
+[(var-decl "x" "I64")]
 ```
 
 ## Test: variable declaration string type
 ```zong-program
-var name string;
+var name U8[];
 ```
 ```ast
-[(var-decl "name" "string")]
+[(var-decl "name" "U8[]")]
 ```
 
 ## Test: variable declaration custom type
@@ -86,12 +86,12 @@ var flag Boolean = true;
 [(var-decl "flag" "Boolean" true)]
 ```
 
-## Test: string initialization
+## Test: U8 slice initialization
 ```zong-program
-var name string = "hello";
+var name U8[] = "hello";
 ```
 ```ast
-[(var-decl "name" "string" (string "hello"))]
+[(var-decl "name" "U8[]" (string "hello"))]
 ```
 
 ## Test: variable initialization with expression
@@ -451,7 +451,7 @@ func main() {
 
 ## Test: integration mixed types
 ```zong-program
-{ var x I64; var y string; x = 42; print(x); }
+{ var x I64; var y Boolean; x = 42; y = true; print(x); }
 ```
 ```execute
 42
