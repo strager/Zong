@@ -345,3 +345,153 @@ error: undefined symbol 'undefined'
 ```ast
 42
 ```
+
+## Test: newline escape sequence
+```zong-program
+func main() {
+    print_bytes("hello\nworld");
+    print(42);
+}
+```
+```execute
+hello
+world42
+```
+
+## Test: multiple newlines
+```zong-program
+func main() {
+    print_bytes("line1\nline2\nline3");
+    print(0);
+}
+```
+```execute
+line1
+line2
+line30
+```
+
+## Test: newline at start
+```zong-program
+func main() {
+    print_bytes("\nhello");
+    print(1);
+}
+```
+```execute
+
+hello1
+```
+
+## Test: newline at end
+```zong-program
+func main() {
+    print_bytes("hello\n");
+    print(2);
+}
+```
+```execute
+hello
+2
+```
+
+## Test: escaped backslash
+```zong-program
+func main() {
+    print_bytes("hello\\world");
+    print(3);
+}
+```
+```execute
+hello\world3
+```
+
+## Test: escaped quote
+```zong-program
+func main() {
+    print_bytes("say \"hello\"");
+    print(4);
+}
+```
+```execute
+say "hello"4
+```
+
+## Test: mixed escapes
+```zong-program
+func main() {
+    print_bytes("line1\nhas \"quotes\"\nand\\backslash");
+    print(5);
+}
+```
+```execute
+line1
+has "quotes"
+and\backslash5
+```
+
+## Test: empty string with escape sequences only
+```zong-program
+func main() {
+    print_bytes("\n");
+    print(6);
+}
+```
+```execute
+
+6
+```
+
+## Test: newline in variable assignment
+```zong-program
+func main() {
+    var msg U8[] = "hello\nfrom\nvariable";
+    print_bytes(msg);
+    print(7);
+}
+```
+```execute
+hello
+from
+variable7
+```
+
+## Test: unsupported escape sequence error
+```zong-program
+func main() {
+    print_bytes("hello\tworld");
+}
+```
+```compile-error
+error: unsupported escape sequence '\t' in string literal
+```
+
+## Test: unsupported hex escape error
+```zong-program
+func main() {
+    print_bytes("hello\x41world");
+}
+```
+```compile-error
+error: unsupported escape sequence '\x' in string literal
+```
+
+## Test: unsupported backtick escape error
+```zong-program
+func main() {
+    print_bytes("test\`quote");
+}
+```
+```compile-error
+error: unsupported escape sequence '\`' in string literal
+```
+
+## Test: unsupported r escape error
+```zong-program
+func main() {
+    print_bytes("hello\rworld");
+}
+```
+```compile-error
+error: unsupported escape sequence '\r' in string literal
+```

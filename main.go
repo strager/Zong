@@ -5054,26 +5054,53 @@ func (l *Lexer) readNumber() (string, int64) {
 
 func (l *Lexer) readString() string {
 	l.pos++ // skip opening "
-	start := l.pos
+	var result []byte
 	nonASCIIErrorReported := false
+
 	for l.input[l.pos] != '"' && l.input[l.pos] != 0 {
+		if l.input[l.pos] == '\\' && l.pos+1 < len(l.input) {
+			// Handle escape sequences
+			nextChar := l.input[l.pos+1]
+			switch nextChar {
+			case 'n':
+				result = append(result, '\n')
+				l.pos += 2 // skip both \ and n
+				continue
+			case '\\':
+				result = append(result, '\\')
+				l.pos += 2 // skip both backslashes
+				continue
+			case '"':
+				result = append(result, '"')
+				l.pos += 2 // skip both \ and "
+				continue
+			default:
+				// Unknown escape sequence - report error
+				l.AddError(fmt.Sprintf("error: unsupported escape sequence '\\%c' in string literal", nextChar))
+				// Skip the backslash and invalid escape character
+				l.pos += 2
+				continue
+			}
+		}
+
 		// Validate ASCII characters only
 		if l.input[l.pos] > 127 && !nonASCIIErrorReported {
 			l.AddError("error: non-ASCII characters are not supported in string literals")
 			nonASCIIErrorReported = true
 			// Continue parsing to recover
 		}
+
+		result = append(result, l.input[l.pos])
 		l.pos++
 	}
 
 	if l.input[l.pos] == 0 {
 		l.AddError("error: unterminated string literal")
-		return string(l.input[start:l.pos])
+		return string(result)
 	}
 
-	lit := string(l.input[start:l.pos])
-	l.pos++
-	return lit
+	l.pos++ // skip closing "
+	return string(result)
 }
 
 func (l *Lexer) readCharLiteral() string {

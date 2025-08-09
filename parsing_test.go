@@ -294,9 +294,9 @@ func TestStringEscapes(t *testing.T) {
 		desc     string
 	}{
 		{"\"hello world\"", "hello world", "simple string"},
-		{"\"hello\\nworld\"", "hello\\nworld", "newline escape"},
-		{"\"hello\\tworld\"", "hello\\tworld", "tab escape"},
-		{"\"hello\\\\world\"", "hello\\\\world", "backslash escape"},
+		{"\"hello\\nworld\"", "hello\nworld", "newline escape"},
+		{"\"hello\\\\world\"", "hello\\world", "backslash escape"},
+		{"\"hello\\\"world\"", "hello\"world", "quote escape"},
 		{"\"\"", "", "empty string"},
 	}
 
@@ -304,6 +304,27 @@ func TestStringEscapes(t *testing.T) {
 		l := lexInput(tt.input)
 		be.Equal(t, l.CurrTokenType, STRING)
 		be.Equal(t, l.CurrLiteral, tt.expected)
+	}
+}
+
+func TestStringEscapeErrors(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		input string
+		desc  string
+	}{
+		{"\"hello\\tworld\"", "tab escape error"},
+		{"\"hello\\xAAworld\"", "hex escape error"},
+		{"\"hello\\rworld\"", "carriage return escape error"},
+		{"\"hello\\`world\"", "backtick escape error"},
+	}
+
+	for _, tt := range tests {
+		l := lexInput(tt.input)
+		// Should have parsing errors
+		if !l.Errors.HasErrors() {
+			t.Errorf("Expected parsing errors for input %s, but got none", tt.input)
+		}
 	}
 }
 

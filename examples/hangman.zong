@@ -160,9 +160,7 @@ func printGameState(game: GameState) {
     }
     print_bytes("/");
     print_bytes("6");
-    var newline2 U8[];
-    append(newline2&, 10);
-    print_bytes(newline2);
+    print_bytes("\n");
 }
 
 func convertToUppercase(letter: U8): U8 {
@@ -207,14 +205,10 @@ func main() {
     var game GameState = initGame();
     
     print_bytes("HANGMAN GAME");
-    var newline1 U8[];
-    append(newline1&, 10);
-    print_bytes(newline1);
+    print_bytes("\n");
     
     print_bytes("Guess the word letter by letter!");
-    var newline2 U8[];
-    append(newline2&, 10);
-    print_bytes(newline2);
+    print_bytes("\n");
     
     loop {
         if isGameOver(game) {
@@ -232,9 +226,7 @@ func main() {
         // Validate input
         if input.length == 0 {
             print_bytes("Please enter a letter!");
-            var newline3 U8[];
-            append(newline3&, 10);
-            print_bytes(newline3);
+            print_bytes("\n");
             validInput = false;
         }
         
@@ -247,9 +239,7 @@ func main() {
             
             if isValidLetter(letter) == false {
                 print_bytes("Invalid input! Please enter a letter A-Z.");
-                var newline4 U8[];
-                append(newline4&, 10);
-                print_bytes(newline4);
+                print_bytes("\n");
                 validInput = false;
             }
         }
@@ -257,9 +247,7 @@ func main() {
         if validInput {
             if hasGuessedLetter(game, letter) {
                 print_bytes("You already guessed that letter!");
-                var newline5 U8[];
-                append(newline5&, 10);
-                print_bytes(newline5);
+                print_bytes("\n");
                 validInput = false;
             }
         }
@@ -330,9 +318,7 @@ func main() {
             } else {
                 print_bytes(" - Wrong!");
             }
-            var newline6 U8[];
-            append(newline6&, 10);
-            print_bytes(newline6);
+            print_bytes("\n");
         }
     }
     
@@ -346,7 +332,5 @@ func main() {
         print_bytes(lose);
         printFullWord(game);
     }
-    var newline4 U8[];
-    append(newline4&, 10);
-    print_bytes(newline4);
+    print_bytes("\n");
 }

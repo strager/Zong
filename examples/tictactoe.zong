@@ -33,8 +33,7 @@ func initBoard(): GameBoard {
 func printBoard(board: GameBoard) {
     var space U8[] = " ";
     var pipe U8[] = "|"
-    var newlineEnd U8[];
-    append(newlineEnd&, 10);
+    var newlineEnd U8[] = "\n";
     
     var row I64 = 0;
     loop {
@@ -219,8 +218,7 @@ func updateGameState(board: GameBoard): GameBoard {
 func main() {
     var board GameBoard = initBoard();
     
-    var newline U8[];
-    append(newline&, 10);
+    var newline U8[] = "\n";
     print_bytes("Tic Tac Toe");
     print_bytes(newline);
     
