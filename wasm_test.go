@@ -157,7 +157,7 @@ func TestEmitExpression(t *testing.T) {
 				Integer: 42,
 				TypeAST: TypeI64, // Set explicit type for WASM emission test
 			},
-			expected: []byte{I64_CONST, 42}, // i64.const 42
+			expected: []byte{0x42, 42}, // i64.const 42
 		},
 		{
 			name: "simple addition",
@@ -170,7 +170,7 @@ func TestEmitExpression(t *testing.T) {
 					{Kind: NodeInteger, Integer: 2, TypeAST: TypeI64},
 				},
 			},
-			expected: []byte{I64_CONST, 1, I64_CONST, 2, I64_ADD}, // i64.const 1, i64.const 2, i64.add
+			expected: []byte{0x42, 1, 0x42, 2, 0x7C}, // i64.const 1, i64.const 2, i64.add
 		},
 	}
 

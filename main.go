@@ -113,56 +113,245 @@ func writeLEB128Signed(buf *bytes.Buffer, val int64) {
 	}
 }
 
-// WASM Opcode Constants
-const (
-	I32_CONST        = 0x41
-	I32_ADD          = 0x6A
-	I32_SUB          = 0x6B
-	I32_MUL          = 0x6C
-	I32_DIV_S        = 0x6D
-	I32_REM_S        = 0x6F
-	I32_LOAD         = 0x28
-	I32_LOAD8_U      = 0x2D
-	I32_STORE        = 0x36
-	I32_STORE8       = 0x3A
-	I32_WRAP_I64     = 0xA7
-	I64_CONST        = 0x42
-	I64_ADD          = 0x7C
-	I64_SUB          = 0x7D
-	I64_MUL          = 0x7E
-	I64_DIV_S        = 0x7F
-	I64_REM_S        = 0x81
-	I32_EQ           = 0x46
-	I32_NE           = 0x47
-	I32_LT_S         = 0x48
-	I32_LE_S         = 0x4C
-	I32_GE_S         = 0x4E
-	I64_EQ           = 0x51
-	I64_NE           = 0x52
-	I64_LT_S         = 0x53
-	I64_GT_S         = 0x55
-	I64_LE_S         = 0x57
-	I64_GE_S         = 0x59
-	I64_EXTEND_I32_S = 0xAC
-	I64_EXTEND_I32_U = 0xAD
-	I64_LOAD         = 0x29
-	I64_STORE        = 0x37
-	GLOBAL_GET       = 0x23
-	GLOBAL_SET       = 0x24
-	LOCAL_GET        = 0x20
-	LOCAL_SET        = 0x21
-	LOCAL_TEE        = 0x22
-	CALL             = 0x10
-	END              = 0x0B
-	WASM_BLOCK       = 0x02
-	WASM_LOOP        = 0x03
-	WASM_BR          = 0x0C
-	WASM_BR_IF       = 0x0D
-	I32_GT_S         = 0x4A
-	WASM_IF          = 0x04
-	WASM_ELSE        = 0x05
-	DROP             = 0x1A
-)
+// WASMWriter wraps *bytes.Buffer with WASM opcode methods
+type WASMWriter struct {
+	buf *bytes.Buffer
+}
+
+func NewWASMWriter(buf *bytes.Buffer) *WASMWriter {
+	return &WASMWriter{buf: buf}
+}
+
+// Arithmetic operations
+func (w *WASMWriter) i32_const(value int32) {
+	writeByte(w.buf, 0x41)
+	writeLEB128Signed(w.buf, int64(value))
+}
+
+func (w *WASMWriter) i64_const(value int64) {
+	writeByte(w.buf, 0x42)
+	writeLEB128Signed(w.buf, value)
+}
+
+func (w *WASMWriter) i32_add() {
+	writeByte(w.buf, 0x6A)
+}
+
+func (w *WASMWriter) i32_sub() {
+	writeByte(w.buf, 0x6B)
+}
+
+func (w *WASMWriter) i32_mul() {
+	writeByte(w.buf, 0x6C)
+}
+
+func (w *WASMWriter) i32_div_s() {
+	writeByte(w.buf, 0x6D)
+}
+
+func (w *WASMWriter) i32_rem_s() {
+	writeByte(w.buf, 0x6F)
+}
+
+func (w *WASMWriter) i64_add() {
+	writeByte(w.buf, 0x7C)
+}
+
+func (w *WASMWriter) i64_sub() {
+	writeByte(w.buf, 0x7D)
+}
+
+func (w *WASMWriter) i64_mul() {
+	writeByte(w.buf, 0x7E)
+}
+
+func (w *WASMWriter) i64_div_s() {
+	writeByte(w.buf, 0x7F)
+}
+
+func (w *WASMWriter) i64_rem_s() {
+	writeByte(w.buf, 0x81)
+}
+
+// Memory operations
+func (w *WASMWriter) i32_load(align, offset uint32) {
+	writeByte(w.buf, 0x28)
+	writeByte(w.buf, byte(align))
+	writeLEB128(w.buf, offset)
+}
+
+func (w *WASMWriter) i32_load8_u(align, offset uint32) {
+	writeByte(w.buf, 0x2D)
+	writeByte(w.buf, byte(align))
+	writeLEB128(w.buf, offset)
+}
+
+func (w *WASMWriter) i32_store(align, offset uint32) {
+	writeByte(w.buf, 0x36)
+	writeByte(w.buf, byte(align))
+	writeLEB128(w.buf, offset)
+}
+
+func (w *WASMWriter) i32_store8(align, offset uint32) {
+	writeByte(w.buf, 0x3A)
+	writeByte(w.buf, byte(align))
+	writeLEB128(w.buf, offset)
+}
+
+func (w *WASMWriter) i64_load(align, offset uint32) {
+	writeByte(w.buf, 0x29)
+	writeByte(w.buf, byte(align))
+	writeLEB128(w.buf, offset)
+}
+
+func (w *WASMWriter) i64_store(align, offset uint32) {
+	writeByte(w.buf, 0x37)
+	writeByte(w.buf, byte(align))
+	writeLEB128(w.buf, offset)
+}
+
+// Local and global variables
+func (w *WASMWriter) local_get(local uint32) {
+	writeByte(w.buf, 0x20)
+	writeLEB128(w.buf, local)
+}
+
+func (w *WASMWriter) local_set(local uint32) {
+	writeByte(w.buf, 0x21)
+	writeLEB128(w.buf, local)
+}
+
+func (w *WASMWriter) local_tee(local uint32) {
+	writeByte(w.buf, 0x22)
+	writeLEB128(w.buf, local)
+}
+
+func (w *WASMWriter) global_get(global uint32) {
+	writeByte(w.buf, 0x23)
+	writeLEB128(w.buf, global)
+}
+
+func (w *WASMWriter) global_set(global uint32) {
+	writeByte(w.buf, 0x24)
+	writeLEB128(w.buf, global)
+}
+
+// Control flow
+func (w *WASMWriter) block(blockType byte) {
+	writeByte(w.buf, 0x02)
+	writeByte(w.buf, blockType)
+}
+
+func (w *WASMWriter) loop(blockType byte) {
+	writeByte(w.buf, 0x03)
+	writeByte(w.buf, blockType)
+}
+
+func (w *WASMWriter) if_stmt(blockType byte) {
+	writeByte(w.buf, 0x04)
+	writeByte(w.buf, blockType)
+}
+
+func (w *WASMWriter) else_stmt() {
+	writeByte(w.buf, 0x05)
+}
+
+func (w *WASMWriter) end() {
+	writeByte(w.buf, 0x0B)
+}
+
+func (w *WASMWriter) br(depth uint32) {
+	writeByte(w.buf, 0x0C)
+	writeLEB128(w.buf, depth)
+}
+
+func (w *WASMWriter) br_if(depth uint32) {
+	writeByte(w.buf, 0x0D)
+	writeLEB128(w.buf, depth)
+}
+
+func (w *WASMWriter) call(funcIndex uint32) {
+	writeByte(w.buf, 0x10)
+	writeLEB128(w.buf, funcIndex)
+}
+
+// Comparison operations
+func (w *WASMWriter) i32_eq() {
+	writeByte(w.buf, 0x46)
+}
+
+func (w *WASMWriter) i32_ne() {
+	writeByte(w.buf, 0x47)
+}
+
+func (w *WASMWriter) i32_lt_s() {
+	writeByte(w.buf, 0x48)
+}
+
+func (w *WASMWriter) i32_gt_s() {
+	writeByte(w.buf, 0x4A)
+}
+
+func (w *WASMWriter) i32_le_s() {
+	writeByte(w.buf, 0x4C)
+}
+
+func (w *WASMWriter) i32_ge_s() {
+	writeByte(w.buf, 0x4E)
+}
+
+func (w *WASMWriter) i64_eq() {
+	writeByte(w.buf, 0x51)
+}
+
+func (w *WASMWriter) i64_ne() {
+	writeByte(w.buf, 0x52)
+}
+
+func (w *WASMWriter) i64_lt_s() {
+	writeByte(w.buf, 0x53)
+}
+
+func (w *WASMWriter) i64_gt_s() {
+	writeByte(w.buf, 0x55)
+}
+
+func (w *WASMWriter) i64_le_s() {
+	writeByte(w.buf, 0x57)
+}
+
+func (w *WASMWriter) i64_ge_s() {
+	writeByte(w.buf, 0x59)
+}
+
+// Type conversions
+func (w *WASMWriter) i32_wrap_i64() {
+	writeByte(w.buf, 0xA7)
+}
+
+func (w *WASMWriter) i64_extend_i32_s() {
+	writeByte(w.buf, 0xAC)
+}
+
+func (w *WASMWriter) i64_extend_i32_u() {
+	writeByte(w.buf, 0xAD)
+}
+
+// Other operations
+func (w *WASMWriter) drop() {
+	writeByte(w.buf, 0x1A)
+}
+
+func (w *WASMWriter) return_() {
+	writeByte(w.buf, 0x0F) // RETURN opcode
+}
+
+func (w *WASMWriter) memory_copy(dst_mem, src_mem uint32) {
+	writeByte(w.buf, 0xFC)          // Multi-byte instruction prefix
+	writeLEB128(w.buf, 10)          // memory.copy opcode
+	writeByte(w.buf, byte(dst_mem)) // dst memory index
+	writeByte(w.buf, byte(src_mem)) // src memory index
+}
 
 // WASM Section Emitters
 func EmitWASMHeader(buf *bytes.Buffer) {
@@ -247,6 +436,7 @@ func EmitGlobalSection(buf *bytes.Buffer, dataSize uint32) {
 	writeByte(buf, 0x06) // global section id
 
 	var sectionBuf bytes.Buffer
+	w := NewWASMWriter(&sectionBuf)
 	writeLEB128(&sectionBuf, 1) // 1 global: tstack
 
 	// Global type: i32 mutable (0x7F 0x01)
@@ -254,9 +444,8 @@ func EmitGlobalSection(buf *bytes.Buffer, dataSize uint32) {
 	writeByte(&sectionBuf, 0x01) // mutable
 
 	// Initializer expression: i32.const dataSize + end
-	writeByte(&sectionBuf, I32_CONST)
-	writeLEB128Signed(&sectionBuf, int64(dataSize))
-	writeByte(&sectionBuf, END)
+	w.i32_const(int32(dataSize))
+	w.end()
 
 	writeLEB128(buf, uint32(sectionBuf.Len()))
 	writeBytes(buf, sectionBuf.Bytes())
@@ -599,7 +788,8 @@ func (ctx *WASMContext) emitSingleFunction(buf *bytes.Buffer, fn *ASTNode) {
 	for _, stmt := range fn.Children {
 		ctx.EmitStatement(&bodyBuf, stmt, localCtx)
 	}
-	writeByte(&bodyBuf, END) // end instruction
+	w := NewWASMWriter(&bodyBuf)
+	w.end() // end instruction
 
 	// Write function body size and content
 	writeLEB128(buf, uint32(bodyBuf.Len())) // function body size
@@ -637,6 +827,7 @@ func emitAppendFunctionBody(buf *bytes.Buffer, fn *ASTNode) {
 	elementSize := uint32(GetTypeSize(elementType))
 
 	var bodyBuf bytes.Buffer
+	w := NewWASMWriter(&bodyBuf)
 
 	// Declare locals for this function
 	// Parameters are:
@@ -660,96 +851,66 @@ func emitAppendFunctionBody(buf *bytes.Buffer, fn *ASTNode) {
 	// IMPROVED APPEND IMPLEMENTATION that copies existing elements
 
 	// 1. Get current length and store for later use
-	writeByte(&bodyBuf, LOCAL_GET)
-	writeLEB128(&bodyBuf, 0) // slice_ptr parameter
-	writeByte(&bodyBuf, I64_LOAD)
-	writeByte(&bodyBuf, 0x03) // alignment
-	writeLEB128(&bodyBuf, 8)  // offset to length field
-	writeByte(&bodyBuf, LOCAL_TEE)
-	writeLEB128(&bodyBuf, 4) // store current_length and keep on stack
+	w.local_get(0)      // slice_ptr parameter
+	w.i64_load(0x03, 8) // alignment, offset to length field
+	w.local_tee(4)      // store current_length and keep on stack
 
 	// 2. Calculate copy size: current_length * element_size
-	writeByte(&bodyBuf, I32_WRAP_I64)
-	writeByte(&bodyBuf, I32_CONST)
-	writeLEB128Signed(&bodyBuf, int64(elementSize))
-	writeByte(&bodyBuf, I32_MUL)
-	writeByte(&bodyBuf, LOCAL_TEE)
-	writeLEB128(&bodyBuf, 3) // store copy_size and keep on stack
+	w.i32_wrap_i64()
+	w.i32_const(int32(elementSize))
+	w.i32_mul()
+	w.local_tee(3) // store copy_size and keep on stack
 
 	// 3. Calculate total size needed: copy_size + element_size
-	writeByte(&bodyBuf, I32_CONST)
-	writeLEB128Signed(&bodyBuf, int64(elementSize))
-	writeByte(&bodyBuf, I32_ADD)
+	w.i32_const(int32(elementSize))
+	w.i32_add()
 	// Stack: [total_size]
 
 	// 4. Allocate new space on tstack and store new_items
-	writeByte(&bodyBuf, GLOBAL_GET)
-	writeLEB128(&bodyBuf, 0) // tstack
-	writeByte(&bodyBuf, LOCAL_TEE)
-	writeLEB128(&bodyBuf, 2) // store new_items and keep on stack
+	w.global_get(0) // tstack
+	w.local_tee(2)  // store new_items and keep on stack
 
 	// Update tstack: tstack + total_size
-	writeByte(&bodyBuf, I32_ADD) // add total_size (from step 3)
-	writeByte(&bodyBuf, GLOBAL_SET)
-	writeLEB128(&bodyBuf, 0) // update tstack
+	w.i32_add()     // add total_size (from step 3)
+	w.global_set(0) // update tstack
 
 	// 5. Copy existing elements using memory.copy
 	// memory.copy(dest, src, size)
-	writeByte(&bodyBuf, LOCAL_GET)
-	writeLEB128(&bodyBuf, 2) // dest: new_items
+	w.local_get(2) // dest: new_items
 	// Get old items pointer directly
-	writeByte(&bodyBuf, LOCAL_GET)
-	writeLEB128(&bodyBuf, 0) // slice_ptr parameter
-	writeByte(&bodyBuf, I32_LOAD)
-	writeByte(&bodyBuf, 0x02) // alignment
-	writeLEB128(&bodyBuf, 0)  // offset to items field (src: old_items)
-	writeByte(&bodyBuf, LOCAL_GET)
-	writeLEB128(&bodyBuf, 3) // copy_size
+	w.local_get(0)      // slice_ptr parameter
+	w.i32_load(0x02, 0) // alignment, offset to items field (src: old_items)
+	w.local_get(3)      // copy_size
 	// Stack: [dest, src, size]
 
 	// Emit memory.copy instruction
-	writeByte(&bodyBuf, 0xFC) // Multi-byte instruction prefix
-	writeLEB128(&bodyBuf, 10) // memory.copy opcode
-	writeByte(&bodyBuf, 0x00) // dst memory index (0)
-	writeByte(&bodyBuf, 0x00) // src memory index (0)
+	w.memory_copy(0, 0) // dst memory index (0), src memory index (0)
 
 	// 6. Store new element at the end
 	// addr = new_items + copy_size
-	writeByte(&bodyBuf, LOCAL_GET)
-	writeLEB128(&bodyBuf, 2) // new_items
-	writeByte(&bodyBuf, LOCAL_GET)
-	writeLEB128(&bodyBuf, 3) // copy_size
-	writeByte(&bodyBuf, I32_ADD)
+	w.local_get(2) // new_items
+	w.local_get(3) // copy_size
+	w.i32_add()
 	// Stack: [new_element_addr]
 
-	writeByte(&bodyBuf, LOCAL_GET)
-	writeLEB128(&bodyBuf, 1) // value parameter
+	w.local_get(1) // value parameter
 	// Stack: [new_element_addr, value]
 
 	emitValueStoreToMemory(&bodyBuf, elementType)
 
 	// 7. Update slice.items pointer
-	writeByte(&bodyBuf, LOCAL_GET)
-	writeLEB128(&bodyBuf, 0) // slice_ptr parameter
-	writeByte(&bodyBuf, LOCAL_GET)
-	writeLEB128(&bodyBuf, 2) // new_items
-	writeByte(&bodyBuf, I32_STORE)
-	writeByte(&bodyBuf, 0x02) // alignment
-	writeLEB128(&bodyBuf, 0)  // offset to items field
+	w.local_get(0)       // slice_ptr parameter
+	w.local_get(2)       // new_items
+	w.i32_store(0x02, 0) // alignment, offset to items field
 
 	// 8. Update slice.length
-	writeByte(&bodyBuf, LOCAL_GET)
-	writeLEB128(&bodyBuf, 0) // slice_ptr parameter
-	writeByte(&bodyBuf, LOCAL_GET)
-	writeLEB128(&bodyBuf, 4) // current_length (stored earlier)
-	writeByte(&bodyBuf, I64_CONST)
-	writeLEB128Signed(&bodyBuf, 1)
-	writeByte(&bodyBuf, I64_ADD)
-	writeByte(&bodyBuf, I64_STORE)
-	writeByte(&bodyBuf, 0x03) // alignment
-	writeLEB128(&bodyBuf, 8)  // offset to length field
+	w.local_get(0) // slice_ptr parameter
+	w.local_get(4) // current_length (stored earlier)
+	w.i64_const(1)
+	w.i64_add()
+	w.i64_store(0x03, 8) // alignment, offset to length field
 
-	writeByte(&bodyBuf, END) // end instruction
+	w.end() // end instruction
 
 	// Write function body size and content
 	writeLEB128(buf, uint32(bodyBuf.Len())) // function body size
@@ -765,6 +926,7 @@ func EmitDataSection(buf *bytes.Buffer, dataSection *DataSection) {
 	writeByte(buf, 0x0B) // data section id
 
 	var sectionBuf bytes.Buffer
+	w := NewWASMWriter(&sectionBuf)
 	writeLEB128(&sectionBuf, uint32(len(dataSection.Strings))) // number of data segments
 
 	// Emit each string as a data segment
@@ -773,9 +935,8 @@ func EmitDataSection(buf *bytes.Buffer, dataSection *DataSection) {
 		writeLEB128(&sectionBuf, 0x00)
 
 		// Offset expression (i32.const address + end)
-		writeByte(&sectionBuf, I32_CONST)
-		writeLEB128Signed(&sectionBuf, int64(str.Address))
-		writeByte(&sectionBuf, END)
+		w.i32_const(int32(str.Address))
+		w.end()
 
 		// Data size and content
 		writeLEB128(&sectionBuf, str.Length)
@@ -788,6 +949,7 @@ func EmitDataSection(buf *bytes.Buffer, dataSection *DataSection) {
 
 // EmitStatement generates WASM bytecode for statements
 func (ctx *WASMContext) EmitStatement(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
+	w := NewWASMWriter(buf)
 	switch node.Kind {
 	case NodeVar:
 		// Variable declarations don't generate runtime code for the declaration itself
@@ -838,7 +1000,7 @@ func (ctx *WASMContext) EmitStatement(buf *bytes.Buffer, node *ASTNode, localCtx
 			ctx.EmitExpression(buf, node.Children[0], localCtx)
 		}
 		// WASM return instruction (implicitly returns the value on stack)
-		writeByte(buf, 0x0F) // RETURN opcode
+		w.return_() // RETURN opcode
 
 	case NodeIf:
 		// If statement compilation
@@ -848,12 +1010,11 @@ func (ctx *WASMContext) EmitStatement(buf *bytes.Buffer, node *ASTNode, localCtx
 		ctx.EmitExpression(buf, node.Children[0], localCtx)
 		// Convert I64 Bool conditions to I32 for WASM if instruction
 		if TypesEqual(node.Children[0].TypeAST, TypeBool) {
-			writeByte(buf, I32_WRAP_I64) // Convert I64 to I32
+			w.i32_wrap_i64() // Convert I64 to I32
 		}
 
 		// Start if block
-		writeByte(buf, 0x04) // if opcode
-		writeByte(buf, 0x40) // block type: void
+		w.if_stmt(0x40) // block type: void
 
 		// Increment control depth for entire if statement
 		localCtx.ControlDepth++
@@ -863,7 +1024,7 @@ func (ctx *WASMContext) EmitStatement(buf *bytes.Buffer, node *ASTNode, localCtx
 		// Handle else/else-if clauses
 		i := 2
 		for i < len(node.Children) {
-			writeByte(buf, 0x05) // else opcode
+			w.else_stmt() // else opcode
 
 			// Check if this is an else-if (condition is not nil) or final else (condition is nil)
 			if node.Children[i] != nil {
@@ -871,10 +1032,9 @@ func (ctx *WASMContext) EmitStatement(buf *bytes.Buffer, node *ASTNode, localCtx
 				ctx.EmitExpression(buf, node.Children[i], localCtx)
 				// Convert I64 Bool conditions to I32 for WASM if instruction
 				if TypesEqual(node.Children[i].TypeAST, TypeBool) {
-					writeByte(buf, I32_WRAP_I64) // Convert I64 to I32
+					w.i32_wrap_i64() // Convert I64 to I32
 				}
-				writeByte(buf, 0x04) // nested if opcode
-				writeByte(buf, 0x40) // block type: void
+				w.if_stmt(0x40) // nested if with block type: void
 
 				// Emit the else-if block
 				ctx.EmitStatement(buf, node.Children[i+1], localCtx)
@@ -894,7 +1054,7 @@ func (ctx *WASMContext) EmitStatement(buf *bytes.Buffer, node *ASTNode, localCtx
 			}
 		}
 		for k := 0; k < ifCount; k++ {
-			writeByte(buf, 0x0B) // end opcode
+			w.end() // end opcode
 		}
 
 		// Decrement control depth for entire if statement
@@ -909,12 +1069,10 @@ func (ctx *WASMContext) EmitStatement(buf *bytes.Buffer, node *ASTNode, localCtx
 		localCtx.LoopStack = append(localCtx.LoopStack, localCtx.ControlDepth)
 
 		// Emit WASM: block (for break - outer block)
-		writeByte(buf, WASM_BLOCK) // block opcode
-		writeByte(buf, 0x40)       // void type
+		w.block(0x40) // void type
 
 		// Emit WASM: loop (for continue - inner loop)
-		writeByte(buf, WASM_LOOP) // loop opcode
-		writeByte(buf, 0x40)      // void type
+		w.loop(0x40) // void type
 
 		// Emit loop body
 		for _, stmt := range node.Children {
@@ -922,14 +1080,13 @@ func (ctx *WASMContext) EmitStatement(buf *bytes.Buffer, node *ASTNode, localCtx
 		}
 
 		// Emit branch back to loop start (this makes it an infinite loop until break)
-		writeByte(buf, WASM_BR) // br opcode
-		writeLEB128(buf, 0)     // branch depth 0 (back to loop start)
+		w.br(0) // branch depth 0 (back to loop start)
 
 		// Emit WASM: end (loop)
-		writeByte(buf, END) // end opcode
+		w.end()
 
 		// Emit WASM: end (block)
-		writeByte(buf, END) // end opcode
+		w.end()
 
 		// Pop from loop stack
 		localCtx.LoopStack = localCtx.LoopStack[:len(localCtx.LoopStack)-1]
@@ -944,8 +1101,7 @@ func (ctx *WASMContext) EmitStatement(buf *bytes.Buffer, node *ASTNode, localCtx
 		nestedControlDepth := localCtx.ControlDepth - currentLoopControlDepth
 		breakDepth := 1 + nestedControlDepth // 1 to exit loop, plus nested controls within this loop
 
-		writeByte(buf, WASM_BR) // br opcode
-		writeLEB128(buf, uint32(breakDepth))
+		w.br(uint32(breakDepth))
 
 	case NodeContinue:
 		if len(localCtx.LoopStack) == 0 {
@@ -953,8 +1109,7 @@ func (ctx *WASMContext) EmitStatement(buf *bytes.Buffer, node *ASTNode, localCtx
 		}
 
 		// Emit WASM: br N (continue to inner loop, accounting for nested control structures)
-		writeByte(buf, WASM_BR)                           // br opcode
-		writeLEB128(buf, uint32(0+localCtx.ControlDepth)) // branch depth (inner loop + nesting)
+		w.br(uint32(0 + localCtx.ControlDepth)) // branch depth (inner loop + nesting)
 
 	default:
 		// For now, treat unknown statements as expressions
@@ -1014,6 +1169,7 @@ func getStructTypeFromBase(baseType *TypeNode) *TypeNode {
 }
 
 func (ctx *WASMContext) EmitExpression(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
+	w := NewWASMWriter(buf)
 	// Handle assignment specially, then delegate to EmitExpressionR for other cases
 	if node.Kind == NodeBinary && node.Op == "=" {
 		// Assignment: LHS = RHS
@@ -1033,8 +1189,7 @@ func (ctx *WASMContext) EmitExpression(buf *bytes.Buffer, node *ASTNode, localCt
 			if targetLocal.Storage == VarStorageLocal || targetLocal.Storage == VarStorageParameterLocal {
 				// Local variable - emit local.set
 				ctx.EmitExpressionR(buf, rhs, localCtx) // RHS value
-				writeByte(buf, LOCAL_SET)
-				writeLEB128(buf, targetLocal.Address)
+				w.local_set(targetLocal.Address)
 				return
 			}
 		} else {
@@ -1062,39 +1217,28 @@ func (ctx *WASMContext) EmitExpression(buf *bytes.Buffer, node *ASTNode, localCt
 //
 // The value on the stack is either the value itself (for primitives) or a pointer to the struct.
 func emitValueStoreToMemory(buf *bytes.Buffer, ty *TypeNode) {
+	w := NewWASMWriter(buf)
 	switch ty.Kind {
 	case TypeStruct:
 		// Struct assignment (copy) using memory.copy
 		structSize := uint32(GetTypeSize(ty))
-		writeByte(buf, I32_CONST)
-		writeLEB128Signed(buf, int64(structSize))
+		w.i32_const(int32(structSize))
 		// Stack: [dst_addr, src_addr, size]
-		writeByte(buf, 0xFC) // Multi-byte instruction prefix
-		writeLEB128(buf, 10) // memory.copy opcode
-		writeByte(buf, 0x00) // dst memory index (0)
-		writeByte(buf, 0x00) // src memory index (0)
+		w.memory_copy(0, 0) // dst memory index (0), src memory index (0)
 	case TypePointer:
 		// Store pointer as i32
-		writeByte(buf, I32_STORE) // Store i32 to memory
-		writeByte(buf, 0x02)      // alignment (4 bytes = 2^2)
-		writeByte(buf, 0x00)      // offset
+		w.i32_store(0x02, 0x00) // alignment (4 bytes = 2^2), offset
 	case TypeBuiltin:
 		if ty.String == "U8" {
 			// Store U8 as single byte
-			writeByte(buf, I32_STORE8) // Store i32 as 8-bit to memory
-			writeByte(buf, 0x00)       // alignment (1 byte = 2^0)
-			writeByte(buf, 0x00)       // offset
+			w.i32_store8(0x00, 0x00) // alignment (1 byte = 2^0), offset
 		} else {
 			// Store other built-in types as i64
-			writeByte(buf, I64_STORE) // Store i64 to memory
-			writeByte(buf, 0x03)      // alignment (8 bytes = 2^3)
-			writeByte(buf, 0x00)      // offset
+			w.i64_store(0x03, 0x00) // alignment (8 bytes = 2^3), offset
 		}
 	default:
 		// Store regular value as i64
-		writeByte(buf, I64_STORE) // Store i64 to memory
-		writeByte(buf, 0x03)      // alignment (8 bytes = 2^3)
-		writeByte(buf, 0x00)      // offset
+		w.i64_store(0x03, 0x00) // alignment (8 bytes = 2^3), offset
 	}
 }
 
@@ -1103,25 +1247,20 @@ func emitValueStoreToMemory(buf *bytes.Buffer, ty *TypeNode) {
 //
 // The value on the stack upon return is either the value itself (for primitives) or a pointer to the struct.
 func emitValueLoadFromMemory(buf *bytes.Buffer, ty *TypeNode) {
+	w := NewWASMWriter(buf)
 	if ty.Kind == TypeStruct {
 		// For struct variables, return the address of the struct (not the value)
 	} else {
 		// Non-struct stack variable - load from memory
 		if ty.Kind == TypePointer {
 			// Load pointer as i32
-			writeByte(buf, I32_LOAD) // Load i32 from memory
-			writeByte(buf, 0x02)     // alignment (4 bytes = 2^2)
-			writeByte(buf, 0x00)     // offset
+			w.i32_load(0x02, 0x00) // alignment (4 bytes = 2^2), offset
 		} else if ty.Kind == TypeBuiltin && ty.String == "U8" {
 			// Load U8 as single byte and extend to i32
-			writeByte(buf, I32_LOAD8_U) // Load 8-bit unsigned to i32
-			writeByte(buf, 0x00)        // alignment (1 byte = 2^0)
-			writeByte(buf, 0x00)        // offset
+			w.i32_load8_u(0x00, 0x00) // alignment (1 byte = 2^0), offset
 		} else {
 			// Load regular value as i64
-			writeByte(buf, I64_LOAD) // Load i64 from memory
-			writeByte(buf, 0x03)     // alignment (8 bytes = 2^3)
-			writeByte(buf, 0x00)     // offset
+			w.i64_load(0x03, 0x00) // alignment (8 bytes = 2^3), offset
 		}
 	}
 }
@@ -1129,6 +1268,7 @@ func emitValueLoadFromMemory(buf *bytes.Buffer, ty *TypeNode) {
 // EmitExpressionL emits code for lvalue expressions (expressions that can be assigned to or addressed)
 // These expressions produce an address on the stack where a value can be stored or loaded from
 func (ctx *WASMContext) EmitExpressionL(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
+	w := NewWASMWriter(buf)
 	switch node.Kind {
 	case NodeIdent:
 		// Variable reference - emit address
@@ -1143,21 +1283,18 @@ func (ctx *WASMContext) EmitExpressionL(buf *bytes.Buffer, node *ASTNode, localC
 		if targetLocal.Storage == VarStorageParameterLocal &&
 			targetLocal.Symbol.Type.Kind == TypeStruct {
 			// Struct parameter - it's stored as a pointer, so just load the pointer and add offset
-			writeByte(buf, LOCAL_GET)
-			writeLEB128(buf, targetLocal.Address)
+			w.local_get(targetLocal.Address)
 		} else if targetLocal.Storage == VarStorageLocal || targetLocal.Storage == VarStorageParameterLocal {
 			// Local variable - can't take address of WASM local
 			panic("Cannot take address of local variable: " + node.String)
 		} else {
 			// Stack variable - emit address
-			writeByte(buf, LOCAL_GET)
-			writeLEB128(buf, localCtx.FramePointerIndex)
+			w.local_get(localCtx.FramePointerIndex)
 
 			// Add variable offset if not zero
 			if targetLocal.Address > 0 {
-				writeByte(buf, I32_CONST)
-				writeLEB128Signed(buf, int64(targetLocal.Address))
-				writeByte(buf, I32_ADD)
+				w.i32_const(int32(targetLocal.Address))
+				w.i32_add()
 			}
 		}
 
@@ -1190,9 +1327,8 @@ func (ctx *WASMContext) EmitExpressionL(buf *bytes.Buffer, node *ASTNode, localC
 			}
 		}
 		if fieldOffset > 0 {
-			writeByte(buf, I32_CONST)
-			writeLEB128Signed(buf, int64(fieldOffset))
-			writeByte(buf, I32_ADD)
+			w.i32_const(int32(fieldOffset))
+			w.i32_add()
 		}
 
 	case NodeIndex:
@@ -1207,25 +1343,22 @@ func (ctx *WASMContext) EmitExpressionL(buf *bytes.Buffer, node *ASTNode, localC
 
 		// Load the items field (which is a pointer to the elements)
 		// items field is at offset 0 in the slice struct
-		writeByte(buf, I32_LOAD) // Load i32 pointer from memory
-		writeByte(buf, 0x02)     // alignment (4 bytes = 2^2)
-		writeByte(buf, 0x00)     // offset 0 (items field)
+		w.i32_load(0x02, 0x00) // alignment (4 bytes = 2^2), offset 0 (items field)
 
 		// Get the index value
 		ctx.EmitExpressionR(buf, indexExpr, localCtx)
 
 		// Convert index from I64 to I32 for address calculation
-		writeByte(buf, I32_WRAP_I64)
+		w.i32_wrap_i64()
 
 		// Multiply index by element size
 		elementType := node.TypeAST // This should be the element type from type checking
 		elementSize := GetTypeSize(elementType)
-		writeByte(buf, I32_CONST)
-		writeLEB128Signed(buf, int64(elementSize))
-		writeByte(buf, I32_MUL)
+		w.i32_const(int32(elementSize))
+		w.i32_mul()
 
 		// Add to base pointer to get final element address
-		writeByte(buf, I32_ADD)
+		w.i32_add()
 
 	default:
 		// For any other expression (rvalue), create a temporary on tstack
@@ -1238,8 +1371,7 @@ func (ctx *WASMContext) EmitExpressionL(buf *bytes.Buffer, node *ASTNode, localC
 
 		// For other rvalues, create a temporary on tstack
 		// Save current tstack pointer - this will be the address we return
-		writeByte(buf, GLOBAL_GET)
-		writeLEB128(buf, 0) // tstack global index
+		w.global_get(0) // tstack global index
 
 		// Evaluate the rvalue to get its value on stack
 		ctx.EmitExpressionR(buf, node, localCtx)
@@ -1248,40 +1380,28 @@ func (ctx *WASMContext) EmitExpressionL(buf *bytes.Buffer, node *ASTNode, localC
 		// Store the value to tstack based on its type
 		if node.TypeAST.Kind == TypePointer {
 			// Store pointer as i32
-			writeByte(buf, I32_STORE)
-			writeByte(buf, 0x02) // alignment (4 bytes = 2^2)
-			writeByte(buf, 0x00) // offset
+			w.i32_store(0x02, 0x00) // alignment (4 bytes = 2^2), offset
 
 			// Get the address again (where we just stored the value)
-			writeByte(buf, GLOBAL_GET)
-			writeLEB128(buf, 0) // tstack global index (current position)
+			w.global_get(0) // tstack global index (current position)
 
 			// Update tstack pointer (advance by 4 bytes for I32)
-			writeByte(buf, GLOBAL_GET)
-			writeLEB128(buf, 0) // tstack global index
-			writeByte(buf, I32_CONST)
-			writeLEB128Signed(buf, 4) // I32 size
-			writeByte(buf, I32_ADD)
-			writeByte(buf, GLOBAL_SET)
-			writeLEB128(buf, 0) // tstack global index
+			w.global_get(0) // tstack global index
+			w.i32_const(4)  // I32 size
+			w.i32_add()
+			w.global_set(0) // tstack global index
 		} else {
 			// Store regular value as i64
-			writeByte(buf, I64_STORE)
-			writeByte(buf, 0x03) // alignment (8 bytes = 2^3)
-			writeByte(buf, 0x00) // offset
+			w.i64_store(0x03, 0x00) // alignment (8 bytes = 2^3), offset
 
 			// Get the address again (where we just stored the value)
-			writeByte(buf, GLOBAL_GET)
-			writeLEB128(buf, 0) // tstack global index (current position)
+			w.global_get(0) // tstack global index (current position)
 
 			// Update tstack pointer (advance by 8 bytes for I64)
-			writeByte(buf, GLOBAL_GET)
-			writeLEB128(buf, 0) // tstack global index
-			writeByte(buf, I32_CONST)
-			writeLEB128Signed(buf, 8) // I64 size
-			writeByte(buf, I32_ADD)
-			writeByte(buf, GLOBAL_SET)
-			writeLEB128(buf, 0) // tstack global index
+			w.global_get(0) // tstack global index
+			w.i32_const(8)  // I64 size
+			w.i32_add()
+			w.global_set(0) // tstack global index
 		}
 
 		// Stack now has the address where we stored the value
@@ -1291,6 +1411,7 @@ func (ctx *WASMContext) EmitExpressionL(buf *bytes.Buffer, node *ASTNode, localC
 // EmitExpressionR emits code for rvalue expressions (expressions that produce values)
 // These expressions produce a value on the stack that can be consumed
 func (ctx *WASMContext) EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localCtx *LocalContext) {
+	w := NewWASMWriter(buf)
 	if node.TypeAST != nil && node.TypeAST.Kind == TypeInteger {
 		panic("Unresolved Integer type in WASM generation: " + ToSExpr(node))
 	}
@@ -1298,20 +1419,17 @@ func (ctx *WASMContext) EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localC
 	case NodeInteger:
 		// Check if this integer should be emitted as I32 or I64 based on context
 		if node.TypeAST != nil && isWASMI32Type(node.TypeAST) {
-			writeByte(buf, I32_CONST)
-			writeLEB128Signed(buf, node.Integer)
+			w.i32_const(int32(node.Integer))
 		} else {
-			writeByte(buf, I64_CONST)
-			writeLEB128Signed(buf, node.Integer)
+			w.i64_const(node.Integer)
 		}
 
 	case NodeBoolean:
 		// Emit boolean as I64 (0 for false, 1 for true)
-		writeByte(buf, I64_CONST)
 		if node.Boolean {
-			writeLEB128Signed(buf, 1)
+			w.i64_const(1)
 		} else {
-			writeLEB128Signed(buf, 0)
+			w.i64_const(0)
 		}
 
 	case NodeIdent:
@@ -1326,8 +1444,7 @@ func (ctx *WASMContext) EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localC
 
 		if targetLocal.Storage == VarStorageLocal || targetLocal.Storage == VarStorageParameterLocal {
 			// Local variable - emit local.get
-			writeByte(buf, LOCAL_GET)
-			writeLEB128(buf, targetLocal.Address)
+			w.local_get(targetLocal.Address)
 		} else {
 			// Stack variable
 			ctx.EmitExpressionL(buf, node, localCtx)
@@ -1344,27 +1461,23 @@ func (ctx *WASMContext) EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localC
 			// Logical AND with short-circuiting:
 			// if (left) { return right; } else { return 0; }
 			ctx.EmitExpressionR(buf, node.Children[0], localCtx) // Evaluate left operand (i64)
-			writeByte(buf, I32_WRAP_I64)                         // Convert i64 to i32 for if condition
-			writeByte(buf, WASM_IF)                              // if (left is truthy)
-			writeByte(buf, 0x7E)                                 // result type: i64
+			w.i32_wrap_i64()                                     // Convert i64 to i32 for if condition
+			w.if_stmt(0x7E)                                      // if (left is truthy), result type: i64
 			ctx.EmitExpressionR(buf, node.Children[1], localCtx) // evaluate and return right operand
-			writeByte(buf, WASM_ELSE)                            // else
-			writeByte(buf, I64_CONST)                            // return false (0)
-			writeLEB128Signed(buf, 0)
-			writeByte(buf, END) // end if
+			w.else_stmt()                                        // else
+			w.i64_const(0)                                       // return false (0)
+			w.end()                                              // end if
 			return
 		} else if node.Op == "||" {
 			// Logical OR with short-circuiting:
 			// if (left) { return 1; } else { return right; }
 			ctx.EmitExpressionR(buf, node.Children[0], localCtx) // Evaluate left operand (i64)
-			writeByte(buf, I32_WRAP_I64)                         // Convert i64 to i32 for if condition
-			writeByte(buf, WASM_IF)                              // if (left is truthy)
-			writeByte(buf, 0x7E)                                 // result type: i64
-			writeByte(buf, I64_CONST)                            // return true (1)
-			writeLEB128Signed(buf, 1)
-			writeByte(buf, WASM_ELSE)                            // else
+			w.i32_wrap_i64()                                     // Convert i64 to i32 for if condition
+			w.if_stmt(0x7E)                                      // if (left is truthy), result type: i64
+			w.i64_const(1)                                       // return true (1)
+			w.else_stmt()                                        // else
 			ctx.EmitExpressionR(buf, node.Children[1], localCtx) // evaluate and return right operand
-			writeByte(buf, END)                                  // end if
+			w.end()                                              // end if
 			return
 		}
 
@@ -1377,17 +1490,67 @@ func (ctx *WASMContext) EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localC
 
 		// For now, use left operand type to determine operation type
 		// Both operands should have the same type after type checking
-		var opcode byte
 		if leftType != nil && isWASMI32Type(leftType) {
-			opcode = getBinaryOpcodeI32(node.Op)
+			// I32 binary operations
+			switch node.Op {
+			case "+":
+				w.i32_add()
+			case "-":
+				w.i32_sub()
+			case "*":
+				w.i32_mul()
+			case "/":
+				w.i32_div_s()
+			case "%":
+				w.i32_rem_s()
+			case "==":
+				w.i32_eq()
+			case "!=":
+				w.i32_ne()
+			case "<":
+				w.i32_lt_s()
+			case ">":
+				w.i32_gt_s()
+			case "<=":
+				w.i32_le_s()
+			case ">=":
+				w.i32_ge_s()
+			default:
+				panic("Unsupported I32 binary operator: " + node.Op)
+			}
 		} else {
-			opcode = getBinaryOpcode(node.Op)
+			// I64 binary operations
+			switch node.Op {
+			case "+":
+				w.i64_add()
+			case "-":
+				w.i64_sub()
+			case "*":
+				w.i64_mul()
+			case "/":
+				w.i64_div_s()
+			case "%":
+				w.i64_rem_s()
+			case "==":
+				w.i64_eq()
+			case "!=":
+				w.i64_ne()
+			case "<":
+				w.i64_lt_s()
+			case ">":
+				w.i64_gt_s()
+			case "<=":
+				w.i64_le_s()
+			case ">=":
+				w.i64_ge_s()
+			default:
+				panic("Unsupported I64 binary operator: " + node.Op)
+			}
 		}
-		writeByte(buf, opcode)
 
 		// Convert I32 comparison results to I64 for Bool compatibility
 		if isComparisonOp(node.Op) {
-			writeByte(buf, I64_EXTEND_I32_U) // Convert I32 to I64
+			w.i64_extend_i32_u() // Convert I32 to I64
 		}
 
 	case NodeCall:
@@ -1403,8 +1566,7 @@ func (ctx *WASMContext) EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localC
 			structType := node.ResolvedStruct
 
 			// Save current tstack pointer as the struct address (this will be returned)
-			writeByte(buf, GLOBAL_GET)
-			writeLEB128(buf, 0) // tstack global index
+			w.global_get(0) // tstack global index
 
 			// For each argument in source order, store the provided value at the correct field offset
 			for i, paramName := range node.ParameterNames {
@@ -1424,12 +1586,10 @@ func (ctx *WASMContext) EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localC
 				fieldValueNode := node.Children[i+1]
 
 				// Duplicate struct address on stack for this store operation
-				writeByte(buf, GLOBAL_GET)
-				writeLEB128(buf, 0) // tstack global index
+				w.global_get(0) // tstack global index
 				if field.Offset > 0 {
-					writeByte(buf, I32_CONST)
-					writeLEB128Signed(buf, int64(field.Offset))
-					writeByte(buf, I32_ADD)
+					w.i32_const(int32(field.Offset))
+					w.i32_add()
 				}
 
 				// Emit the field value
@@ -1441,13 +1601,10 @@ func (ctx *WASMContext) EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localC
 
 			// Update tstack to point past the allocated struct
 			structSize := GetTypeSize(structType)
-			writeByte(buf, GLOBAL_GET)
-			writeLEB128(buf, 0) // tstack global index
-			writeByte(buf, I32_CONST)
-			writeLEB128Signed(buf, int64(structSize))
-			writeByte(buf, I32_ADD)
-			writeByte(buf, GLOBAL_SET)
-			writeLEB128(buf, 0) // tstack global index
+			w.global_get(0) // tstack global index
+			w.i32_const(int32(structSize))
+			w.i32_add()
+			w.global_set(0) // tstack global index
 
 			// The struct address is already on the stack from the first GLOBAL_GET
 			return
@@ -1465,15 +1622,14 @@ func (ctx *WASMContext) EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localC
 			// Convert i32 results to i64 for print
 			if arg.Kind == NodeUnary && arg.Op == "&" {
 				// Convert i32 address result to i64
-				writeByte(buf, I64_EXTEND_I32_U)
+				w.i64_extend_i32_u()
 			} else if arg.TypeAST != nil && isWASMI32Type(arg.TypeAST) {
 				// Convert U8 (i32) values to i64 for print
-				writeByte(buf, I64_EXTEND_I32_U)
+				w.i64_extend_i32_u()
 			}
 
 			// Call print
-			writeByte(buf, CALL)
-			writeLEB128(buf, 0) // function index 0 (print import)
+			w.call(0) // function index 0 (print import)
 		} else if functionName == "print_bytes" {
 			// Built-in print_bytes function
 			if len(node.Children) != 2 {
@@ -1484,8 +1640,7 @@ func (ctx *WASMContext) EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localC
 			ctx.EmitExpressionL(buf, arg, localCtx) // Get slice address (pointer to slice struct)
 
 			// Call print_bytes
-			writeByte(buf, CALL)
-			writeLEB128(buf, 1) // function index 1 (print_bytes import)
+			w.call(1) // function index 1 (print_bytes import)
 		} else if functionName == "read_line" {
 			// Built-in read_line function
 			if len(node.Children) != 1 {
@@ -1494,26 +1649,20 @@ func (ctx *WASMContext) EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localC
 
 			// read_line returns a struct (slice), so allocate space on tstack
 			// Get current tstack pointer (this will be the return address)
-			writeByte(buf, GLOBAL_GET)
-			writeLEB128(buf, 0) // tstack global index
+			w.global_get(0) // tstack global index
 
 			// Duplicate the address for the function call
-			writeByte(buf, GLOBAL_GET)
-			writeLEB128(buf, 0) // tstack global index
+			w.global_get(0) // tstack global index
 
 			// Update tstack pointer (advance by slice size: 16 bytes)
-			writeByte(buf, GLOBAL_GET)
-			writeLEB128(buf, 0) // tstack global index
-			writeByte(buf, I32_CONST)
-			writeLEB128Signed(buf, 16) // slice size (pointer + length)
-			writeByte(buf, I32_ADD)
-			writeByte(buf, GLOBAL_SET)
-			writeLEB128(buf, 0) // tstack global index
+			w.global_get(0) // tstack global index
+			w.i32_const(16) // slice size (pointer + length)
+			w.i32_add()
+			w.global_set(0) // tstack global index
 
 			// Call read_line with destination address as parameter
 			// Stack: [return_addr, dest_addr]
-			writeByte(buf, CALL)
-			writeLEB128(buf, 2) // function index 2 (read_line import)
+			w.call(2) // function index 2 (read_line import)
 
 			// Stack now has: [return_addr] - the address where the slice was stored
 		} else if functionName == "append" {
@@ -1555,8 +1704,7 @@ func (ctx *WASMContext) EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localC
 			if !exists {
 				panic("Generated append function not found: " + appendFunctionName)
 			}
-			writeByte(buf, CALL)
-			writeLEB128(buf, uint32(functionIndex))
+			w.call(uint32(functionIndex))
 		} else {
 			// User-defined function call with source-order evaluation
 			args := node.Children[1:]
@@ -1578,15 +1726,13 @@ func (ctx *WASMContext) EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localC
 				} else if isWASMI64Type(arg.TypeAST) {
 					// Evaluate argument and store in i64 temporary
 					ctx.EmitExpressionR(buf, arg, localCtx)
-					writeByte(buf, LOCAL_SET)
-					writeLEB128(buf, tempI64Index)
+					w.local_set(tempI64Index)
 					tempIndices[i] = tempI64Index
 					tempI64Index++
 				} else if isWASMI32Type(arg.TypeAST) {
 					// Evaluate argument and store in i32 temporary
 					ctx.EmitExpressionR(buf, arg, localCtx)
-					writeByte(buf, LOCAL_SET)
-					writeLEB128(buf, tempI32Index)
+					w.local_set(tempI32Index)
 					tempIndices[i] = tempI32Index
 					tempI32Index++
 				}
@@ -1633,48 +1779,37 @@ func (ctx *WASMContext) EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localC
 					structSize := uint32(GetTypeSize(arg.TypeAST))
 
 					// Allocate space on tstack for the struct copy
-					writeByte(buf, GLOBAL_GET)
-					writeLEB128(buf, 0) // tstack global index
+					w.global_get(0) // tstack global index
 
 					// Save the current tstack pointer (destination address)
-					writeByte(buf, GLOBAL_GET)
-					writeLEB128(buf, 0) // tstack global index
+					w.global_get(0) // tstack global index
 
 					// Get source address (the struct we're copying)
 					ctx.EmitExpressionR(buf, arg, localCtx)
 
 					// Push size for memory.copy
-					writeByte(buf, I32_CONST)
-					writeLEB128Signed(buf, int64(structSize))
+					w.i32_const(int32(structSize))
 
 					// Emit memory.copy instruction to copy struct to tstack
-					writeByte(buf, 0xFC) // Multi-byte instruction prefix
-					writeLEB128(buf, 10) // memory.copy opcode
-					writeByte(buf, 0x00) // dst memory index (0)
-					writeByte(buf, 0x00) // src memory index (0)
+					w.memory_copy(0, 0) // dst memory index (0), src memory index (0)
 
 					// Update tstack pointer
-					writeByte(buf, GLOBAL_GET)
-					writeLEB128(buf, 0) // tstack global index
-					writeByte(buf, I32_CONST)
-					writeLEB128Signed(buf, int64(structSize))
-					writeByte(buf, I32_ADD)
-					writeByte(buf, GLOBAL_SET)
-					writeLEB128(buf, 0) // tstack global index
+					w.global_get(0) // tstack global index
+					w.i32_const(int32(structSize))
+					w.i32_add()
+					w.global_set(0) // tstack global index
 
 					// Push the copy address as the function argument
 					// (we saved it earlier before the memory.copy)
 				} else {
 					// Load from temporary local
-					writeByte(buf, LOCAL_GET)
-					writeLEB128(buf, orderedTempIndices[i])
+					w.local_get(orderedTempIndices[i])
 				}
 			}
 
 			// Find function index and call
 			functionIndex := ctx.findUserFunctionIndex(functionName)
-			writeByte(buf, CALL)
-			writeLEB128(buf, uint32(functionIndex))
+			w.call(uint32(functionIndex))
 		}
 
 	case NodeUnary:
@@ -1686,15 +1821,12 @@ func (ctx *WASMContext) EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localC
 			// Pointer dereference
 			ctx.EmitExpressionR(buf, node.Children[0], localCtx) // Get pointer value (address as i32)
 			// Load value from the address (i32 address is already correct for memory operations)
-			writeByte(buf, I64_LOAD)
-			writeByte(buf, 0x03) // alignment
-			writeByte(buf, 0x00) // offset
+			w.i64_load(0x03, 0x00) // alignment, offset
 		} else if node.Op == "!" {
 			// Logical NOT operation: 1 - value (where value is 0 or 1)
-			writeByte(buf, I64_CONST)
-			writeLEB128Signed(buf, 1)
+			w.i64_const(1)
 			ctx.EmitExpressionR(buf, node.Children[0], localCtx) // Get boolean value (0 or 1)
-			writeByte(buf, I64_SUB)                              // 1 - value gives us the NOT
+			w.i64_sub()                                          // 1 - value gives us the NOT
 		}
 
 	case NodeDot:
@@ -1710,9 +1842,7 @@ func (ctx *WASMContext) EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localC
 
 		// Load the field value
 		if isWASMI64Type(finalFieldType) {
-			writeByte(buf, I64_LOAD) // Load i64 from memory
-			writeByte(buf, 0x03)     // alignment (8 bytes = 2^3)
-			writeByte(buf, 0x00)     // offset
+			w.i64_load(0x03, 0x00) // alignment (8 bytes = 2^3), offset
 		} else {
 			panic("Non-I64 field types not supported in WASM yet: " + TypeToString(finalFieldType))
 		}
@@ -1724,19 +1854,13 @@ func (ctx *WASMContext) EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localC
 		// Load the value from the address based on element type
 		elementType := node.TypeAST // TypeAST should be the element type from type checking
 		if isWASMI64Type(elementType) {
-			writeByte(buf, I64_LOAD) // Load i64 from memory
-			writeByte(buf, 0x03)     // alignment (8 bytes = 2^3)
-			writeByte(buf, 0x00)     // offset
+			w.i64_load(0x03, 0x00) // alignment (8 bytes = 2^3), offset
 		} else if isWASMI32Type(elementType) {
 			if elementType.Kind == TypeBuiltin && elementType.String == "U8" {
 				// Load U8 as single byte and extend to i32
-				writeByte(buf, I32_LOAD8_U) // Load 8-bit unsigned to i32
-				writeByte(buf, 0x00)        // alignment (1 byte = 2^0)
-				writeByte(buf, 0x00)        // offset
+				w.i32_load8_u(0x00, 0x00) // alignment (1 byte = 2^0), offset
 			} else {
-				writeByte(buf, I32_LOAD) // Load i32 from memory
-				writeByte(buf, 0x02)     // alignment (4 bytes = 2^2)
-				writeByte(buf, 0x00)     // offset
+				w.i32_load(0x02, 0x00) // alignment (4 bytes = 2^2), offset
 			}
 		} else if elementType.Kind == TypeStruct {
 			// For struct types, return the address (already computed by EmitExpressionL)
@@ -1756,100 +1880,30 @@ func (ctx *WASMContext) EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localC
 		stringLength := uint32(len(stringContent))
 
 		// Get current tstack pointer (this will be our slice address)
-		writeByte(buf, GLOBAL_GET)
-		writeLEB128(buf, 0) // tstack global index
+		w.global_get(0) // tstack global index
 
 		// Duplicate tstack pointer for use in store operations
-		writeByte(buf, GLOBAL_GET)
-		writeLEB128(buf, 0) // tstack global index
+		w.global_get(0) // tstack global index
 
 		// Store items pointer (string address) at offset 0
-		writeByte(buf, I32_CONST)
-		writeLEB128Signed(buf, int64(stringAddress))
-		writeByte(buf, I32_STORE)
-		writeByte(buf, 0x02) // alignment (4 bytes = 2^2)
-		writeByte(buf, 0x00) // offset 0 (items field)
+		w.i32_const(int32(stringAddress))
+		w.i32_store(0x02, 0x00) // alignment (4 bytes = 2^2), offset 0 (items field)
 
 		// Get tstack pointer again for length field
-		writeByte(buf, GLOBAL_GET)
-		writeLEB128(buf, 0) // tstack global index
+		w.global_get(0) // tstack global index
 
 		// Store length at offset 8
-		writeByte(buf, I64_CONST)
-		writeLEB128Signed(buf, int64(stringLength))
-		writeByte(buf, I64_STORE)
-		writeByte(buf, 0x03) // alignment (8 bytes = 2^3)
-		writeByte(buf, 0x08) // offset 8 (length field)
+		w.i64_const(int64(stringLength))
+		w.i64_store(0x03, 0x08) // alignment (8 bytes = 2^3), offset 8 (length field)
 
 		// Advance tstack pointer by 16 bytes (slice size)
-		writeByte(buf, GLOBAL_GET)
-		writeLEB128(buf, 0) // tstack global index
-		writeByte(buf, I32_CONST)
-		writeLEB128Signed(buf, 16) // slice struct size
-		writeByte(buf, I32_ADD)
-		writeByte(buf, GLOBAL_SET)
-		writeLEB128(buf, 0) // tstack global index
+		w.global_get(0) // tstack global index
+		w.i32_const(16) // slice struct size
+		w.i32_add()
+		w.global_set(0) // tstack global index
 
 	default:
 		panic("Unknown expression node kind: " + string(node.Kind))
-	}
-}
-
-func getBinaryOpcode(op string) byte {
-	switch op {
-	case "+":
-		return I64_ADD
-	case "-":
-		return I64_SUB
-	case "*":
-		return I64_MUL
-	case "/":
-		return I64_DIV_S
-	case "%":
-		return I64_REM_S
-	case "==":
-		return I64_EQ
-	case "!=":
-		return I64_NE
-	case "<":
-		return I64_LT_S
-	case ">":
-		return I64_GT_S
-	case "<=":
-		return I64_LE_S
-	case ">=":
-		return I64_GE_S
-	default:
-		panic("Unsupported binary operator: " + op)
-	}
-}
-
-func getBinaryOpcodeI32(op string) byte {
-	switch op {
-	case "+":
-		return I32_ADD
-	case "-":
-		return I32_SUB
-	case "*":
-		return I32_MUL
-	case "/":
-		return I32_DIV_S
-	case "%":
-		return I32_REM_S
-	case "==":
-		return I32_EQ
-	case "!=":
-		return I32_NE
-	case "<":
-		return I32_LT_S
-	case ">":
-		return I32_GT_S
-	case "<=":
-		return I32_LE_S
-	case ">=":
-		return I32_GE_S
-	default:
-		panic("Unsupported binary operator: " + op)
 	}
 }
 
@@ -1974,6 +2028,7 @@ func compileLegacyExpression(ast *ASTNode, typeTable *TypeTable) []byte {
 
 	// Generate function body
 	var bodyBuf bytes.Buffer
+	w := NewWASMWriter(&bodyBuf)
 
 	// Generate WASM with unified approach
 	emitLocalDeclarations(&bodyBuf, localCtx)
@@ -1981,7 +2036,7 @@ func compileLegacyExpression(ast *ASTNode, typeTable *TypeTable) []byte {
 		EmitFrameSetupFromContext(&bodyBuf, localCtx)
 	}
 	ctx.EmitStatement(&bodyBuf, ast, localCtx)
-	writeByte(&bodyBuf, END) // end instruction
+	w.end()
 
 	// Build the full WASM module
 	var buf bytes.Buffer
@@ -2411,42 +2466,35 @@ func collectLocalVariables(node *ASTNode) ([]LocalVarInfo, uint32) {
 
 // EmitFrameSetup generates frame setup code at function entry
 func EmitFrameSetup(buf *bytes.Buffer, locals []LocalVarInfo, frameSize uint32, framePointerIndex uint32) {
+	w := NewWASMWriter(buf)
 	// Set frame pointer to current tstack pointer: frame_pointer = tstack_pointer
-	writeByte(buf, GLOBAL_GET) // global.get $tstack_pointer
-	writeLEB128(buf, 0)        // tstack global index (0)
-	writeByte(buf, LOCAL_SET)  // local.set $frame_pointer
-	writeLEB128(buf, framePointerIndex)
+	w.global_get(0) // tstack global index (0)
+	w.local_set(framePointerIndex)
 
 	// Advance tstack pointer by frame size: tstack_pointer += frame_size
-	writeByte(buf, GLOBAL_GET) // global.get $tstack_pointer
-	writeLEB128(buf, 0)        // tstack global index (0)
-	writeByte(buf, I32_CONST)  // i32.const frame_size
-	writeLEB128Signed(buf, int64(frameSize))
-	writeByte(buf, I32_ADD)    // i32.add
-	writeByte(buf, GLOBAL_SET) // global.set $tstack_pointer
-	writeLEB128(buf, 0)        // tstack global index (0)
+	w.global_get(0) // tstack global index (0)
+	w.i32_const(int32(frameSize))
+	w.i32_add()
+	w.global_set(0) // tstack global index (0)
 }
 
 // EmitFrameSetupFromContext generates frame setup code using LocalContext
 func EmitFrameSetupFromContext(buf *bytes.Buffer, localCtx *LocalContext) {
+	w := NewWASMWriter(buf)
 	// Set frame pointer to current tstack pointer: frame_pointer = tstack_pointer
-	writeByte(buf, GLOBAL_GET) // global.get $tstack_pointer
-	writeLEB128(buf, 0)        // tstack global index (0)
-	writeByte(buf, LOCAL_SET)  // local.set $frame_pointer
-	writeLEB128(buf, localCtx.FramePointerIndex)
+	w.global_get(0) // tstack global index (0)
+	w.local_set(localCtx.FramePointerIndex)
 
 	// Advance tstack pointer by frame size: tstack_pointer += frame_size
-	writeByte(buf, GLOBAL_GET) // global.get $tstack_pointer
-	writeLEB128(buf, 0)        // tstack global index (0)
-	writeByte(buf, I32_CONST)  // i32.const frame_size
-	writeLEB128Signed(buf, int64(localCtx.FrameSize))
-	writeByte(buf, I32_ADD)    // i32.add
-	writeByte(buf, GLOBAL_SET) // global.set $tstack_pointer
-	writeLEB128(buf, 0)        // tstack global index (0)
+	w.global_get(0) // tstack global index (0)
+	w.i32_const(int32(localCtx.FrameSize))
+	w.i32_add()
+	w.global_set(0) // tstack global index (0)
 }
 
 // EmitAddressOf generates code for address-of operations
 func (ctx *WASMContext) EmitAddressOf(buf *bytes.Buffer, operand *ASTNode, localCtx *LocalContext) {
+	w := NewWASMWriter(buf)
 	if operand.Kind == NodeIdent {
 		// Lvalue case: &variable
 		// Find the variable in locals
@@ -2463,41 +2511,32 @@ func (ctx *WASMContext) EmitAddressOf(buf *bytes.Buffer, operand *ASTNode, local
 		}
 
 		// Load frame pointer
-		writeByte(buf, LOCAL_GET)
-		writeLEB128(buf, localCtx.FramePointerIndex)
+		w.local_get(localCtx.FramePointerIndex)
 
 		// Add variable offset
 		if targetLocal.Address > 0 {
-			writeByte(buf, I32_CONST)
-			writeLEB128Signed(buf, int64(targetLocal.Address))
-			writeByte(buf, I32_ADD)
+			w.i32_const(int32(targetLocal.Address))
+			w.i32_add()
 		}
 	} else {
 		// Rvalue case: &(expression)
 		// Save current tstack pointer as result first
-		writeByte(buf, GLOBAL_GET) // global.get $tstack_pointer
-		writeLEB128(buf, 0)        // tstack global index (0)
+		w.global_get(0) // tstack global index (0)
 
 		// Get address for store operation: Stack: [result_addr, store_addr_i32]
-		writeByte(buf, GLOBAL_GET) // global.get $tstack_pointer -> Stack: [result_addr, store_addr]
-		writeLEB128(buf, 0)        // tstack global index (0)
+		w.global_get(0) // tstack global index (0) -> Stack: [result_addr, store_addr]
 
 		// Evaluate expression to get value: Stack: [result_addr, store_addr_i32, value]
 		ctx.EmitExpression(buf, operand, localCtx)
 
 		// Store value at address: i64.store expects [address, value]
-		writeByte(buf, I64_STORE) // i64.store -> Stack: [result_addr]
-		writeByte(buf, 0x03)      // alignment (2^3 = 8 byte alignment)
-		writeLEB128(buf, 0)       // offset (0)
+		w.i64_store(0x03, 0) // alignment (2^3 = 8 byte alignment), offset (0)
 
 		// Advance tstack pointer by 8 bytes
-		writeByte(buf, GLOBAL_GET) // global.get $tstack_pointer
-		writeLEB128(buf, 0)        // tstack global index (0)
-		writeByte(buf, I32_CONST)  // i32.const 8
-		writeLEB128Signed(buf, 8)
-		writeByte(buf, I32_ADD)    // i32.add
-		writeByte(buf, GLOBAL_SET) // global.set $tstack_pointer
-		writeLEB128(buf, 0)        // tstack global index (0)
+		w.global_get(0) // tstack global index (0)
+		w.i32_const(8)
+		w.i32_add()
+		w.global_set(0) // tstack global index (0)
 
 		// Stack now has [result_addr] which is what we want to return
 	}
