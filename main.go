@@ -671,14 +671,14 @@ func emitAppendFunctionBody(buf *bytes.Buffer, fn *ASTNode) {
 	// 2. Calculate copy size: current_length * element_size
 	writeByte(&bodyBuf, I32_WRAP_I64)
 	writeByte(&bodyBuf, I32_CONST)
-	writeLEB128(&bodyBuf, elementSize)
+	writeLEB128Signed(&bodyBuf, int64(elementSize))
 	writeByte(&bodyBuf, I32_MUL)
 	writeByte(&bodyBuf, LOCAL_TEE)
 	writeLEB128(&bodyBuf, 3) // store copy_size and keep on stack
 
 	// 3. Calculate total size needed: copy_size + element_size
 	writeByte(&bodyBuf, I32_CONST)
-	writeLEB128(&bodyBuf, elementSize)
+	writeLEB128Signed(&bodyBuf, int64(elementSize))
 	writeByte(&bodyBuf, I32_ADD)
 	// Stack: [total_size]
 
@@ -1067,7 +1067,7 @@ func emitValueStoreToMemory(buf *bytes.Buffer, ty *TypeNode) {
 		// Struct assignment (copy) using memory.copy
 		structSize := uint32(GetTypeSize(ty))
 		writeByte(buf, I32_CONST)
-		writeLEB128(buf, structSize)
+		writeLEB128Signed(buf, int64(structSize))
 		// Stack: [dst_addr, src_addr, size]
 		writeByte(buf, 0xFC) // Multi-byte instruction prefix
 		writeLEB128(buf, 10) // memory.copy opcode
@@ -1221,7 +1221,7 @@ func (ctx *WASMContext) EmitExpressionL(buf *bytes.Buffer, node *ASTNode, localC
 		elementType := node.TypeAST // This should be the element type from type checking
 		elementSize := GetTypeSize(elementType)
 		writeByte(buf, I32_CONST)
-		writeLEB128(buf, uint32(elementSize))
+		writeLEB128Signed(buf, int64(elementSize))
 		writeByte(buf, I32_MUL)
 
 		// Add to base pointer to get final element address
@@ -1260,7 +1260,7 @@ func (ctx *WASMContext) EmitExpressionL(buf *bytes.Buffer, node *ASTNode, localC
 			writeByte(buf, GLOBAL_GET)
 			writeLEB128(buf, 0) // tstack global index
 			writeByte(buf, I32_CONST)
-			writeLEB128(buf, 4) // I32 size
+			writeLEB128Signed(buf, 4) // I32 size
 			writeByte(buf, I32_ADD)
 			writeByte(buf, GLOBAL_SET)
 			writeLEB128(buf, 0) // tstack global index
@@ -1278,7 +1278,7 @@ func (ctx *WASMContext) EmitExpressionL(buf *bytes.Buffer, node *ASTNode, localC
 			writeByte(buf, GLOBAL_GET)
 			writeLEB128(buf, 0) // tstack global index
 			writeByte(buf, I32_CONST)
-			writeLEB128(buf, 8) // I64 size
+			writeLEB128Signed(buf, 8) // I64 size
 			writeByte(buf, I32_ADD)
 			writeByte(buf, GLOBAL_SET)
 			writeLEB128(buf, 0) // tstack global index
@@ -1428,7 +1428,7 @@ func (ctx *WASMContext) EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localC
 				writeLEB128(buf, 0) // tstack global index
 				if field.Offset > 0 {
 					writeByte(buf, I32_CONST)
-					writeLEB128(buf, field.Offset)
+					writeLEB128Signed(buf, int64(field.Offset))
 					writeByte(buf, I32_ADD)
 				}
 
@@ -1444,7 +1444,7 @@ func (ctx *WASMContext) EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localC
 			writeByte(buf, GLOBAL_GET)
 			writeLEB128(buf, 0) // tstack global index
 			writeByte(buf, I32_CONST)
-			writeLEB128(buf, uint32(structSize))
+			writeLEB128Signed(buf, int64(structSize))
 			writeByte(buf, I32_ADD)
 			writeByte(buf, GLOBAL_SET)
 			writeLEB128(buf, 0) // tstack global index
@@ -1505,7 +1505,7 @@ func (ctx *WASMContext) EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localC
 			writeByte(buf, GLOBAL_GET)
 			writeLEB128(buf, 0) // tstack global index
 			writeByte(buf, I32_CONST)
-			writeLEB128(buf, 16) // slice size (pointer + length)
+			writeLEB128Signed(buf, 16) // slice size (pointer + length)
 			writeByte(buf, I32_ADD)
 			writeByte(buf, GLOBAL_SET)
 			writeLEB128(buf, 0) // tstack global index
@@ -1645,7 +1645,7 @@ func (ctx *WASMContext) EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localC
 
 					// Push size for memory.copy
 					writeByte(buf, I32_CONST)
-					writeLEB128(buf, structSize)
+					writeLEB128Signed(buf, int64(structSize))
 
 					// Emit memory.copy instruction to copy struct to tstack
 					writeByte(buf, 0xFC) // Multi-byte instruction prefix
@@ -1657,7 +1657,7 @@ func (ctx *WASMContext) EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localC
 					writeByte(buf, GLOBAL_GET)
 					writeLEB128(buf, 0) // tstack global index
 					writeByte(buf, I32_CONST)
-					writeLEB128(buf, structSize)
+					writeLEB128Signed(buf, int64(structSize))
 					writeByte(buf, I32_ADD)
 					writeByte(buf, GLOBAL_SET)
 					writeLEB128(buf, 0) // tstack global index
@@ -1765,7 +1765,7 @@ func (ctx *WASMContext) EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localC
 
 		// Store items pointer (string address) at offset 0
 		writeByte(buf, I32_CONST)
-		writeLEB128(buf, stringAddress)
+		writeLEB128Signed(buf, int64(stringAddress))
 		writeByte(buf, I32_STORE)
 		writeByte(buf, 0x02) // alignment (4 bytes = 2^2)
 		writeByte(buf, 0x00) // offset 0 (items field)
@@ -1785,7 +1785,7 @@ func (ctx *WASMContext) EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localC
 		writeByte(buf, GLOBAL_GET)
 		writeLEB128(buf, 0) // tstack global index
 		writeByte(buf, I32_CONST)
-		writeLEB128(buf, 16) // slice struct size
+		writeLEB128Signed(buf, 16) // slice struct size
 		writeByte(buf, I32_ADD)
 		writeByte(buf, GLOBAL_SET)
 		writeLEB128(buf, 0) // tstack global index

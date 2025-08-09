@@ -415,3 +415,33 @@ func main() {
 200
 3
 ```
+
+## Test: slice indexing with 64-byte element size
+
+Regression test. Ensure slice indexing works with items that are >= 64 bytes.
+
+```zong-program
+// BigStruct is >= 64 bytes.
+struct BigStruct(
+    a: I64, b: I64, c: I64, d: I64, e: I64, f: I64, g: I64, h: I64
+);
+
+func main() {
+    var slice BigStruct[];
+    append(slice&, BigStruct(a: 1, b: 2, c: 3, d: 4, e: 5, f: 6, g: 7, h: 8));
+    append(slice&, BigStruct(a: 10, b: 20, c: 30, d: 40, e: 50, f: 60, g: 70, h: 80));
+
+    var retrieved0 BigStruct = slice[0];
+    print(retrieved0.a);
+    print(retrieved0.h);
+    var retrieved1 BigStruct = slice[1];
+    print(retrieved1.a);
+    print(retrieved1.h);
+}
+```
+```execute
+1
+8
+10
+80
+```

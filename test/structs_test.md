@@ -514,3 +514,70 @@ func main() {
 ```compile-error
 error: cannot access field of non-struct type I64
 ```
+
+## Test: function parameter 64-byte struct copy semantics
+
+Regression test. Ensure a struct with >= 64 bytes can be passed as a parameter.
+
+This will trigger the code path where the struct size (64) is encoded into a
+constant for memory.copy when copying the struct to the stack.
+
+```zong-program
+// Define a struct that is exactly 64 bytes
+struct BigStruct(
+    a: I64, b: I64, c: I64, d: I64, e: I64, f: I64, g: I64, h: I64  // 8 * 8 = 64 bytes
+);
+
+func processStruct(s: BigStruct) {
+    // Function receives a 64-byte struct by value
+    print(s.a);
+    print(s.b);
+    print(s.h);
+    
+    // Modify the copy to test independence
+    s.a = 999;
+}
+
+func main() {
+    var s BigStruct = BigStruct(a: 1, b: 2, c: 3, d: 4, e: 5, f: 6, g: 7, h: 8);
+    
+    // This function call will pass the 64-byte struct by value
+    processStruct(s);
+    
+    // Original should be unchanged (copy semantics)
+    print(s.a);
+    print(s.h);
+}
+```
+```execute
+1
+2
+8
+1
+8
+```
+
+## Test: struct field access with offset 64
+
+Regression test. Ensure fields at offset >= 64 bytes can be read from and
+written to.
+
+```zong-program
+// Define a struct where a field is at offset 64
+struct BigStruct(
+    p1: I64, p2: I64, p3: I64, p4: I64, p5: I64, p6: I64, p7: I64, p8: I64,  // Padding.
+    target: I64);     // This field will be at offset 64
+
+func main() {
+    var s BigStruct = BigStruct(
+        p1: 1, p2: 2, p3: 3, p4: 4, p5: 5, p6: 6, p7: 7, p8: 8,
+        target: 999);
+    print(s.target);
+    s.target = 777;
+    print(s.target);
+}
+```
+```execute
+999
+777
+```

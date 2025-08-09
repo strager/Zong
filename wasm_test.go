@@ -68,6 +68,7 @@ func TestWriteLEB128Signed(t *testing.T) {
 		{0, []byte{0x00}},
 		{1, []byte{0x01}},
 		{-1, []byte{0x7F}},
+		{0x40, []byte{0xc0, 0x00}},
 		{127, []byte{0xFF, 0x00}},
 		{-128, []byte{0x80, 0x7F}},
 		{128, []byte{0x80, 0x01}},
