@@ -55,47 +55,35 @@ func printBoard(board: GameBoard) {
             if cell == 0 {
                 // Print position number (1-9)
                 if index == 0 {
-                    var one U8[] = "1";
-                    print_bytes(one);
+                    print_bytes("1");
                 } else if index == 1 {
-                    var two U8[] = "2";
-                    print_bytes(two);
+                    print_bytes("2");
                 } else if index == 2 {
-                    var three U8[] = "3";
-                    print_bytes(three);
+                    print_bytes("3");
                 } else if index == 3 {
-                    var four U8[] = "4";
-                    print_bytes(four);
+                    print_bytes("4");
                 } else if index == 4 {
-                    var five U8[] = "5";
-                    print_bytes(five);
+                    print_bytes("5");
                 } else if index == 5 {
-                    var six U8[] = "6";
-                    print_bytes(six);
+                    print_bytes("6");
                 } else if index == 6 {
-                    var seven U8[] = "7";
-                    print_bytes(seven);
+                    print_bytes("7");
                 } else if index == 7 {
-                    var eight U8[] = "8";
-                    print_bytes(eight);
+                    print_bytes("8");
                 } else {
-                    var nine U8[] = "9";
-                    print_bytes(nine);
+                    print_bytes("9");
                 }
             } else {
                 // Print X or O
                 if cell == 88 {  // X
-                    var X U8[] = "X";
-                    print_bytes(X);
+                    print_bytes("X");
                 } else {
-                    var O U8[] = "O";
-                    print_bytes(O);
+                    print_bytes("O");
                 }
             }
             
             if col < 2 {
-                var sep U8[] = " | ";
-                print_bytes(sep);
+                print_bytes(" | ");
             }
             
             col = col + 1;
@@ -103,8 +91,7 @@ func printBoard(board: GameBoard) {
         
         if row < 2 {
             print_bytes(newlineEnd);
-            var line U8[] = "---+---+---";
-            print_bytes(line);
+            print_bytes("---+---+---");
         }
         
         print_bytes(newlineEnd);
@@ -234,8 +221,7 @@ func main() {
     
     var newline U8[];
     append(newline&, 10);
-    var title U8[] = "Tic Tac Toe";
-    print_bytes(title);
+    print_bytes("Tic Tac Toe");
     print_bytes(newline);
     
     // Interactive game loop
@@ -246,18 +232,14 @@ func main() {
         
         printBoard(board);
         
-        var player U8[] = "Player ";
-        print_bytes(player);
+        print_bytes("Player ");
         // Print current player
         if board.currentPlayer == 88 {  // X
-            var X U8[] = "X";
-            print_bytes(X);
+            print_bytes("X");
         } else {
-            var O U8[] = "O";
-            print_bytes(O);
+            print_bytes("O");
         }
-        var prompt U8[] = " enter position (1-9): ";
-        print_bytes(prompt);
+        print_bytes(" enter position (1-9): ");
         
         // Read input from user
         var input U8[] = read_line();
@@ -293,13 +275,11 @@ func main() {
                 board = makeMove(board, position);
                 board = updateGameState(board);
             } else {
-                var invalid U8[] = "Position already taken! Try again.";
-                print_bytes(invalid);
+                print_bytes("Position already taken! Try again.");
                 print_bytes(newline);
             }
         } else {
-            var invalid U8[] = "Invalid input! Please enter a number 1-9.";
-            print_bytes(invalid);
+            print_bytes("Invalid input! Please enter a number 1-9.");
             print_bytes(newline);
         }
     }
@@ -309,16 +289,13 @@ func main() {
     
     // Print result
     if board.winner == 88 {  // X
-        var wins U8[] = "X Wins!";
-        print_bytes(wins);
+        print_bytes("X Wins!");
         print_bytes(newline);
     } else if board.winner == 79 {  // O
-        var wins U8[] = "O Wins!";
-        print_bytes(wins);
+        print_bytes("O Wins!");
         print_bytes(newline);
     } else if board.winner == 84 {  // T for tie
-        var tie U8[] = "It's a Tie!";
-        print_bytes(tie);
+        print_bytes("It's a Tie!");
         print_bytes(newline);
     }
 }

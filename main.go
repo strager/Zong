@@ -1360,6 +1360,11 @@ func (ctx *WASMContext) EmitExpressionL(buf *bytes.Buffer, node *ASTNode, localC
 		// Add to base pointer to get final element address
 		w.i32_add()
 
+	case NodeString:
+		// String literal creates a slice structure directly on tstack
+		// EmitExpressionR already returns the correct address
+		ctx.EmitExpressionR(buf, node, localCtx)
+
 	default:
 		// For any other expression (rvalue), create a temporary on tstack
 		// Check if this is a struct-returning function call
