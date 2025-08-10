@@ -144,6 +144,8 @@ func assertPatternMatch(t *testing.T, zongAST *ASTNode, sexyPattern *sexy.Node, 
 		assertBreakMatch(t, zongAST, sexyPattern, path)
 	case NodeContinue:
 		assertContinueMatch(t, zongAST, sexyPattern, path)
+	case NodeType:
+		assertTypeMatch(t, zongAST, sexyPattern, path)
 	default:
 		t.Errorf("At %s: unsupported Zong AST node type: %v", path, zongAST.Kind)
 	}
@@ -982,6 +984,32 @@ func assertContinueMatch(t *testing.T, zongAST *ASTNode, sexyPattern *sexy.Node,
 	if sexyPattern.Text != "continue" {
 		t.Errorf("At %s: expected 'continue' symbol, got '%s'", path, sexyPattern.Text)
 		return
+	}
+}
+
+// assertTypeMatch matches Zong NodeType against Sexy patterns
+// Sexy patterns for types are lists like (type "TypeName")
+func assertTypeMatch(t *testing.T, zongAST *ASTNode, sexyPattern *sexy.Node, path string) {
+	if sexyPattern.Type != sexy.NodeList {
+		t.Errorf("At %s: expected Sexy list for NodeType, got %v", path, sexyPattern.Type)
+		return
+	}
+	if len(sexyPattern.Items) != 2 {
+		t.Errorf("At %s: expected (type \"TypeName\") with 2 items, got %d", path, len(sexyPattern.Items))
+		return
+	}
+	if sexyPattern.Items[0].Type != sexy.NodeSymbol || sexyPattern.Items[0].Text != "type" {
+		t.Errorf("At %s: expected 'type' symbol, got %v with text '%s'", path, sexyPattern.Items[0].Type, sexyPattern.Items[0].Text)
+		return
+	}
+	if sexyPattern.Items[1].Type != sexy.NodeString {
+		t.Errorf("At %s: expected string for type name, got %v", path, sexyPattern.Items[1].Type)
+		return
+	}
+	expectedTypeName := sexyPattern.Items[1].Text
+	actualTypeName := TypeToString(zongAST.ReturnType)
+	if actualTypeName != expectedTypeName {
+		t.Errorf("At %s: expected type %s, got %s", path, expectedTypeName, actualTypeName)
 	}
 }
 

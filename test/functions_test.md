@@ -153,7 +153,7 @@ atan2(y, x)
 Point(x: 1, y: 2)
 ```
 ```ast
-(call (var "Point") "x" 1 "y" 2)
+(call (type "Point") "x" 1 "y" 2)
 ```
 
 ## Test: function call mixed parameters

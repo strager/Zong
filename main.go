@@ -1365,6 +1365,9 @@ func (ctx *WASMContext) EmitExpressionL(buf *bytes.Buffer, node *ASTNode, localC
 		// EmitExpressionR already returns the correct address
 		ctx.EmitExpressionR(buf, node, localCtx)
 
+	case NodeType:
+		panic("Unexpected NodeType in lvalue context: " + TypeToString(node.ReturnType) + ". Type names cannot be assigned to.")
+
 	default:
 		// For any other expression (rvalue), create a temporary on tstack
 		// Check if this is a struct-returning function call
@@ -1563,12 +1566,11 @@ func (ctx *WASMContext) EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localC
 		if len(node.Children) == 0 {
 			panic("Invalid function call - missing function name")
 		}
-		functionName := node.Children[0].String
 
-		// Check if this is struct initialization
-		if node.Children[0].Symbol != nil && node.Children[0].Symbol.Kind == SymbolStruct {
-			// This is struct initialization
-			structType := node.Children[0].Symbol.StructType
+		// Handle NodeType as callee (struct constructor calls)
+		if node.Children[0].Kind == NodeType {
+			// This is struct initialization with NodeType callee
+			structType := node.Children[0].ReturnType
 
 			// Save current tstack pointer as the struct address (this will be returned)
 			w.global_get(0) // tstack global index
@@ -1583,22 +1585,21 @@ func (ctx *WASMContext) EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localC
 						break
 					}
 				}
-
 				if field == nil {
 					panic("Missing field for parameter " + paramName + " in struct initialization")
 				}
 
-				fieldValueNode := node.Children[i+1]
+				// Duplicate struct base address for this field store
+				w.global_get(0) // tstack global index (struct base address)
 
-				// Duplicate struct address on stack for this store operation
-				w.global_get(0) // tstack global index
+				// Emit field offset if needed
 				if field.Offset > 0 {
 					w.i32_const(int32(field.Offset))
 					w.i32_add()
 				}
 
-				// Emit the field value
-				ctx.EmitExpressionR(buf, fieldValueNode, localCtx)
+				// Emit the argument expression
+				ctx.EmitExpressionR(buf, node.Children[i+1], localCtx)
 
 				// Store the value at the memory address (address + offset already computed)
 				emitValueStoreToMemory(buf, field.Type)
@@ -1614,6 +1615,8 @@ func (ctx *WASMContext) EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localC
 			// The struct address is already on the stack from the first GLOBAL_GET
 			return
 		}
+
+		functionName := node.Children[0].String
 
 		if functionName == "print" {
 			// Built-in print function
@@ -1816,6 +1819,9 @@ func (ctx *WASMContext) EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localC
 			functionIndex := ctx.findUserFunctionIndex(functionName)
 			w.call(uint32(functionIndex))
 		}
+
+	case NodeType:
+		panic("Unexpected NodeType in WASM generation: " + TypeToString(node.ReturnType) + ". Type names should be part of constructor calls.")
 
 	case NodeUnary:
 		if node.Op == "&" {
@@ -2685,6 +2691,7 @@ const (
 	NodeStruct   NodeKind = "NodeStruct"
 	NodeDot      NodeKind = "NodeDot"
 	NodeFunc     NodeKind = "NodeFunc"
+	NodeType     NodeKind = "NodeType"
 )
 
 // ASTNode represents a node in the Abstract Syntax Tree
@@ -4015,6 +4022,12 @@ func BuildSymbolTable(ast *ASTNode) *SymbolTable {
 					node.Children[0].TypeAST = resolvedType
 				}
 			}
+		} else if node.Kind == NodeType && node.ReturnType != nil {
+			// Resolve NodeType's type reference to get complete struct information
+			resolvedType := ResolveType(node.ReturnType, st)
+			if resolvedType != node.ReturnType {
+				node.ReturnType = resolvedType
+			}
 		}
 
 		// Traverse children
@@ -4339,16 +4352,21 @@ func CheckExpression(expr *ASTNode, tc *TypeChecker) {
 
 	case NodeCall:
 		// Function call or struct initialization validation
-		if len(expr.Children) == 0 || expr.Children[0].Kind != NodeIdent {
+		if len(expr.Children) == 0 || (expr.Children[0].Kind != NodeIdent && expr.Children[0].Kind != NodeType) {
 			tc.AddError("error: invalid function call")
 			return
 		}
-		funcName := expr.Children[0].String
 
-		// Check if this is struct initialization
-		if expr.Children[0].Symbol != nil && expr.Children[0].Symbol.Kind == SymbolStruct {
-			// This is struct initialization
-			structType := expr.Children[0].Symbol.StructType
+		// Handle NodeType as callee (struct constructor calls)
+		if expr.Children[0].Kind == NodeType {
+			// This is a struct constructor call with NodeType callee
+			// After symbol resolution, ReturnType should have complete field information
+			if expr.Children[0].ReturnType == nil || expr.Children[0].ReturnType.Kind != TypeStruct {
+				tc.AddError("error: NodeType must represent a struct type")
+				return
+			}
+
+			structType := expr.Children[0].ReturnType
 
 			// First, validate that all parameters are named (struct initialization requirement)
 			for _, paramName := range expr.ParameterNames {
@@ -4378,6 +4396,8 @@ func CheckExpression(expr *ASTNode, tc *TypeChecker) {
 			expr.TypeAST = structType
 			return
 		}
+
+		funcName := expr.Children[0].String
 
 		if funcName == "print" {
 			// Built-in print function
@@ -5266,6 +5286,8 @@ func ToSExpr(node *ASTNode) string {
 	case NodeDot:
 		base := ToSExpr(node.Children[0])
 		return "(dot " + base + " \"" + node.FieldName + "\")"
+	case NodeType:
+		return "(type \"" + TypeToString(node.ReturnType) + "\")"
 	case NodeFunc:
 		result := "(func \"" + node.FunctionName + "\" ("
 		for i, param := range node.Parameters {
@@ -5553,12 +5575,12 @@ func parsePrimary(l *Lexer) *ASTNode {
 		return node
 
 	case UPPER_IDENT:
-		// This could be a struct constructor call
+		// Type name in expression (struct constructor call, etc.)
+		typeAST := parseTypeExpression(l)
 		node := &ASTNode{
-			Kind:   NodeIdent,
-			String: l.CurrLiteral,
+			Kind:       NodeType,
+			ReturnType: typeAST,
 		}
-		l.SkipToken(UPPER_IDENT)
 		return node
 
 	case LPAREN:
