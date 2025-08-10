@@ -26,7 +26,8 @@
       "Bash(sl diff:*)",
       "Bash(sl show:*)",
       "Bash(./zong run:*)",
-      "Bash(./zong eval:*)"
+      "Bash(./zong eval:*)",
+      "WebFetch(domain:github.com)"
     ],
     "deny": []
   }

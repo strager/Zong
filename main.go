@@ -186,6 +186,24 @@ func (w *WASMWriter) i32_load8_u(align, offset uint32) {
 	writeLEB128(w.buf, offset)
 }
 
+func (w *WASMWriter) i32_load8_s(align, offset uint32) {
+	writeByte(w.buf, 0x2C)
+	writeByte(w.buf, byte(align))
+	writeLEB128(w.buf, offset)
+}
+
+func (w *WASMWriter) i32_load16_u(align, offset uint32) {
+	writeByte(w.buf, 0x2F)
+	writeByte(w.buf, byte(align))
+	writeLEB128(w.buf, offset)
+}
+
+func (w *WASMWriter) i32_load16_s(align, offset uint32) {
+	writeByte(w.buf, 0x2E)
+	writeByte(w.buf, byte(align))
+	writeLEB128(w.buf, offset)
+}
+
 func (w *WASMWriter) i32_store(align, offset uint32) {
 	writeByte(w.buf, 0x36)
 	writeByte(w.buf, byte(align))
@@ -198,14 +216,74 @@ func (w *WASMWriter) i32_store8(align, offset uint32) {
 	writeLEB128(w.buf, offset)
 }
 
+func (w *WASMWriter) i32_store16(align, offset uint32) {
+	writeByte(w.buf, 0x3B)
+	writeByte(w.buf, byte(align))
+	writeLEB128(w.buf, offset)
+}
+
 func (w *WASMWriter) i64_load(align, offset uint32) {
 	writeByte(w.buf, 0x29)
 	writeByte(w.buf, byte(align))
 	writeLEB128(w.buf, offset)
 }
 
+func (w *WASMWriter) i64_load8_u(align, offset uint32) {
+	writeByte(w.buf, 0x31)
+	writeByte(w.buf, byte(align))
+	writeLEB128(w.buf, offset)
+}
+
+func (w *WASMWriter) i64_load8_s(align, offset uint32) {
+	writeByte(w.buf, 0x30)
+	writeByte(w.buf, byte(align))
+	writeLEB128(w.buf, offset)
+}
+
+func (w *WASMWriter) i64_load16_u(align, offset uint32) {
+	writeByte(w.buf, 0x33)
+	writeByte(w.buf, byte(align))
+	writeLEB128(w.buf, offset)
+}
+
+func (w *WASMWriter) i64_load16_s(align, offset uint32) {
+	writeByte(w.buf, 0x32)
+	writeByte(w.buf, byte(align))
+	writeLEB128(w.buf, offset)
+}
+
+func (w *WASMWriter) i64_load32_u(align, offset uint32) {
+	writeByte(w.buf, 0x35)
+	writeByte(w.buf, byte(align))
+	writeLEB128(w.buf, offset)
+}
+
+func (w *WASMWriter) i64_load32_s(align, offset uint32) {
+	writeByte(w.buf, 0x34)
+	writeByte(w.buf, byte(align))
+	writeLEB128(w.buf, offset)
+}
+
 func (w *WASMWriter) i64_store(align, offset uint32) {
 	writeByte(w.buf, 0x37)
+	writeByte(w.buf, byte(align))
+	writeLEB128(w.buf, offset)
+}
+
+func (w *WASMWriter) i64_store8(align, offset uint32) {
+	writeByte(w.buf, 0x3C)
+	writeByte(w.buf, byte(align))
+	writeLEB128(w.buf, offset)
+}
+
+func (w *WASMWriter) i64_store16(align, offset uint32) {
+	writeByte(w.buf, 0x3D)
+	writeByte(w.buf, byte(align))
+	writeLEB128(w.buf, offset)
+}
+
+func (w *WASMWriter) i64_store32(align, offset uint32) {
+	writeByte(w.buf, 0x3E)
 	writeByte(w.buf, byte(align))
 	writeLEB128(w.buf, offset)
 }
@@ -616,14 +694,15 @@ func wasmTypeByte(typeNode *TypeNode) byte {
 	if typeNode.Kind == TypeInteger {
 		panic("TypeInteger should be resolved before WASM generation")
 	}
-	if typeNode.Kind == TypeBuiltin && typeNode.String == "I64" {
-		return 0x7E // i64
-	}
-	if typeNode.Kind == TypeBuiltin && typeNode.String == "U8" {
-		return 0x7F // i32 (U8 maps to i32 in WASM)
-	}
-	if typeNode.Kind == TypeBuiltin && typeNode.String == "Boolean" {
-		return 0x7E // i64 (Boolean maps to i64 in WASM)
+	if typeNode.Kind == TypeBuiltin {
+		switch typeNode.String {
+		case "I64", "U64", "Boolean":
+			return 0x7E // i64
+		case "I32", "U32", "I16", "U16", "I8", "U8":
+			return 0x7F // i32
+		default:
+			panic("Unsupported builtin type for WASM: " + typeNode.String)
+		}
 	}
 	if typeNode.Kind == TypePointer {
 		return 0x7F // i32 (pointer)
@@ -636,14 +715,15 @@ func wasmTypeByte(typeNode *TypeNode) byte {
 
 // wasmTypeString returns the WASM type string for a TypeNode
 func wasmTypeString(typeNode *TypeNode) string {
-	if typeNode.Kind == TypeBuiltin && typeNode.String == "I64" {
-		return "i64"
-	}
-	if typeNode.Kind == TypeBuiltin && typeNode.String == "U8" {
-		return "i32" // U8 maps to i32 in WASM
-	}
-	if typeNode.Kind == TypeBuiltin && typeNode.String == "Boolean" {
-		return "i64" // Boolean maps to i64 in WASM
+	if typeNode.Kind == TypeBuiltin {
+		switch typeNode.String {
+		case "I64", "U64", "Boolean":
+			return "i64"
+		case "I32", "U32", "I16", "U16", "I8", "U8":
+			return "i32"
+		default:
+			panic("Unsupported builtin type for WASM: " + typeNode.String)
+		}
 	}
 	if typeNode.Kind == TypePointer {
 		return "i32"
@@ -1229,11 +1309,17 @@ func emitValueStoreToMemory(buf *bytes.Buffer, ty *TypeNode) {
 		// Store pointer as i32
 		w.i32_store(0x02, 0x00) // alignment (4 bytes = 2^2), offset
 	case TypeBuiltin:
-		if ty.String == "U8" {
-			// Store U8 as single byte
+		switch ty.String {
+		case "I64", "U64", "Boolean":
+			w.i64_store(0x03, 0x00) // alignment (8 bytes = 2^3), offset
+		case "I32", "U32":
+			w.i32_store(0x02, 0x00) // alignment (4 bytes = 2^2), offset
+		case "I16", "U16":
+			w.i32_store16(0x01, 0x00) // alignment (2 bytes = 2^1), offset
+		case "I8", "U8":
 			w.i32_store8(0x00, 0x00) // alignment (1 byte = 2^0), offset
-		} else {
-			// Store other built-in types as i64
+		default:
+			// Default to i64 store
 			w.i64_store(0x03, 0x00) // alignment (8 bytes = 2^3), offset
 		}
 	default:
@@ -1255,9 +1341,28 @@ func emitValueLoadFromMemory(buf *bytes.Buffer, ty *TypeNode) {
 		if ty.Kind == TypePointer {
 			// Load pointer as i32
 			w.i32_load(0x02, 0x00) // alignment (4 bytes = 2^2), offset
-		} else if ty.Kind == TypeBuiltin && ty.String == "U8" {
-			// Load U8 as single byte and extend to i32
-			w.i32_load8_u(0x00, 0x00) // alignment (1 byte = 2^0), offset
+		} else if ty.Kind == TypeBuiltin {
+			switch ty.String {
+			case "I64", "Boolean":
+				w.i64_load(0x03, 0x00) // alignment (8 bytes = 2^3), offset
+			case "U64":
+				w.i64_load(0x03, 0x00) // alignment (8 bytes = 2^3), offset
+			case "I32":
+				w.i32_load(0x02, 0x00) // alignment (4 bytes = 2^2), offset
+			case "U32":
+				w.i32_load(0x02, 0x00) // alignment (4 bytes = 2^2), offset
+			case "I16":
+				w.i32_load16_s(0x01, 0x00) // alignment (2 bytes = 2^1), offset
+			case "U16":
+				w.i32_load16_u(0x01, 0x00) // alignment (2 bytes = 2^1), offset
+			case "I8":
+				w.i32_load8_s(0x00, 0x00) // alignment (1 byte = 2^0), offset
+			case "U8":
+				w.i32_load8_u(0x00, 0x00) // alignment (1 byte = 2^0), offset
+			default:
+				// Default to i64 load
+				w.i64_load(0x03, 0x00) // alignment (8 bytes = 2^3), offset
+			}
 		} else {
 			// Load regular value as i64
 			w.i64_load(0x03, 0x00) // alignment (8 bytes = 2^3), offset
@@ -1396,6 +1501,31 @@ func (ctx *WASMContext) EmitExpressionL(buf *bytes.Buffer, node *ASTNode, localC
 			// Update tstack pointer (advance by 4 bytes for I32)
 			w.global_get(0) // tstack global index
 			w.i32_const(4)  // I32 size
+			w.i32_add()
+			w.global_set(0) // tstack global index
+		} else if node.TypeAST.Kind == TypeBuiltin {
+			// Store based on specific builtin type
+			typeSize := GetTypeSize(node.TypeAST)
+			switch node.TypeAST.String {
+			case "I64", "U64", "Boolean":
+				w.i64_store(0x03, 0x00) // alignment (8 bytes = 2^3), offset
+			case "I32", "U32":
+				w.i32_store(0x02, 0x00) // alignment (4 bytes = 2^2), offset
+			case "I16", "U16":
+				w.i32_store16(0x01, 0x00) // alignment (2 bytes = 2^1), offset
+			case "I8", "U8":
+				w.i32_store8(0x00, 0x00) // alignment (1 byte = 2^0), offset
+			default:
+				// Default to i64 store
+				w.i64_store(0x03, 0x00) // alignment (8 bytes = 2^3), offset
+			}
+
+			// Get the address again (where we just stored the value)
+			w.global_get(0) // tstack global index (current position)
+
+			// Update tstack pointer (advance by type size)
+			w.global_get(0)              // tstack global index
+			w.i32_const(int32(typeSize)) // type size
 			w.i32_add()
 			w.global_set(0) // tstack global index
 		} else {
@@ -1652,8 +1782,20 @@ func (ctx *WASMContext) EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localC
 				// Convert i32 address result to i64
 				w.i64_extend_i32_u()
 			} else if arg.TypeAST != nil && isWASMI32Type(arg.TypeAST) {
-				// Convert U8 (i32) values to i64 for print
-				w.i64_extend_i32_u()
+				// Convert i32 values to i64 for print, using appropriate extension
+				if arg.TypeAST.Kind == TypeBuiltin {
+					switch arg.TypeAST.String {
+					case "I32", "I16", "I8":
+						// Signed types need sign extension
+						w.i64_extend_i32_s()
+					default:
+						// Unsigned types and pointers use zero extension
+						w.i64_extend_i32_u()
+					}
+				} else {
+					// Non-builtin types (pointers) use zero extension
+					w.i64_extend_i32_u()
+				}
 			}
 
 			// Call print
@@ -1858,6 +2000,22 @@ func (ctx *WASMContext) EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localC
 			w.i64_const(1)
 			ctx.EmitExpressionR(buf, node.Children[0], localCtx) // Get boolean value (0 or 1)
 			w.i64_sub()                                          // 1 - value gives us the NOT
+		} else if node.Op == "-" {
+			// Unary minus operation: 0 - value
+			operandType := node.Children[0].TypeAST
+			if isWASMI64Type(operandType) {
+				w.i64_const(0)
+				ctx.EmitExpressionR(buf, node.Children[0], localCtx) // Get numeric value
+				w.i64_sub()                                          // 0 - value gives us the negation
+			} else if isWASMI32Type(operandType) {
+				w.i32_const(0)
+				ctx.EmitExpressionR(buf, node.Children[0], localCtx) // Get numeric value
+				w.i32_sub()                                          // 0 - value gives us the negation
+			} else {
+				panic("Unary minus on unsupported type: " + TypeToString(operandType))
+			}
+		} else {
+			panic("Unsupported unary operator: " + node.Op)
 		}
 
 	case NodeDot:
@@ -1874,8 +2032,27 @@ func (ctx *WASMContext) EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localC
 		// Load the field value
 		if isWASMI64Type(finalFieldType) {
 			w.i64_load(0x03, 0x00) // alignment (8 bytes = 2^3), offset
+		} else if isWASMI32Type(finalFieldType) {
+			if finalFieldType.Kind == TypeBuiltin {
+				switch finalFieldType.String {
+				case "I32", "U32":
+					w.i32_load(0x02, 0x00) // alignment (4 bytes = 2^2), offset
+				case "I16":
+					w.i32_load16_s(0x01, 0x00) // alignment (2 bytes = 2^1), offset
+				case "U16":
+					w.i32_load16_u(0x01, 0x00) // alignment (2 bytes = 2^1), offset
+				case "I8":
+					w.i32_load8_s(0x00, 0x00) // alignment (1 byte = 2^0), offset
+				case "U8":
+					w.i32_load8_u(0x00, 0x00) // alignment (1 byte = 2^0), offset
+				default:
+					w.i32_load(0x02, 0x00) // default i32 load
+				}
+			} else {
+				w.i32_load(0x02, 0x00) // default i32 load for pointers
+			}
 		} else {
-			panic("Non-I64 field types not supported in WASM yet: " + TypeToString(finalFieldType))
+			panic("Unsupported field type for WASM: " + TypeToString(finalFieldType))
 		}
 
 	case NodeIndex:
@@ -1884,18 +2061,30 @@ func (ctx *WASMContext) EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localC
 
 		// Load the value from the address based on element type
 		elementType := node.TypeAST // TypeAST should be the element type from type checking
-		if isWASMI64Type(elementType) {
-			w.i64_load(0x03, 0x00) // alignment (8 bytes = 2^3), offset
-		} else if isWASMI32Type(elementType) {
-			if elementType.Kind == TypeBuiltin && elementType.String == "U8" {
-				// Load U8 as single byte and extend to i32
-				w.i32_load8_u(0x00, 0x00) // alignment (1 byte = 2^0), offset
-			} else {
-				w.i32_load(0x02, 0x00) // alignment (4 bytes = 2^2), offset
-			}
-		} else if elementType.Kind == TypeStruct {
+		if elementType.Kind == TypeStruct {
 			// For struct types, return the address (already computed by EmitExpressionL)
 			// The address is already on the stack, no additional load needed
+		} else if elementType.Kind == TypeBuiltin {
+			switch elementType.String {
+			case "I64", "Boolean":
+				w.i64_load(0x03, 0x00) // alignment (8 bytes = 2^3), offset
+			case "U64":
+				w.i64_load(0x03, 0x00) // alignment (8 bytes = 2^3), offset
+			case "I32":
+				w.i32_load(0x02, 0x00) // alignment (4 bytes = 2^2), offset
+			case "U32":
+				w.i32_load(0x02, 0x00) // alignment (4 bytes = 2^2), offset
+			case "I16":
+				w.i32_load16_s(0x01, 0x00) // alignment (2 bytes = 2^1), offset
+			case "U16":
+				w.i32_load16_u(0x01, 0x00) // alignment (2 bytes = 2^1), offset
+			case "I8":
+				w.i32_load8_s(0x00, 0x00) // alignment (1 byte = 2^0), offset
+			case "U8":
+				w.i32_load8_u(0x00, 0x00) // alignment (1 byte = 2^0), offset
+			default:
+				panic("Unsupported slice element type for WASM: " + TypeToString(elementType))
+			}
 		} else {
 			panic("Unsupported slice element type for WASM: " + TypeToString(elementType))
 		}
@@ -2778,6 +2967,12 @@ type TypeNode struct {
 // Built-in types
 var (
 	TypeI64         = &TypeNode{Kind: TypeBuiltin, String: "I64"}
+	TypeI32         = &TypeNode{Kind: TypeBuiltin, String: "I32"}
+	TypeI16         = &TypeNode{Kind: TypeBuiltin, String: "I16"}
+	TypeI8          = &TypeNode{Kind: TypeBuiltin, String: "I8"}
+	TypeU64         = &TypeNode{Kind: TypeBuiltin, String: "U64"}
+	TypeU32         = &TypeNode{Kind: TypeBuiltin, String: "U32"}
+	TypeU16         = &TypeNode{Kind: TypeBuiltin, String: "U16"}
 	TypeU8          = &TypeNode{Kind: TypeBuiltin, String: "U8"}
 	TypeIntegerNode = &TypeNode{Kind: TypeInteger, String: "Integer"}
 	TypeBool        = &TypeNode{Kind: TypeBuiltin, String: "Boolean"}
@@ -2824,9 +3019,13 @@ func GetTypeSize(t *TypeNode) int {
 	switch t.Kind {
 	case TypeBuiltin:
 		switch t.String {
-		case "I64":
+		case "I64", "U64":
 			return 8
-		case "U8":
+		case "I32", "U32":
+			return 4
+		case "I16", "U16":
+			return 2
+		case "I8", "U8":
 			return 1
 		case "Boolean":
 			return 8
@@ -2931,6 +3130,18 @@ func getBuiltinType(name string) *TypeNode {
 	switch name {
 	case "I64":
 		return TypeI64
+	case "I32":
+		return TypeI32
+	case "I16":
+		return TypeI16
+	case "I8":
+		return TypeI8
+	case "U64":
+		return TypeU64
+	case "U32":
+		return TypeU32
+	case "U16":
+		return TypeU16
 	case "U8":
 		return TypeU8
 	case "Boolean":
@@ -2946,7 +3157,20 @@ func IsIntegerCompatible(integerValue int64, targetType *TypeNode) bool {
 	case TypeBuiltin:
 		switch targetType.String {
 		case "I64":
-			return true // I64 can hold any value we support
+			return integerValue >= -9223372036854775808 && integerValue <= 9223372036854775807
+		case "I32":
+			return integerValue >= -2147483648 && integerValue <= 2147483647
+		case "I16":
+			return integerValue >= -32768 && integerValue <= 32767
+		case "I8":
+			return integerValue >= -128 && integerValue <= 127
+		case "U64":
+			// Can't represent full U64 range in int64, but we allow positive values
+			return integerValue >= 0
+		case "U32":
+			return integerValue >= 0 && integerValue <= 4294967295
+		case "U16":
+			return integerValue >= 0 && integerValue <= 65535
 		case "U8":
 			return integerValue >= 0 && integerValue <= 255
 		case "Boolean":
@@ -2978,9 +3202,8 @@ func isWASMI64Type(t *TypeNode) bool {
 	}
 	switch t.Kind {
 	case TypeBuiltin:
-		// Only I64 and Boolean are known to map to WASM I64
-		// Other types like "int", "string" are not supported in WASM generation
-		return t.String == "I64" || t.String == "Boolean"
+		// I64, U64 and Boolean map to WASM I64
+		return t.String == "I64" || t.String == "U64" || t.String == "Boolean"
 	case TypePointer:
 		return false // pointers are I32 in WASM
 	case TypeStruct:
@@ -2999,7 +3222,9 @@ func isWASMI32Type(t *TypeNode) bool {
 	}
 	switch t.Kind {
 	case TypeBuiltin:
-		return t.String == "U8" // U8 maps to I32 in WASM
+		// All smaller integer types map to I32 in WASM
+		return t.String == "I32" || t.String == "I16" || t.String == "I8" ||
+			t.String == "U32" || t.String == "U16" || t.String == "U8"
 	case TypePointer:
 		return true // all pointers are I32 in WASM
 	case TypeStruct:
@@ -4733,6 +4958,45 @@ func CheckExpression(expr *ASTNode, tc *TypeChecker) {
 
 			// Return Boolean type
 			expr.TypeAST = TypeBool
+		} else if expr.Op == "-" {
+			// Unary minus operator
+			if len(expr.Children) != 1 {
+				tc.AddError("error: unary minus operator expects 1 operand")
+				return
+			}
+
+			CheckExpression(expr.Children[0], tc)
+
+			// Get operand type from the type-checked child
+			operandType := expr.Children[0].TypeAST
+
+			// Check operand is numeric
+			if operandType.Kind == TypeBuiltin {
+				switch operandType.String {
+				case "I64", "I32", "I16", "I8", "U64", "U32", "U16", "U8":
+					// Valid numeric type
+					expr.TypeAST = operandType
+				default:
+					tc.AddError(fmt.Sprintf("error: unary minus operator expects numeric operand, got %s", TypeToString(operandType)))
+					return
+				}
+			} else if operandType.Kind == TypeInteger {
+				// For Integer constants, fold unary minus into the integer value
+				if expr.Children[0].Kind == NodeInteger {
+					// Fold unary minus for constants
+					expr.Kind = NodeInteger
+					expr.Integer = -expr.Children[0].Integer
+					expr.TypeAST = TypeIntegerNode
+					expr.Children = nil
+					expr.Op = ""
+				} else {
+					// Keep as Integer type for later resolution
+					expr.TypeAST = operandType
+				}
+			} else {
+				tc.AddError(fmt.Sprintf("error: unary minus operator expects numeric operand, got %s", TypeToString(operandType)))
+				return
+			}
 		} else {
 			tc.AddError(fmt.Sprintf("error: unsupported unary operator '%s'", expr.Op))
 			return
@@ -5762,6 +6026,14 @@ func parseExpressionWithPrecedence(l *Lexer, minPrec int) *ASTNode {
 		left = &ASTNode{
 			Kind:     NodeUnary,
 			Op:       "!",
+			Children: []*ASTNode{operand},
+		}
+	} else if l.CurrTokenType == MINUS {
+		l.SkipToken(MINUS)                             // consume '-'
+		operand := parseExpressionWithPrecedence(l, 6) // Same as multiplication precedence
+		left = &ASTNode{
+			Kind:     NodeUnary,
+			Op:       "-",
 			Children: []*ASTNode{operand},
 		}
 	} else {
