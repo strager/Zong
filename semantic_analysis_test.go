@@ -458,7 +458,7 @@ func TestBuildSymbolTableWithPointers(t *testing.T) {
 	be.Equal(t, TypeI64, xVar.Type)
 }
 
-func TestBuildSymbolTableIgnoresUnsupportedTypes(t *testing.T) {
+func TestBuildSymbolTableReportsUnknownStructTypes(t *testing.T) {
 	t.Parallel()
 	// Parse: { var x I64; var y String; }
 	input := []byte("{ var x I64; var y String; }\x00")
@@ -468,9 +468,13 @@ func TestBuildSymbolTableIgnoresUnsupportedTypes(t *testing.T) {
 
 	// Build symbol table
 	st := BuildSymbolTable(ast)
-	be.True(t, !st.Errors.HasErrors())
 
-	// Should include both variables (filtering happens elsewhere in the pipeline)
+	// Should report error for unknown struct type "String"
+	be.True(t, st.Errors.HasErrors())
+	be.Equal(t, 1, st.Errors.Count())
+	be.Equal(t, "error: undefined symbol 'String'", st.Errors.String())
+
+	// Should still include both variables in symbol table
 	variables := st.GetAllVariables()
 	be.Equal(t, 2, len(variables))
 
@@ -487,7 +491,7 @@ func TestBuildSymbolTableIgnoresUnsupportedTypes(t *testing.T) {
 	be.True(t, xVar != nil)
 	be.Equal(t, TypeI64, xVar.Type)
 	be.True(t, yVar != nil)
-	be.Equal(t, "String", yVar.Type.String)
+	be.Equal(t, "String", yVar.Type.String) // Still parsed as struct type, just unresolved
 }
 
 func TestVariableShadowingInNestedBlocks(t *testing.T) {

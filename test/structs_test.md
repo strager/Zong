@@ -488,6 +488,7 @@ error: struct initialization missing required field 'y'
 ```
 ```compile-error
 error: undefined symbol 'FakeStruct'
+error: undefined symbol 'FakeStruct'
 ```
 
 ## Test: struct initialization without named parameters

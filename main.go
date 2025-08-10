@@ -2854,7 +2854,10 @@ func ResolveType(typeNode *TypeNode, st *SymbolTable) *TypeNode {
 		if structDef != nil {
 			return structDef
 		}
-		// If struct not found, return original (may be forward reference)
+		// If struct not found, add to unresolved references for error reporting
+		// Create a dummy AST node to represent this type reference
+		dummyNode := &ASTNode{Kind: NodeIdent, String: typeNode.String}
+		st.AddUnresolvedReference(typeNode.String, dummyNode)
 		return typeNode
 
 	case TypePointer:
@@ -2932,16 +2935,6 @@ func (tc *TypeChecker) resolveIntegerType(node *ASTNode, targetType *TypeNode) {
 		tc.AddError(fmt.Sprintf("error: cannot convert integer %d to %s", node.Integer, TypeToString(targetType)))
 	}
 	node.TypeAST = targetType
-}
-
-// isKnownUnsupportedType checks if a type name is a known unsupported built-in type
-func isKnownUnsupportedType(name string) bool {
-	switch name {
-	case "string", "int", "float64", "byte", "rune", "uint64", "int32", "uint32", "String":
-		return true
-	default:
-		return false
-	}
 }
 
 // isWASMI64Type checks if a TypeNode represents a type that maps to WASM I64
@@ -5691,13 +5684,8 @@ func parseTypeExpression(l *Lexer) *TypeNode {
 
 	baseType := getBuiltinType(baseTypeName)
 	if baseType == nil {
-		if isKnownUnsupportedType(baseTypeName) {
-			// Known unsupported built-in types like "string", "int", etc.
-			baseType = &TypeNode{Kind: TypeBuiltin, String: baseTypeName}
-		} else {
-			// Unknown types assumed to be struct types
-			baseType = &TypeNode{Kind: TypeStruct, String: baseTypeName}
-		}
+		// Unknown types assumed to be struct types
+		baseType = &TypeNode{Kind: TypeStruct, String: baseTypeName}
 	}
 
 	// Handle slice and pointer suffixes
