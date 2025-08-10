@@ -1566,9 +1566,9 @@ func (ctx *WASMContext) EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localC
 		functionName := node.Children[0].String
 
 		// Check if this is struct initialization
-		if node.ResolvedStruct != nil {
+		if node.Children[0].Symbol != nil && node.Children[0].Symbol.Kind == SymbolStruct {
 			// This is struct initialization
-			structType := node.ResolvedStruct
+			structType := node.Children[0].Symbol.StructType
 
 			// Save current tstack pointer as the struct address (this will be returned)
 			w.global_get(0) // tstack global index
@@ -2216,7 +2216,7 @@ func (ctx *LocalContext) analyzeFunctionCallTemporaries(node *ASTNode) {
 	}
 
 	// Skip struct initialization calls - they use different logic
-	if node.ResolvedStruct != nil {
+	if node.Children[0].Symbol != nil && node.Children[0].Symbol.Kind == SymbolStruct {
 		return
 	}
 
@@ -2702,7 +2702,6 @@ type ASTNode struct {
 	// NodeCall:
 	ParameterNames   []string
 	ResolvedFunction *FunctionInfo // Resolved function information (populated during BuildSymbolTable)
-	ResolvedStruct   *TypeNode     // Resolved struct type for struct initialization (populated during BuildSymbolTable)
 	// NodeVar:
 	TypeAST *TypeNode // Type information for variable declarations
 	// NodeIdent (variable references):
@@ -4067,10 +4066,11 @@ func BuildSymbolTable(ast *ASTNode) *SymbolTable {
 				funcName := node.Children[0].String
 
 				if isUpperCase(funcName) {
-					structType := st.LookupStruct(funcName)
-					if structType != nil {
-						// Store resolved struct type in AST node for struct initialization
-						node.ResolvedStruct = structType
+					// Look for struct symbol
+					structSymbol := st.LookupSymbol(funcName)
+					if structSymbol != nil && structSymbol.Kind == SymbolStruct {
+						// Set the symbol reference for the struct constructor call
+						node.Children[0].Symbol = structSymbol
 					}
 				} else {
 					function := st.LookupFunction(funcName)
@@ -4352,9 +4352,9 @@ func CheckExpression(expr *ASTNode, tc *TypeChecker) {
 		funcName := expr.Children[0].String
 
 		// Check if this is struct initialization
-		if expr.ResolvedStruct != nil {
+		if expr.Children[0].Symbol != nil && expr.Children[0].Symbol.Kind == SymbolStruct {
 			// This is struct initialization
-			structType := expr.ResolvedStruct
+			structType := expr.Children[0].Symbol.StructType
 
 			// First, validate that all parameters are named (struct initialization requirement)
 			for _, paramName := range expr.ParameterNames {
