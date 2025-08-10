@@ -579,7 +579,7 @@ x * y + z;
 ## Test: binary arithmetic type verification
 ```zong-program
 func main() {
-    var result I64;
+    var result: I64;
     result = 5 + 3;
     print(result);
 }
@@ -591,7 +591,7 @@ func main() {
 ## Test: binary comparison type verification  
 ```zong-program
 func main() {
-    var result Boolean;
+    var result: Boolean;
     result = 42 == 10;
     print(result);
 }
@@ -623,7 +623,7 @@ error: left side of assignment must be a variable, field access, or dereferenced
 ### Test: address-of as assignment target
 ```zong-program
 func main() {
-    var x I64;
+    var x: I64;
     x& = 42;
 }
 ```
@@ -634,7 +634,7 @@ error: left side of assignment must be a variable, field access, or dereferenced
 ### Test: logical NOT as assignment target
 ```zong-program
 func main() {
-    var x Boolean;
+    var x: Boolean;
     !x = true;
 }
 ```

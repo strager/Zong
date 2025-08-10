@@ -142,8 +142,8 @@ Error: Undefined variable 'x'
   │
 help: Did you mean to declare 'x' first?
   │
-1 │ var x I64;
-  │ var y I64;
+1 │ var x: I64;
+  │ var y: I64;
   │ x = 10;
   │ y = x + 42;
 ```
@@ -154,7 +154,7 @@ help: Did you mean to declare 'x' first?
 
 **Current Syntax:**
 ```zong
-var x I64;      // Verbose type declarations
+var x: I64;      // Verbose type declarations
 x = 42;         // Assignment
 print(x);       // Function call
 ```
@@ -167,13 +167,13 @@ print(x);       // Function call
 3. **Consistent**: Uniform patterns across constructs
 
 **Usability Issues:**
-1. **Verbosity**: `var x I64;` vs `x := 42` (Go) or `let x = 42` (Rust)
+1. **Verbosity**: `var x: I64;` vs `x := 42` (Go) or `let x = 42` (Rust)
 2. **Repetition**: Type annotations required everywhere
 3. **Ceremony**: Simple tasks require multiple steps
 
 **Planned Postfix Operators:**
 ```zong
-var ptr I64*;    // Pointer type
+var ptr: I64*;    // Pointer type
 ptr = &x;        // Address-of (suffix)
 value = ptr*;    // Dereference (suffix)
 ```
@@ -337,7 +337,7 @@ zong run examples/hello.zong
 2. **Immediate Value Demonstration:**
 ```zong
 // hello.zong - Your first Zong program
-var message I64;
+var message: I64;
 message = 42;
 print(message);  // Outputs: 42
 ```

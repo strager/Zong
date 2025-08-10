@@ -134,7 +134,7 @@ loop { print(1); print(2); break; }
 ## Test: loop with conditional break
 ```zong-program
 loop {
-    var i I64;
+    var i: I64;
     if i == 10 {
         break;
     }
@@ -265,7 +265,7 @@ if x == 1 { print(1); } else { print(0); }
 ## Test: if statement with false condition execution
 ```zong-program
 func main() {
-    var x I64;
+    var x: I64;
     x = 420;
     if x == 42 {
         print(1);
@@ -281,7 +281,7 @@ func main() {
 ## Test: boolean in if statements
 ```zong-program
 func main() {
-		var flag Boolean;
+		var flag: Boolean;
 		flag = true;
 		
 		if flag {
@@ -304,8 +304,8 @@ func main() {
 ## Test: boolean loops
 ```zong-program
 func main() {
-		var i I64;
-		var keepGoing Boolean;
+		var i: I64;
+		var keepGoing: Boolean;
 		i = 0;
 		keepGoing = true;
 		
@@ -332,7 +332,7 @@ func main() {
 ## Test: else if chain
 ```zong-program
 func main() {
-	var score I64;
+	var score: I64;
 	score = 85;
 	if score >= 90 {
 		print(4);
@@ -352,7 +352,7 @@ func main() {
 ## Test: if else statement
 ```zong-program
 func main() {
-	var x I64;
+	var x: I64;
 	x = 10;
 	if x > 20 {
 		print(1);
@@ -368,7 +368,7 @@ func main() {
 ## Test: if statement
 ```zong-program
 func main() {
-	var x I64;
+	var x: I64;
 	x = 42;
 	if x == 42 {
 		print(1);
@@ -382,8 +382,8 @@ func main() {
 ## Test: nested if statements
 ```zong-program
 func main() {
-	var x I64;
-	var y I64;
+	var x: I64;
+	var y: I64;
 	x = 5;
 	y = 10;
 	if x > 0 {
@@ -402,7 +402,7 @@ func main() {
 ## Test: basic loop
 ```zong-program
 func main() {
-		var i I64;
+		var i: I64;
 		i = 0;
 		loop {
 			print(i);
@@ -422,8 +422,8 @@ func main() {
 ## Test: break continue in nested loops
 ```zong-program
 func main() {
-		var i I64;
-		var j I64;
+		var i: I64;
+		var j: I64;
 		i = 0;
 		loop {
 			j = 0;
@@ -454,7 +454,7 @@ func main() {
 ## Test: continue statement
 ```zong-program
 func main() {
-		var i I64;
+		var i: I64;
 		i = 0;
 		loop {
 			i = i + 1;
@@ -476,7 +476,7 @@ func main() {
 ## Test: empty loop
 ```zong-program
 func main() {
-		var i I64;
+		var i: I64;
 		i = 0;
 		loop {
 			i = i + 1;
@@ -494,8 +494,8 @@ func main() {
 ## Test: loop with variable modification
 ```zong-program
 func main() {
-		var counter I64;
-		var sum I64;
+		var counter: I64;
+		var sum: I64;
 		counter = 1;
 		sum = 0;
 		loop {
@@ -539,8 +539,8 @@ func main() {
 ## Test: nested loops
 ```zong-program
 func main() {
-		var i I64;
-		var j I64;
+		var i: I64;
+		var j: I64;
 		i = 0;
 		loop {
 			j = 0;
@@ -633,7 +633,7 @@ loop ;
 
 ## Test: block with variable and return
 ```zong-program
-{ var x I64; return x; }
+{ var x: I64; return x; }
 ```
 ```ast
 [(block [(var-decl "x" "I64") (return (var "x"))])]
@@ -649,7 +649,7 @@ loop ;
 
 ## Test: complex if statement with nested blocks
 ```zong-program
-if x > 0 { var y I64; return y + 1; }
+if x > 0 { var y: I64; return y + 1; }
 ```
 ```ast
 [(if (binary ">" (var "x") 0) [(var-decl "y" "I64") (return (binary "+" (var "y") 1))])]

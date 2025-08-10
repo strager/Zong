@@ -310,7 +310,7 @@ Host System (Rust)
 **Development Workflow:**
 ```bash
 # Current workflow
-echo 'var x I64; x = 42; print(x);' > prog.zong
+echo 'var x: I64; x = 42; print(x);' > prog.zong
 go run *.go prog.zong         # Hypothetical usage
 ./wasmruntime/target/release/wasmruntime output.wasm
 ```

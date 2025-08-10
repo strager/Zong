@@ -42,7 +42,7 @@ func test(testX: I64, testY: I64) {}
 
 ## Test: function with body
 ```zong-program
-func test() { var x I64; }
+func test() { var x: I64; }
 ```
 ```ast
 [(func "test"
@@ -222,7 +222,7 @@ func main() {
 struct Point(x: I64, y: I64);
 
 func makePoint(pointX: I64, pointY: I64): Point {
-	var p Point;
+	var p: Point;
 	p.x = pointX;
 	p.y = pointY;
 	return p;
@@ -243,14 +243,14 @@ func main() {
 struct Point(x: I64, y: I64);
 
 func createPoint(_ createPointXVal: I64, _ createPointYVal: I64): Point {
-	var p Point;
+	var p: Point;
 	p.x = createPointXVal;
 	p.y = createPointYVal;
 	return p;
 }
 
 func main() {
-	var result Point;
+	var result: Point;
 	result = createPoint(10, 20);
 	print(result.x);
 	print(result.y);
@@ -271,7 +271,7 @@ func f(_ fS: S) {
 }
 
 func main() {
-	var ss S;
+	var ss: S;
 	ss.i = 2;
 	print(ss.i);
 	f(ss);
@@ -303,7 +303,7 @@ func main() {
 struct Point(x: I64, y: I64);
 
 func makePoint(pointX: I64, pointY: I64): Point {
-	var newP Point;
+	var newP: Point;
 	newP.x = pointX;
 	newP.y = pointY;
 	return newP;
@@ -311,7 +311,7 @@ func makePoint(pointX: I64, pointY: I64): Point {
 
 func main() {
 	// Test variable field access
-	var mainP Point;
+	var mainP: Point;
 	mainP.x = 100;
 	mainP.y = 200;
 	print(mainP.x);
@@ -428,14 +428,14 @@ struct Address(state: I64, zipCode: I64);
 struct Person(name: I64, address: Address, age: I64);
 
 func createAddress(addrState: I64, addrZip: I64): Address {
-	var addr Address;
+	var addr: Address;
 	addr.state = addrState;
 	addr.zipCode = addrZip;
 	return addr;
 }
 
 func createPerson(personName: I64, personAge: I64): Person {
-	var p Person;
+	var p: Person;
 	p.name = personName;
 	p.age = personAge;
 	p.address = createAddress(addrState: 77, addrZip: 98765);
@@ -493,7 +493,7 @@ func processPoint(_ processPointP: Point) {
 }
 
 func main() {
-	var p Point;
+	var p: Point;
 	p.x = 10;
 	p.y = 20;
 	processPoint(p);

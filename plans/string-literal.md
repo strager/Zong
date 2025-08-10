@@ -245,8 +245,8 @@ Should we validate ASCII during parsing? Answer: fail on non-ASCII
 ### Example Programs
 ```zong
 func main() {
-    var greeting U8[] = "Hello";
-    var name U8[] = "World";
+    var greeting: U8[] = "Hello";
+    var name: U8[] = "World";
     
     print(greeting[0]); // Should print 72 ('H')
     print(greeting.length); // Should print 5

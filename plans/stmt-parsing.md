@@ -6,7 +6,7 @@ parser.
 Reuse ASTNode, adding new node types:
 
 - If - `if cond { body; }`
-- Var - `var x Type;`
+- Var - `var x: Type;`
   - The type is a child node (just an Ident node for now)
   - Only one variable per statement
   - Semicolon is required

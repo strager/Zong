@@ -61,7 +61,7 @@ false
 ## Test: U8 value in valid range
 ```zong-program
 func main() {
-    var b U8;
+    var b: U8;
     b = 255;
     print(b);
 }
@@ -73,7 +73,7 @@ func main() {
 ## Test: U8 value zero
 ```zong-program
 func main() {
-    var b U8;
+    var b: U8;
     b = 0;
     print(b);
 }
@@ -105,8 +105,8 @@ func main() {
 ## Test: boolean comparisons
 ```zong-program
 func main() {
-		var x I64;
-		var result Boolean;
+		var x: I64;
+		var result: Boolean;
 		x = 5;
 		
 		result = x == 5;
@@ -132,8 +132,8 @@ func main() {
 ## Test: boolean literals
 ```zong-program
 func main() {
-		var t Boolean;
-		var f Boolean;
+		var t: Boolean;
+		var f: Boolean;
 		t = true;
 		f = false;
 		print(t);
@@ -205,7 +205,7 @@ func main() { print(42); }
 
 ## Test: wasm execution empty string
 ```zong-program
-func main() { var s U8[] = ""; print(42); }
+func main() { var s: U8[] = ""; print(42); }
 ```
 ```execute
 42
@@ -213,7 +213,7 @@ func main() { var s U8[] = ""; print(42); }
 
 ## Test: wasm execution string assignment
 ```zong-program
-func main() { var s U8[] = "hello"; print(42); }
+func main() { var s: U8[] = "hello"; print(42); }
 ```
 ```execute
 42
@@ -221,7 +221,7 @@ func main() { var s U8[] = "hello"; print(42); }
 
 ## Test: wasm execution string declaration
 ```zong-program
-func main() { var s U8[]; print(42); }
+func main() { var s: U8[]; print(42); }
 ```
 ```execute
 42
@@ -237,7 +237,7 @@ func main() { print(42); }
 
 ## Test: multiple string literals
 ```zong-program
-func main() { var s1 U8[] = "hello"; var s2 U8[] = "world"; print(5); }
+func main() { var s1: U8[] = "hello"; var s2: U8[] = "world"; print(5); }
 ```
 ```execute
 5
@@ -245,7 +245,7 @@ func main() { var s1 U8[] = "hello"; var s2 U8[] = "world"; print(5); }
 
 ## Test: string literal assignment
 ```zong-program
-func main() { var s U8[] = "test"; print(4); }
+func main() { var s: U8[] = "test"; print(4); }
 ```
 ```execute
 4
@@ -253,7 +253,7 @@ func main() { var s U8[] = "test"; print(4); }
 
 ## Test: string literal compilation
 ```zong-program
-func main() { var msg U8[] = "hello world"; print(11); }
+func main() { var msg: U8[] = "hello world"; print(11); }
 ```
 ```execute
 11
@@ -261,7 +261,7 @@ func main() { var msg U8[] = "hello world"; print(11); }
 
 ## Test: string literal deduplication
 ```zong-program
-func main() { var s1 U8[] = "same"; var s2 U8[] = "same"; print(42); }
+func main() { var s1: U8[] = "same"; var s2: U8[] = "same"; print(42); }
 ```
 ```execute
 42
@@ -272,7 +272,7 @@ func main() { var s1 U8[] = "same"; var s2 U8[] = "same"; print(42); }
 ## Test: U8 out of range value
 ```zong-program
 func main() {
-    var slice U8[];
+    var slice: U8[];
     append(slice&, 256);
 }
 ```
@@ -283,9 +283,9 @@ error: cannot convert integer 256 to U8
 ## Test: type mismatch Boolean to I64
 ```zong-program
 func main() {
-    var x Boolean;
+    var x: Boolean;
     x = true;
-    var y I64;
+    var y: I64;
     y = x;
 }
 ```
@@ -295,7 +295,7 @@ error: cannot assign Boolean to I64
 
 ## Test: non-ASCII characters in string literals should be rejected
 ```zong-program
-func main() { var s U8[] = "héllo"; }
+func main() { var s: U8[] = "héllo"; }
 ```
 ```compile-error
 error: non-ASCII characters are not supported in string literals
@@ -445,7 +445,7 @@ func main() {
 ## Test: newline in variable assignment
 ```zong-program
 func main() {
-    var msg U8[] = "hello\nfrom\nvariable";
+    var msg: U8[] = "hello\nfrom\nvariable";
     print_bytes(msg);
     print(7);
 }

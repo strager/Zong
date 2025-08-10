@@ -9,8 +9,8 @@ struct GameBoard(
 );
 
 func initBoard(): GameBoard {
-    var cells I64[];
-    var i I64 = 0;
+    var cells: I64[];
+    var i: I64 = 0;
     loop {
         if i >= 9 {
             break;
@@ -20,7 +20,7 @@ func initBoard(): GameBoard {
         i = i + 1;
     }
     
-    var board GameBoard = GameBoard(
+    var board: GameBoard = GameBoard(
         cells: cells,
         currentPlayer: 88,  // X goes first
         gameOver: false,
@@ -31,25 +31,25 @@ func initBoard(): GameBoard {
 }
 
 func printBoard(board: GameBoard) {
-    var space U8[] = " ";
-    var pipe U8[] = "|"
-    var newlineEnd U8[] = "\n";
+    var space: U8[] = " ";
+    var pipe: U8[] = "|"
+    var newlineEnd: U8[] = "\n";
     
-    var row I64 = 0;
+    var row: I64 = 0;
     loop {
         if row >= 3 {
             break;
         }
         
-        var col I64 = 0;
+        var col: I64 = 0;
         print_bytes(space);
         loop {
             if col >= 3 {
                 break;
             }
             
-            var index I64 = row * 3 + col;
-            var cell I64 = board.cells[index];
+            var index: I64 = row * 3 + col;
+            var cell: I64 = board.cells[index];
             
             if cell == 0 {
                 // Print position number (1-9)
@@ -129,13 +129,13 @@ func makeMove(board: GameBoard, position: I64): GameBoard {
 
 func checkWinner(board: GameBoard): I64 {
     // Check rows
-    var row I64 = 0;
+    var row: I64 = 0;
     loop {
         if row >= 3 {
             break;
         }
         
-        var index I64 = row * 3;
+        var index: I64 = row * 3;
         if board.cells[index] != 0 {
             if board.cells[index] == board.cells[index + 1] {
                 if board.cells[index] == board.cells[index + 2] {
@@ -148,7 +148,7 @@ func checkWinner(board: GameBoard): I64 {
     }
     
     // Check columns
-    var col I64 = 0;
+    var col: I64 = 0;
     loop {
         if col >= 3 {
             break;
@@ -183,8 +183,8 @@ func checkWinner(board: GameBoard): I64 {
     }
     
     // Check for tie
-    var emptyCells I64 = 0;
-    var i I64 = 0;
+    var emptyCells: I64 = 0;
+    var i: I64 = 0;
     loop {
         if i >= 9 {
             break;
@@ -205,7 +205,7 @@ func checkWinner(board: GameBoard): I64 {
 }
 
 func updateGameState(board: GameBoard): GameBoard {
-    var winner I64 = checkWinner(board);
+    var winner: I64 = checkWinner(board);
     
     if winner != 0 {
         board.gameOver = true;
@@ -216,9 +216,9 @@ func updateGameState(board: GameBoard): GameBoard {
 }
 
 func main() {
-    var board GameBoard = initBoard();
+    var board: GameBoard = initBoard();
     
-    var newline U8[] = "\n";
+    var newline: U8[] = "\n";
     print_bytes("Tic Tac Toe");
     print_bytes(newline);
     
@@ -240,12 +240,12 @@ func main() {
         print_bytes(" enter position (1-9): ");
         
         // Read input from user
-        var input U8[] = read_line();
+        var input: U8[] = read_line();
         
         // Parse position from input (expect single digit 1-9)
-        var position I64 = 10;  // Invalid position marker
+        var position: I64 = 10;  // Invalid position marker
         if input.length > 0 {
-            var firstChar U8 = input[0];
+            var firstChar: U8 = input[0];
             if firstChar == 49 {  // '1'
                 position = 0;
             } else if firstChar == 50 {  // '2'

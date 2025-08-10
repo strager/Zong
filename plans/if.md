@@ -193,7 +193,7 @@ case NodeIf:
 ### Basic If Statement
 ```zong
 func main() {
-    var x I64;
+    var x: I64;
     x = 42;
     if x == 42 {
         print(1);
@@ -204,7 +204,7 @@ func main() {
 
 ```zong
 func main() {
-    var x I64;
+    var x: I64;
     x = 420;
     if x == 42 {
         print(1);
@@ -216,7 +216,7 @@ func main() {
 ### If-Else Statement
 ```zong
 func main() {
-    var x I64;
+    var x: I64;
     x = 10;
     if x > 20 {
         print(1);
@@ -230,7 +230,7 @@ func main() {
 ### Else-If Chain
 ```zong
 func main() {
-    var score I64;
+    var score: I64;
     score = 85;
     if score >= 90 {
         print(4); // A
@@ -248,8 +248,8 @@ func main() {
 ### Nested If Statements
 ```zong
 func main() {
-    var x I64;
-    var y I64;
+    var x: I64;
+    var y: I64;
     x = 5;
     y = 10;
     if x > 0 {

@@ -70,7 +70,7 @@ A statically-typed systems programming language inspired by Go, designed for app
 
 ## Quick Example
 ```zong
-var x I64;
+var x: I64;
 x = 42 + 15;
 print(x);  // Outputs: 57
 ```

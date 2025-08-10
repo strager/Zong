@@ -23,8 +23,8 @@ Currently only `I64` type exists. Add pointer type parsing:
 
 ```go
 // In ParseStatement() for variable declarations
-// Current: var x I64;
-// New:     var ptr I64*;
+// Current: var x: I64;
+// New:     var ptr: I64*;
 
 func parseType() string {
     typeName := CurrLiteral  // "I64"
@@ -181,8 +181,8 @@ func TestParsePointerVariableDeclaration(t *testing.T) {
         input    string
         expected string
     }{
-        {"var ptr I64*;\x00", "(var ptr I64*)"},
-        {"{ var x I64; var ptr I64*; }\x00", "(block (var x I64) (var ptr I64*))"},
+        {"var ptr: I64*;\x00", "(var ptr: I64*)"},
+        {"{ var x: I64; var ptr: I64*; }\x00", "(block (var x: I64) (var ptr: I64*))"},
     }
     // ... test implementation
 }
@@ -275,7 +275,7 @@ func TestComplexPointerExpressions(t *testing.T) {
 ## Success Criteria
 
 1. **Syntax parsing works**: All pointer expressions parse to correct AST
-2. **Type declarations work**: `var ptr I64*;` parses successfully
+2. **Type declarations work**: `var ptr: I64*;` parses successfully
 3. **Operator precedence correct**: `1 + x&` vs `(1 + x)&` parse differently
 4. **Test coverage complete**: All pointer operations have tests
 5. **WebAssembly compilation**: Code generates (even if runtime panics)

@@ -2,7 +2,7 @@
 
 ## Test: slice variable declaration
 ```zong-program
-var nums I64[];
+var nums: I64[];
 ```
 ```ast
 [(var-decl "nums" "I64[]")]
@@ -49,15 +49,15 @@ func processNumbers(_ value: I64): I64 {
 	}
 	
 	func main() {
-		var results I64[];
-		var inputs I64[];
+		var results: I64[];
+		var inputs: I64[];
 		
 		// Collect some input data
 		append(inputs&, 10);
 		append(inputs&, 20); // Now properly preserves both elements
 		
 		// Process the data and store results
-		var processed I64;
+		var processed: I64;
 		processed = processNumbers(inputs[0]);
 		append(results&, processed);
 		
@@ -76,8 +76,8 @@ func processNumbers(_ value: I64): I64 {
 ## Test: execute append program
 ```zong-program
 func main() {
-		var numbers I64[];
-		var flags Boolean[];
+		var numbers: I64[];
+		var flags: Boolean[];
 		
 		// Test I64 slice append
 		append(numbers&, 42);
@@ -107,7 +107,7 @@ func main() {
 ## Test: execute append with field access
 ```zong-program
 func main() {
-		var nums I64[];
+		var nums: I64[];
 		
 		// Initially empty
 		print(nums.length);
@@ -132,7 +132,7 @@ func main() {
 ## Test: multi element append bug
 ```zong-program
 func main() {
-		var nums I64[];
+		var nums: I64[];
 		
 		// Add first element
 		append(nums&, 42);
@@ -240,7 +240,7 @@ items[x + 1]
 ## Test: slice address of
 ```zong-program
 func main() {
-	var nums I64[];
+	var nums: I64[];
 	print(42);
 }
 ```
@@ -251,7 +251,7 @@ func main() {
 ## Test: length increment bug
 ```zong-program
 func main() {
-	var nums I64[];
+	var nums: I64[];
 	append(nums&, 10);
 	print(nums.length); // Should be 1
 	append(nums&, 20);
@@ -266,7 +266,7 @@ func main() {
 ## Test: slice basics
 ```zong-program
 func main() {
-	var nums I64[];
+	var nums: I64[];
 	append(nums&, 42);
 	append(nums&, 100);
 	print(nums[0]);
@@ -283,7 +283,7 @@ func main() {
 ## Test: slice empty length
 ```zong-program
 func main() {
-	var nums I64[];
+	var nums: I64[];
 	print(nums.length);
 }
 ```
@@ -300,15 +300,15 @@ func processNumbers(_ value: I64): I64 {
 }
 
 func main() {
-	var results I64[];
-	var inputs I64[];
+	var results: I64[];
+	var inputs: I64[];
 	
 	// Collect some input data
 	append(inputs&, 10);
 	append(inputs&, 20); // Now properly preserves both elements
 	
 	// Process the data and store results
-	var processed I64;
+	var processed: I64;
 	processed = processNumbers(inputs[0]);
 	append(results&, processed);
 	
@@ -327,8 +327,8 @@ func main() {
 ## Test: execute append program
 ```zong-program
 func main() {
-	var numbers I64[];
-	var flags Boolean[];
+	var numbers: I64[];
+	var flags: Boolean[];
 	
 	// Test I64 slice append
 	append(numbers&, 42);
@@ -358,7 +358,7 @@ func main() {
 ## Test: execute append with field access
 ```zong-program
 func main() {
-	var nums I64[];
+	var nums: I64[];
 	
 	// Initially empty
 	print(nums.length);
@@ -383,7 +383,7 @@ func main() {
 ## Test: multi element append bug
 ```zong-program
 func main() {
-	var nums I64[];
+	var nums: I64[];
 	
 	// Add first element
 	append(nums&, 42);
@@ -427,14 +427,14 @@ struct BigStruct(
 );
 
 func main() {
-    var slice BigStruct[];
+    var slice: BigStruct[];
     append(slice&, BigStruct(a: 1, b: 2, c: 3, d: 4, e: 5, f: 6, g: 7, h: 8));
     append(slice&, BigStruct(a: 10, b: 20, c: 30, d: 40, e: 50, f: 60, g: 70, h: 80));
 
-    var retrieved0 BigStruct = slice[0];
+    var retrieved0: BigStruct = slice[0];
     print(retrieved0.a);
     print(retrieved0.h);
-    var retrieved1 BigStruct = slice[1];
+    var retrieved1: BigStruct = slice[1];
     print(retrieved1.a);
     print(retrieved1.h);
 }
@@ -449,7 +449,7 @@ func main() {
 ## Test: U8 slice zero initialization
 ```zong-program
 func main() {
-    var s U8[] = U8[]();
+    var s: U8[] = U8[]();
     print(s.length);
 }
 ```
@@ -460,7 +460,7 @@ func main() {
 ## Test: I64 slice zero initialization
 ```zong-program
 func main() {
-    var s I64[] = I64[]();
+    var s: I64[] = I64[]();
     print(s.length);
 }
 ```
@@ -471,10 +471,10 @@ func main() {
 ## Test: Slice field access after zero init
 ```zong-program
 func main() {
-    var s U8[] = U8[]();
+    var s: U8[] = U8[]();
     print(s.length);
     // Note: We can access the length field
-    var len I64 = s.length;
+    var len: I64 = s.length;
     print(len);
 }
 ```
@@ -486,7 +486,7 @@ func main() {
 ## Test: Zero init followed by append
 ```zong-program
 func main() {
-    var s U8[] = U8[]();
+    var s: U8[] = U8[]();
     print(s.length);
     append(s&, 42);
     print(s.length);
@@ -500,8 +500,8 @@ func main() {
 ## Test: Multiple slice types
 ```zong-program
 func main() {
-    var bytes U8[] = U8[]();
-    var numbers I64[] = I64[]();
+    var bytes: U8[] = U8[]();
+    var numbers: I64[] = I64[]();
     print(bytes.length);
     print(numbers.length);
 }
@@ -526,7 +526,7 @@ func main() {
 struct Container(slice: U8[]);
 
 func main() {
-    var c Container = Container(slice: U8[]());
+    var c: Container = Container(slice: U8[]());
     print(c.slice.length);
 }
 ```

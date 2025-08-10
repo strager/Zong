@@ -3,8 +3,8 @@
 
 func quicksort(_ numbers: I64[]) {
     // Iterative quicksort using a stack simulation
-    var stackLow I64[];
-    var stackHigh I64[];
+    var stackLow: I64[];
+    var stackHigh: I64[];
     
     // Push initial range
     append(stackLow&, 0);
@@ -16,8 +16,8 @@ func quicksort(_ numbers: I64[]) {
         }
         
         // Pop from stack
-        var low I64;
-        var high I64;
+        var low: I64;
+        var high: I64;
         low = stackLow[stackLow.length - 1];
         high = stackHigh[stackHigh.length - 1];
         stackLow.length = stackLow.length - 1;
@@ -25,11 +25,11 @@ func quicksort(_ numbers: I64[]) {
         
         if low < high {
             // Partition the array around pivot using last element as pivot
-            var pivot I64;
+            var pivot: I64;
             pivot = numbers[high];
             
-            var i I64 = low;
-            var j I64 = low;
+            var i: I64 = low;
+            var j: I64 = low;
             
             loop {
                 if j >= high {
@@ -38,7 +38,7 @@ func quicksort(_ numbers: I64[]) {
                 
                 if numbers[j] < pivot {
                     // Swap numbers[i] and numbers[j]
-                    var temp I64 = numbers[i];
+                    var temp: I64 = numbers[i];
                     numbers[i] = numbers[j];
                     numbers[j] = temp;
                     i = i + 1;
@@ -48,7 +48,7 @@ func quicksort(_ numbers: I64[]) {
             }
             
             // Place pivot in correct position
-            var temp2 I64 = numbers[i];
+            var temp2: I64 = numbers[i];
             numbers[i] = numbers[high];
             numbers[high] = temp2;
             
@@ -69,7 +69,7 @@ func quicksort(_ numbers: I64[]) {
 
 func main() {
     // Create array with 10 hard-coded numbers
-    var ns I64[];
+    var ns: I64[];
     append(ns&, 64);
     append(ns&, 34);
     append(ns&, 25);
@@ -85,7 +85,7 @@ func main() {
     quicksort(ns);
     
     // Print sorted array
-    var printK I64 = 0;
+    var printK: I64 = 0;
     loop {
         if printK >= ns.length {
             break;

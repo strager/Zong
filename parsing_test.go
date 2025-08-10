@@ -524,23 +524,23 @@ func TestVarTypeAST(t *testing.T) {
 		expectedType *TypeNode
 	}{
 		{
-			input:        "var x I64;\x00",
+			input:        "var x: I64;\x00",
 			expectedType: TypeI64,
 		},
 		{
-			input:        "var flag Boolean;\x00",
+			input:        "var flag: Boolean;\x00",
 			expectedType: TypeBool,
 		},
 		{
-			input:        "var ptr I64*;\x00",
+			input:        "var ptr: I64*;\x00",
 			expectedType: &TypeNode{Kind: TypePointer, Child: TypeI64},
 		},
 		{
-			input:        "var ptrPtr I64**;\x00",
+			input:        "var ptrPtr: I64**;\x00",
 			expectedType: &TypeNode{Kind: TypePointer, Child: &TypeNode{Kind: TypePointer, Child: TypeI64}},
 		},
 		{
-			input:        "var boolPtr Boolean*;\x00",
+			input:        "var boolPtr: Boolean*;\x00",
 			expectedType: &TypeNode{Kind: TypePointer, Child: TypeBool},
 		},
 	}
@@ -567,7 +567,7 @@ func TestVarTypeAST(t *testing.T) {
 func TestSliceTypeParsing(t *testing.T) {
 	t.Parallel()
 	// Test basic slice type parsing directly
-	input := []byte("var nums I64[];\x00")
+	input := []byte("var nums: I64[];\x00")
 	l := NewLexer(input)
 	l.NextToken()
 
@@ -584,7 +584,7 @@ func TestSliceTypeParsing(t *testing.T) {
 func TestSliceBasicDeclaration(t *testing.T) {
 	t.Parallel()
 	// Test basic slice variable declaration
-	input := []byte("var nums I64[];\x00")
+	input := []byte("var nums: I64[];\x00")
 	l := NewLexer(input)
 	l.NextToken()
 

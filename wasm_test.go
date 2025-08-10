@@ -248,7 +248,7 @@ func TestEmitAddressOfNonAddressedVariable(t *testing.T) {
 
 func TestStringCollection(t *testing.T) {
 	t.Parallel()
-	input := []byte(`var s U8[] = "hello"; var t U8[] = "world"; var u U8[] = "hello";` + "\x00")
+	input := []byte(`var s: U8[] = "hello"; var t: U8[] = "world"; var u: U8[] = "hello";` + "\x00")
 	l := NewLexer(input)
 	l.NextToken()
 	ast := ParseProgram(l)
@@ -289,7 +289,7 @@ func TestDataSectionSize(t *testing.T) {
 func TestWASMCompilationSuccess(t *testing.T) {
 	t.Parallel()
 	// Test that compilation doesn't crash, even if execution fails
-	input := []byte(`func main() { var s U8[] = "hello"; }` + "\x00")
+	input := []byte(`func main() { var s: U8[] = "hello"; }` + "\x00")
 	l := NewLexer(input)
 	l.NextToken()
 	ast := ParseProgram(l)
@@ -307,7 +307,7 @@ func TestWASMCompilationSuccess(t *testing.T) {
 
 func TestDataSectionInWASM(t *testing.T) {
 	t.Parallel()
-	input := []byte(`func main() { var s U8[] = "hello"; }` + "\x00")
+	input := []byte(`func main() { var s: U8[] = "hello"; }` + "\x00")
 	l := NewLexer(input)
 	l.NextToken()
 	ast := ParseProgram(l)
@@ -331,7 +331,7 @@ func TestDataSectionInWASM(t *testing.T) {
 
 func TestGlobalStringAddresses(t *testing.T) {
 	t.Parallel()
-	input := []byte(`func main() { var s U8[] = "test"; }` + "\x00")
+	input := []byte(`func main() { var s: U8[] = "test"; }` + "\x00")
 	l := NewLexer(input)
 	l.NextToken()
 	ast := ParseProgram(l)
@@ -347,7 +347,7 @@ func TestGlobalStringAddresses(t *testing.T) {
 
 func TestMultipleStringAddresses(t *testing.T) {
 	t.Parallel()
-	input := []byte(`func main() { var s U8[] = "first"; var t U8[] = "second"; }` + "\x00")
+	input := []byte(`func main() { var s: U8[] = "first"; var t: U8[] = "second"; }` + "\x00")
 	l := NewLexer(input)
 	l.NextToken()
 	ast := ParseProgram(l)
@@ -378,7 +378,7 @@ func TestMultipleStringAddresses(t *testing.T) {
 
 func TestEmptyString(t *testing.T) {
 	t.Parallel()
-	input := []byte(`func main() { var s U8[] = ""; }` + "\x00")
+	input := []byte(`func main() { var s: U8[] = ""; }` + "\x00")
 	l := NewLexer(input)
 	l.NextToken()
 	ast := ParseProgram(l)

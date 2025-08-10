@@ -21,7 +21,7 @@ expected function name (must start with lowercase letter)
 ## Test: variable name must start with lowercase
 ```zong-program
 func main() {
-    var X I64 = 42;
+    var X: I64 = 42;
 }
 ```
 ```compile-error
@@ -32,7 +32,7 @@ expected variable name (must start with lowercase letter)
 ## Test: type name in variable declaration must start with uppercase
 ```zong-program
 func main() {
-    var x point = Point(x: 10, y: 20);
+    var x: point = Point(x: 10, y: 20);
 }
 ```
 ```compile-error
@@ -48,8 +48,8 @@ func add(_ a: I64, _ b: I64): I64 {
 }
 
 func main() {
-    var x I64 = 42;
-    var p Point = Point(x: 10, y: 20);
+    var x: I64 = 42;
+    var p: Point = Point(x: 10, y: 20);
     print(add(p.x, p.y));
 }
 ```
@@ -64,7 +64,7 @@ func _helper(): I64 {
 }
 
 func main() {
-    var _temp I64 = _helper();
+    var _temp: I64 = _helper();
     print(_temp);
 }
 ```

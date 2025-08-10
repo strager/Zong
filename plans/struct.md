@@ -6,15 +6,15 @@ Declaration:
 
 ```
 struct MyStruct {
-    var field I64;
-    var field2 I64*;
+    var field: I64;
+    var field2: I64*;
 }
 ```
 
 Type use:
 
 ```
-var s MyStruct;
+var s: MyStruct;
 ```
 
 Field access:
@@ -27,7 +27,7 @@ s.field2* = 42;  // write/store
 Copying:
 
 ```
-var s2 MyStruct;
+var s2: MyStruct;
 // Equivalent to copying all fields or a memcpy.
 s2 = s;
 ```

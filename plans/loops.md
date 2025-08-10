@@ -198,7 +198,7 @@ Create comprehensive tests in `loop_test.go`:
 func TestBasicLoop(t *testing.T) {
     source := `
         func main() {
-            var i I64;
+            var i: I64;
             i = 0;
             loop {
                 print(i);
@@ -215,8 +215,8 @@ func TestBasicLoop(t *testing.T) {
 func TestNestedLoops(t *testing.T) {
     source := `
         func main() {
-            var i I64;
-            var j I64;
+            var i: I64;
+            var j: I64;
             i = 0;
             loop {
                 j = 0;
@@ -240,7 +240,7 @@ func TestNestedLoops(t *testing.T) {
 func TestContinueStatement(t *testing.T) {
     source := `
         func main() {
-            var i I64;
+            var i: I64;
             i = 0;
             loop {
                 i = i + 1;
@@ -303,7 +303,7 @@ Add loop examples to the language features section:
 ```zong
 // Infinite loop with break
 loop {
-    var input I64;
+    var input: I64;
     // ... get input
     if input == 0 {
         break;

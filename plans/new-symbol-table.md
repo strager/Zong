@@ -116,9 +116,9 @@ func (st *SymbolTable) ReportUnresolvedSymbols() []error
 ```zong
 // Variable shadowing
 func main() {
-    var x I64 = 1;
+    var x: I64 = 1;
     {
-        var x I64 = 2;  // Should shadow outer x
+        var x: I64 = 2;  // Should shadow outer x
         print(x);       // Should print 2
     }
     print(x);           // Should print 1
@@ -132,10 +132,10 @@ func foo() { }          // Declaration resolves reference
 
 // Forward type references
 struct A {
-    var b B*;          // Forward reference to B
+    var b: B*;          // Forward reference to B
 }
 struct B {
-    var a A*;          // Mutual reference
+    var a: A*;          // Mutual reference
 }
 
 // Same parameter names in different functions

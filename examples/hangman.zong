@@ -10,15 +10,15 @@ struct GameState(
 
 func initGame(): GameState {
     // Hard-coded word for simplicity: "ZONG"
-    var word U8[];
+    var word: U8[];
     append(word&, 90);  // Z
     append(word&, 79);  // O
     append(word&, 78);  // N
     append(word&, 71);  // G
     
-    var guessed U8[];
+    var guessed: U8[];
     
-    var game GameState = GameState(
+    var game: GameState = GameState(
         word: word,
         guessed: guessed,
         wrongGuesses: 0,
@@ -29,7 +29,7 @@ func initGame(): GameState {
 }
 
 func hasGuessedLetter(game: GameState, letter: U8): Boolean {
-    var i I64 = 0;
+    var i: I64 = 0;
     loop {
         if i >= game.guessed.length {
             break;
@@ -46,7 +46,7 @@ func hasGuessedLetter(game: GameState, letter: U8): Boolean {
 }
 
 func isLetterInWord(game: GameState, letter: U8): Boolean {
-    var i I64 = 0;
+    var i: I64 = 0;
     loop {
         if i >= game.word.length {
             break;
@@ -81,7 +81,7 @@ func makeGuess(game: GameState, letter: U8): GameState {
 }
 
 func isWordGuessed(game: GameState): Boolean {
-    var i I64 = 0;
+    var i: I64 = 0;
     loop {
         if i >= game.word.length {
             break;
@@ -113,7 +113,7 @@ func printGameState(game: GameState) {
     print_bytes("Word: ");
     
     // Print word with guessed letters revealed
-    var i I64 = 0;
+    var i: I64 = 0;
     loop {
         if i >= game.word.length {
             break;
@@ -121,7 +121,7 @@ func printGameState(game: GameState) {
         
         if hasGuessedLetter(game, game.word[i]) {
             // Print character based on ASCII value
-            var char U8 = game.word[i];
+            var char: U8 = game.word[i];
             if char == 90 {  // Z
                 print_bytes("Z");
             } else if char == 79 {  // O
@@ -180,13 +180,13 @@ func isValidLetter(letter: U8): Boolean {
 }
 
 func printFullWord(game: GameState) {
-    var i I64 = 0;
+    var i: I64 = 0;
     loop {
         if i >= game.word.length {
             break;
         }
         
-        var char U8 = game.word[i];
+        var char: U8 = game.word[i];
         if char == 90 {  // Z
             print_bytes("Z");
         } else if char == 79 {  // O
@@ -202,7 +202,7 @@ func printFullWord(game: GameState) {
 }
 
 func main() {
-    var game GameState = initGame();
+    var game: GameState = initGame();
     
     print_bytes("HANGMAN GAME");
     print_bytes("\n");
@@ -219,9 +219,9 @@ func main() {
         
         print_bytes("Enter a letter (A-Z): ");
         
-        var input U8[] = read_line();
+        var input: U8[] = read_line();
         
-        var validInput Boolean = true;
+        var validInput: Boolean = true;
         
         // Validate input
         if input.length == 0 {
@@ -230,8 +230,8 @@ func main() {
             validInput = false;
         }
         
-        var firstChar U8 = 0;
-        var letter U8 = 0;
+        var firstChar: U8 = 0;
+        var letter: U8 = 0;
         
         if validInput {
             firstChar = input[0];
@@ -253,9 +253,9 @@ func main() {
         }
         
         if validInput {
-            var oldWrongGuesses I64 = game.wrongGuesses;
+            var oldWrongGuesses: I64 = game.wrongGuesses;
             game = makeGuess(game, letter);
-            var wasCorrect Boolean = game.wrongGuesses == oldWrongGuesses;
+            var wasCorrect: Boolean = game.wrongGuesses == oldWrongGuesses;
         
             print_bytes("Guess: ");
             // Print letter based on ASCII value
@@ -324,11 +324,11 @@ func main() {
     
     // Print final result
     if isWordGuessed(game) {
-        var win U8[] = "You Win! The word was: ";
+        var win: U8[] = "You Win! The word was: ";
         print_bytes(win);
         printFullWord(game);
     } else {
-        var lose U8[] = "Game Over! The word was: ";
+        var lose: U8[] = "Game Over! The word was: ";
         print_bytes(lose);
         printFullWord(game);
     }

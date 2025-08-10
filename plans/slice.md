@@ -146,7 +146,7 @@ Integration tests:
 func TestSliceBasics(t *testing.T) {
     input := `
     func main() {
-        var nums I64[];
+        var nums: I64[];
         append(&nums, 42);
         append(&nums, 100);
         print(nums[0]);

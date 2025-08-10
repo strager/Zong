@@ -9,7 +9,7 @@ Currently, integer literals are hardcoded as I64 type during parsing, requiring 
 ## Current Problem
 
 ```zong
-var x U8 = 42;        // 42 is parsed as I64, requires special conversion
+var x: U8 = 42;        // 42 is parsed as I64, requires special conversion
 append(slice&, 255);  // 255 is parsed as I64, requires special conversion
 ```
 
@@ -27,8 +27,8 @@ This approach requires special cases in:
 ## Proposed Solution
 
 ```zong
-var x U8 = 42;        // 42 has type 'Integer', converts to U8
-var y I64 = 42;       // 42 has type 'Integer', converts to I64
+var x: U8 = 42;        // 42 has type 'Integer', converts to U8
+var y: I64 = 42;       // 42 has type 'Integer', converts to I64
 append(slice&, 255);  // 255 has type 'Integer', converts to U8 (slice element type)
 ```
 

@@ -55,8 +55,8 @@ These test internal compiler implementation details not visible to users.
   ## Test: type mismatch
   ```zong-program
   func main() {
-      var x I64;
-      var y Boolean;
+      var x: I64;
+      var y: Boolean;
       x = y;  // type error
   }
   ```

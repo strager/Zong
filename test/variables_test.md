@@ -14,7 +14,7 @@ myVar
 
 ## Test: variable declaration with type
 ```zong-program
-var x I64;
+var x: I64;
 ```
 ```ast
 [(var-decl "x" "I64")]
@@ -22,7 +22,7 @@ var x I64;
 
 ## Test: variable declaration string type
 ```zong-program
-var name U8[];
+var name: U8[];
 ```
 ```ast
 [(var-decl "name" "U8[]")]
@@ -30,7 +30,7 @@ var name U8[];
 
 ## Test: variable declaration custom type
 ```zong-program
-var count MyType;
+var count: MyType;
 ```
 ```ast
 [(var-decl "count" "MyType")]
@@ -38,7 +38,7 @@ var count MyType;
 
 ## Test: pointer variable declaration
 ```zong-program
-var ptr I64*;
+var ptr: I64*;
 ```
 ```ast
 [(var-decl "ptr" "I64*")]
@@ -46,7 +46,7 @@ var ptr I64*;
 
 ## Test: slice variable declaration
 ```zong-program
-var data I64[];
+var data: I64[];
 ```
 ```ast
 [(var-decl "data" "I64[]")]
@@ -54,7 +54,7 @@ var data I64[];
 
 ## Test: U8 variable declaration  
 ```zong-program
-var b U8;
+var b: U8;
 ```
 ```ast
 [(var-decl "b" "U8")]
@@ -62,7 +62,7 @@ var b U8;
 
 ## Test: U8 slice declaration
 ```zong-program
-var data U8[];
+var data: U8[];
 ```
 ```ast
 [(var-decl "data" "U8[]")]
@@ -72,7 +72,7 @@ var data U8[];
 
 ## Test: integer initialization
 ```zong-program
-var x I64 = 42;
+var x: I64 = 42;
 ```
 ```ast
 [(var-decl "x" "I64" 42)]
@@ -80,7 +80,7 @@ var x I64 = 42;
 
 ## Test: boolean initialization
 ```zong-program
-var flag Boolean = true;
+var flag: Boolean = true;
 ```
 ```ast
 [(var-decl "flag" "Boolean" true)]
@@ -88,7 +88,7 @@ var flag Boolean = true;
 
 ## Test: U8 slice initialization
 ```zong-program
-var name U8[] = "hello";
+var name: U8[] = "hello";
 ```
 ```ast
 [(var-decl "name" "U8[]" (string "hello"))]
@@ -96,7 +96,7 @@ var name U8[] = "hello";
 
 ## Test: variable initialization with expression
 ```zong-program
-var result I64 = x + y;
+var result: I64 = x + y;
 ```
 ```ast
 [(var-decl "result" "I64" (binary "+" (var "x") (var "y")))]
@@ -104,7 +104,7 @@ var result I64 = x + y;
 
 ## Test: initialization with function call
 ```zong-program
-var value I64 = getValue();
+var value: I64 = getValue();
 ```
 ```ast
 [(var-decl "value" "I64" (call (var "getValue")))]
@@ -112,7 +112,7 @@ var value I64 = getValue();
 
 ## Test: initialization without semicolon
 ```zong-program
-var count I64 = 0
+var count: I64 = 0
 ```
 ```ast
 [(var-decl "count" "I64" 0)]
@@ -120,7 +120,7 @@ var count I64 = 0
 
 ## Test: pointer initialization
 ```zong-program
-var ptr I64* = ptr&;
+var ptr: I64* = ptr&;
 ```
 ```ast
 [(var-decl "ptr" "I64*" (unary "&" (var "ptr")))]
@@ -133,11 +133,11 @@ var ptr I64* = ptr&;
 ## Test: variable shadowing end to end
 ```zong-program
 func main() {
-    var x I64;
+    var x: I64;
     x = 10;
     print(x);
     {
-        var x I64;
+        var x: I64;
         x = 20;
         print(x);
     }
@@ -155,7 +155,7 @@ func main() {
 func test(x: I64) {
     print(x);
     {
-        var x I64;
+        var x: I64;
         x = 99;
         print(x);
     }
@@ -175,19 +175,19 @@ func main() {
 ## Test: deep nested shadowing end to end
 ```zong-program
 func main() {
-    var x I64;
+    var x: I64;
     x = 1;
     print(x);
     {
-        var x I64;
+        var x: I64;
         x = 2;
         print(x);
         {
-            var x I64;
+            var x: I64;
             x = 3;
             print(x);
             {
-                var x I64;
+                var x: I64;
                 x = 4;
                 print(x);
             }
@@ -211,11 +211,11 @@ func main() {
 ## Test: shadowing with different types
 ```zong-program
 func main() {
-    var x I64;
+    var x: I64;
     x = 42;
     print(x);
     {
-        var x Boolean;
+        var x: Boolean;
         x = true;
         print(x);
     }
@@ -232,7 +232,7 @@ func main() {
 
 ## Test: single local variable
 ```zong-program
-func main() { var x I64; }
+func main() { var x: I64; }
 ```
 ```wasm-locals
 [(local "x" "I64" local 0)]
@@ -240,7 +240,7 @@ func main() { var x I64; }
 
 ## Test: multiple local variables
 ```zong-program
-func main() { var x I64; var y I64; }
+func main() { var x: I64; var y: I64; }
 ```
 ```wasm-locals
 [(local "x" "I64" local 0) (local "y" "I64" local 1)]
@@ -248,7 +248,7 @@ func main() { var x I64; var y I64; }
 
 ## Test: nested block variables
 ```zong-program
-func main() { var a I64; { var b I64; } }
+func main() { var a: I64; { var b: I64; } }
 ```
 ```wasm-locals
 [(local "a" "I64" local 0) (local "b" "I64" local 1)]
@@ -264,7 +264,7 @@ func main() { print(42); }
 
 ## Test: single pointer variable
 ```zong-program
-func main() { var ptr I64*; }
+func main() { var ptr: I64*; }
 ```
 ```wasm-locals
 [(local "ptr" "I64*" local 0)]
@@ -272,7 +272,7 @@ func main() { var ptr I64*; }
 
 ## Test: addressed single variable
 ```zong-program
-func main() { var x I64; print(x&); }
+func main() { var x: I64; print(x&); }
 ```
 ```wasm-locals
 [(local "x" "I64" tstack 0)]
@@ -283,7 +283,7 @@ func main() { var x I64; print(x&); }
 ## Test: basic variable initialization
 ```zong-program
 func main() {
-	var x I64 = 42;
+	var x: I64 = 42;
 	print(x);
 }
 ```
@@ -294,9 +294,9 @@ func main() {
 ## Test: boolean variable initialization
 ```zong-program
 func main() {
-	var flag Boolean = true;
+	var flag: Boolean = true;
 	print(flag);
-	var flag2 Boolean = false;
+	var flag2: Boolean = false;
 	print(flag2);
 }
 ```
@@ -308,9 +308,9 @@ func main() {
 ## Test: multiple variable initialization
 ```zong-program
 func main() {
-	var x I64 = 10;
-	var y I64 = 20;
-	var z I64 = x + y;
+	var x: I64 = 10;
+	var y: I64 = 20;
+	var z: I64 = x + y;
 	print(z);
 }
 ```
@@ -321,8 +321,8 @@ func main() {
 ## Test: mixed initialized and uninitialized vars
 ```zong-program
 func main() {
-	var x I64 = 5;
-	var y I64;
+	var x: I64 = 5;
+	var y: I64;
 	y = x * 2;
 	print(y);
 }
@@ -334,9 +334,9 @@ func main() {
 ## Test: variable initialization with expressions
 ```zong-program
 func main() {
-	var a I64 = 3;
-	var b I64 = 4;
-	var hypotenuse I64 = a * a + b * b;
+	var a: I64 = 3;
+	var b: I64 = 4;
+	var hypotenuse: I64 = a * a + b * b;
 	print(hypotenuse);
 }
 ```
@@ -347,8 +347,8 @@ func main() {
 ## Test: equivalence with separate assignment
 ```zong-program
 func main() {
-	var x I64 = 5;
-	var y I64 = x * 2;
+	var x: I64 = 5;
+	var y: I64 = x * 2;
 	print(y);
 }
 ```
@@ -359,8 +359,8 @@ func main() {
 ## Test: pointer variable initialization
 ```zong-program
 func main() {
-	var x I64 = 42;
-	var ptr I64* = x&;
+	var x: I64 = 42;
+	var ptr: I64* = x&;
 	print(ptr*);
 }
 ```
@@ -372,7 +372,7 @@ func main() {
 
 ## Test: I64 variable with TypeAST
 ```zong-program
-{ var x I64; x = 42; print(x); }
+{ var x: I64; x = 42; print(x); }
 ```
 ```execute
 42
@@ -380,7 +380,7 @@ func main() {
 
 ## Test: Second I64 variable with TypeAST
 ```zong-program
-{ var y I64; y = 7; print(y); }
+{ var y: I64; y = 7; print(y); }
 ```
 ```execute
 7
@@ -388,7 +388,7 @@ func main() {
 
 ## Test: Multiple types with TypeAST
 ```zong-program
-{ var x I64; var y I64; var ptr I64*; x = 10; y = 0; ptr = x&; print(x); print(y); print(ptr*); }
+{ var x: I64; var y: I64; var ptr: I64*; x = 10; y = 0; ptr = x&; print(x); print(y); print(ptr*); }
 ```
 ```execute
 10
@@ -401,7 +401,7 @@ func main() {
 ## Test: full program execution
 ```zong-program
 func main() {
-    var x I64 = 10;
+    var x: I64 = 10;
     print(x * 2);
 }
 ```
@@ -412,7 +412,7 @@ func main() {
 ## Test: no output expected
 ```zong-program
 func main() {
-    var x I64 = 10;
+    var x: I64 = 10;
     x = x * 2;
 }
 ```
@@ -424,7 +424,7 @@ func main() {
 
 ## Test: integration complex variable calculations
 ```zong-program
-{ var x I64; var y I64; var result I64; x = 15; y = 3; result = x * y + 5; print(result); }
+{ var x: I64; var y: I64; var result: I64; x = 15; y = 3; result = x * y + 5; print(result); }
 ```
 ```execute
 50
@@ -433,10 +433,10 @@ func main() {
 ## Test: integration comprehensive demo
 ```zong-program
 {
-	var a I64;
-	var b I64;
-	var temp I64;
-	var final I64;
+	var a: I64;
+	var b: I64;
+	var temp: I64;
+	var final: I64;
 
 	a = 8;
 	b = 3;
@@ -451,7 +451,7 @@ func main() {
 
 ## Test: integration mixed types
 ```zong-program
-{ var x I64; var y Boolean; x = 42; y = true; print(x); }
+{ var x: I64; var y: Boolean; x = 42; y = true; print(x); }
 ```
 ```execute
 42
@@ -459,7 +459,7 @@ func main() {
 
 ## Test: integration nested variable scoping
 ```zong-program
-{ var x I64; x = 42; { var y I64; y = x; print(y); } }
+{ var x: I64; x = 42; { var y: I64; y = x; print(y); } }
 ```
 ```execute
 42
@@ -467,7 +467,7 @@ func main() {
 
 ## Test: integration variable reassignment
 ```zong-program
-{ var counter I64; counter = 5; counter = counter + 10; print(counter); }
+{ var counter: I64; counter = 5; counter = counter + 10; print(counter); }
 ```
 ```execute
 15
@@ -475,7 +475,7 @@ func main() {
 
 ## Test: integration variables in expressions
 ```zong-program
-{ var a I64; var b I64; a = 10; b = 20; print(a + b); }
+{ var a: I64; var b: I64; a = 10; b = 20; print(a + b); }
 ```
 ```execute
 30
@@ -494,8 +494,8 @@ error: undefined symbol 'undefinedVar'
 ## Test: variable used before assignment
 ```zong-program
 func main() {
-    var x I64;
-    var y Boolean;
+    var x: I64;
+    var y: Boolean;
     x = y;
 }
 ```
@@ -506,7 +506,7 @@ error: variable 'y' used before assignment
 ## Test: variable not assigned in expression  
 ```zong-program
 func main() {
-    var x I64;
+    var x: I64;
     print(x);
 }
 ```
@@ -527,7 +527,7 @@ error: undefined symbol 'undefined'
 ## Test: program with variable used before assignment
 ```zong-program
 func main() {
-    var x I64;
+    var x: I64;
     print(x);
 }
 ```
@@ -538,8 +538,8 @@ error: variable 'x' used before assignment
 ## Test: duplicate variable declaration
 ```zong-program
 func main() {
-    var x I64;
-    var x I64;
+    var x: I64;
+    var x: I64;
 }
 ```
 ```compile-error
@@ -559,7 +559,7 @@ error: undefined symbol 'undefinedVar'
 ## Test: address of undefined variable
 ```zong-program
 func main() {
-    var ptr I64* = undefinedVar&;
+    var ptr: I64* = undefinedVar&;
 }
 ```
 ```compile-error

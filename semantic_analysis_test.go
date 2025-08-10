@@ -384,8 +384,8 @@ func TestLookupVariable(t *testing.T) {
 
 func TestBuildSymbolTableSimple(t *testing.T) {
 	t.Parallel()
-	// Parse: var x I64;
-	input := []byte("var x I64;\x00")
+	// Parse: var x: I64;
+	input := []byte("var x: I64;\x00")
 	l := NewLexer(input)
 	l.NextToken()
 	ast := ParseStatement(l)
@@ -404,8 +404,8 @@ func TestBuildSymbolTableSimple(t *testing.T) {
 
 func TestBuildSymbolTableMultiple(t *testing.T) {
 	t.Parallel()
-	// Parse: { var x I64; var y I64; }
-	input := []byte("{ var x I64; var y I64; }\x00")
+	// Parse: { var x: I64; var y: I64; }
+	input := []byte("{ var x: I64; var y: I64; }\x00")
 	l := NewLexer(input)
 	l.NextToken()
 	ast := ParseStatement(l)
@@ -429,8 +429,8 @@ func TestBuildSymbolTableMultiple(t *testing.T) {
 
 func TestBuildSymbolTableWithPointers(t *testing.T) {
 	t.Parallel()
-	// Parse: { var x I64; var ptr I64*; }
-	input := []byte("{ var x I64; var ptr I64*; }\x00")
+	// Parse: { var x: I64; var ptr: I64*; }
+	input := []byte("{ var x: I64; var ptr: I64*; }\x00")
 	l := NewLexer(input)
 	l.NextToken()
 	ast := ParseStatement(l)
@@ -460,8 +460,8 @@ func TestBuildSymbolTableWithPointers(t *testing.T) {
 
 func TestBuildSymbolTableReportsUnknownStructTypes(t *testing.T) {
 	t.Parallel()
-	// Parse: { var x I64; var y String; }
-	input := []byte("{ var x I64; var y String; }\x00")
+	// Parse: { var x: I64; var y String; }
+	input := []byte("{ var x: I64; var y String; }\x00")
 	l := NewLexer(input)
 	l.NextToken()
 	ast := ParseStatement(l)
@@ -497,8 +497,8 @@ func TestBuildSymbolTableReportsUnknownStructTypes(t *testing.T) {
 
 func TestVariableShadowingInNestedBlocks(t *testing.T) {
 	t.Parallel()
-	// Parse: { var x I64; { var x I64; } }
-	input := []byte("{ var x I64; { var x I64; } }\x00")
+	// Parse: { var x: I64; { var x: I64; } }
+	input := []byte("{ var x: I64; { var x: I64; } }\x00")
 	l := NewLexer(input)
 	l.NextToken()
 	ast := ParseStatement(l)
@@ -519,8 +519,8 @@ func TestVariableShadowingInNestedBlocks(t *testing.T) {
 
 func TestFunctionParameterShadowing(t *testing.T) {
 	t.Parallel()
-	// Parse: func test(x: I64) { var x I64; }
-	input := []byte("func test(x: I64) { var x I64; }\x00")
+	// Parse: func test(x: I64) { var x: I64; }
+	input := []byte("func test(x: I64) { var x: I64; }\x00")
 	l := NewLexer(input)
 	l.NextToken()
 	ast := ParseStatement(l)
@@ -541,8 +541,8 @@ func TestFunctionParameterShadowing(t *testing.T) {
 
 func TestNestedBlockScoping(t *testing.T) {
 	t.Parallel()
-	// Parse: { var outer I64; { var middle I64; { var inner I64; } } }
-	input := []byte("{ var outer I64; { var middle I64; { var inner I64; } } }\x00")
+	// Parse: { var outer: I64; { var middle: I64; { var inner: I64; } } }
+	input := []byte("{ var outer: I64; { var middle: I64; { var inner: I64; } } }\x00")
 	l := NewLexer(input)
 	l.NextToken()
 	ast := ParseStatement(l)
@@ -563,8 +563,8 @@ func TestNestedBlockScoping(t *testing.T) {
 
 func TestFunctionScopingWithLocalVariables(t *testing.T) {
 	t.Parallel()
-	// Parse: func test() { var local I64; } var global I64;
-	input := []byte("func test() { var local I64; } var global I64;\x00")
+	// Parse: func test() { var local: I64; } var global: I64;
+	input := []byte("func test() { var local: I64; } var global: I64;\x00")
 	l := NewLexer(input)
 	l.NextToken()
 
@@ -599,8 +599,8 @@ func TestFunctionScopingWithLocalVariables(t *testing.T) {
 
 func TestMultipleShadowingLevels(t *testing.T) {
 	t.Parallel()
-	// Parse: { var x I64; { var x I64; { var x I64; } } }
-	input := []byte("{ var x I64; { var x I64; { var x I64; } } }\x00")
+	// Parse: { var x: I64; { var x: I64; { var x: I64; } } }
+	input := []byte("{ var x: I64; { var x: I64; { var x: I64; } } }\x00")
 	l := NewLexer(input)
 	l.NextToken()
 	ast := ParseStatement(l)
@@ -883,8 +883,8 @@ func TestCheckAssignmentPointerDereference(t *testing.T) {
 
 func TestCheckProgramSuccess(t *testing.T) {
 	t.Parallel()
-	// Parse: { var x I64; x = 42; print(x); }
-	input := []byte("{ var x I64; x = 42; print(x); }\x00")
+	// Parse: { var x: I64; x = 42; print(x); }
+	input := []byte("{ var x: I64; x = 42; print(x); }\x00")
 	l := NewLexer(input)
 	l.NextToken()
 	ast := ParseStatement(l)
@@ -898,7 +898,7 @@ func TestCheckProgramSuccess(t *testing.T) {
 
 func TestStringLiteralTypeChecking(t *testing.T) {
 	t.Parallel()
-	input := []byte(`var s U8[] = "hello";` + "\x00")
+	input := []byte(`var s: U8[] = "hello";` + "\x00")
 	l := NewLexer(input)
 	l.NextToken()
 	ast := ParseProgram(l)

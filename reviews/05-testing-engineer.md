@@ -192,7 +192,7 @@ func assertExpressionParsing(t *testing.T, input, expected string) {
 **Recommended Benchmark Suite:**
 ```go
 func BenchmarkLexing(b *testing.B) {
-    input := []byte("var x I64 = 42 + 33 * 2;\x00")
+    input := []byte("var x: I64 = 42 + 33 * 2;\x00")
     b.ResetTimer()
     for i := 0; i < b.N; i++ {
         Init(input)
@@ -308,7 +308,7 @@ func FuzzLexer(f *testing.F) {
 ```go
 // Good end-to-end test pattern
 func TestCompileAndExecute(t *testing.T) {
-    source := "var x I64; x = 42; print(x);"
+    source := "var x: I64; x = 42; print(x);"
     wasmBytes := compileExpression(t, source)
     output := executeWasm(t, wasmBytes)
     be.Equal(t, output, "42\n")

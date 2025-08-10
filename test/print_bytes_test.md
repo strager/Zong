@@ -14,7 +14,7 @@ hello42
 ## Test: print_bytes with variable
 ```zong-program
 func main() {
-    var msg U8[] = "world";
+    var msg: U8[] = "world";
     print_bytes(msg);
     print(999);
 }

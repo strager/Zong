@@ -11,7 +11,7 @@ func isPrime(n: I64): Boolean {
     }
     
     // Check for divisibility from 2 to sqrt(n)
-    var i I64;
+    var i: I64;
     i = 2;
     loop {
         // If i * i > n, we've checked all possible divisors
@@ -31,7 +31,7 @@ func isPrime(n: I64): Boolean {
 }
 
 func main() {
-    var num I64;
+    var num: I64;
     num = 2;
     
     loop {

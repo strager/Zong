@@ -83,8 +83,8 @@ func update(p: Point*) {
 }
 
 // Variable declarations with initialization
-var x I64 = 42;
-var flag Boolean = true;
+var x: I64 = 42;
+var flag: Boolean = true;
 
 // Control flow
 if condition {
@@ -96,12 +96,12 @@ loop {
 }
 
 // Slices
-var numbers []I64;
+var numbers: []I64;
 numbers = append(numbers, 10);
 
 // Main function
 func main() {
-    var p Point = Point(x: 10, y: 20);
+    var p: Point = Point(x: 10, y: 20);
     print(add(p.x, p.y));
 
     greet(p&);
@@ -128,7 +128,7 @@ func main() {
 - **Loops**: Infinite loops with `loop { }`
 
 ### Variable Features
-- **Variable initialization**: `var x I64 = 42;` syntax
+- **Variable initialization**: `var x: I64 = 42;` syntax
 - **Nested struct field access**: Multi-level field access like `obj.field.subfield`
 - **Slice operations**: Dynamic array operations with `append()`
 
@@ -202,7 +202,7 @@ print(2 + 3)
 ## Test: full program execution
 ```zong-program
 func main() {
-    var x I64 = 10;
+    var x: I64 = 10;
     print(x * 2);
 }
 ```

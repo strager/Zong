@@ -6,7 +6,7 @@ Tests for address-of, dereference, and pointer operations.
 
 ## Test: basic pointer assign address dereference to read value
 ```zong-program
-{ var x I64; var ptr I64*; x = 42; ptr = x&; print(ptr*); }
+{ var x: I64; var ptr: I64*; x = 42; ptr = x&; print(ptr*); }
 ```
 ```execute
 42
@@ -14,7 +14,7 @@ Tests for address-of, dereference, and pointer operations.
 
 ## Test: modify pointee via pointer read via original variable
 ```zong-program
-{ var x I64; var ptr I64*; x = 10; ptr = x&; ptr* = 99; print(x); }
+{ var x: I64; var ptr: I64*; x = 10; ptr = x&; ptr* = 99; print(x); }
 ```
 ```execute
 99
@@ -22,7 +22,7 @@ Tests for address-of, dereference, and pointer operations.
 
 ## Test: modify via variable read via pointer
 ```zong-program
-{ var x I64; var ptr I64*; x = 25; ptr = x&; x = 77; print(ptr*); }
+{ var x: I64; var ptr: I64*; x = 25; ptr = x&; x = 77; print(ptr*); }
 ```
 ```execute
 77
@@ -30,7 +30,7 @@ Tests for address-of, dereference, and pointer operations.
 
 ## Test: use pointer dereference in arithmetic expression
 ```zong-program
-{ var x I64; var ptr I64*; x = 7; ptr = x&; print(ptr* + 3); }
+{ var x: I64; var ptr: I64*; x = 7; ptr = x&; print(ptr* + 3); }
 ```
 ```execute
 10
@@ -38,7 +38,7 @@ Tests for address-of, dereference, and pointer operations.
 
 ## Test: multiple pointers to same variable modify via one read via another
 ```zong-program
-{ var x I64; var ptr1 I64*; var ptr2 I64*; x = 123; ptr1 = x&; ptr2 = x&; print(ptr1*); print(ptr2*); ptr1* = 456; print(ptr2*); }
+{ var x: I64; var ptr1: I64*; var ptr2: I64*; x = 123; ptr1 = x&; ptr2 = x&; print(ptr1*); print(ptr2*); ptr1* = 456; print(ptr2*); }
 ```
 ```execute
 123
@@ -48,7 +48,7 @@ Tests for address-of, dereference, and pointer operations.
 
 ## Test: sequential pointer operations on same variable
 ```zong-program
-{ var x I64; var ptr I64*; x = 100; ptr = x&; print(ptr*); ptr* = 200; print(x); }
+{ var x: I64; var ptr: I64*; x = 100; ptr = x&; print(ptr*); ptr* = 200; print(x); }
 ```
 ```execute
 100
@@ -57,7 +57,7 @@ Tests for address-of, dereference, and pointer operations.
 
 ## Test: use pointer dereference in complex expression
 ```zong-program
-{ var x I64; var y I64; var ptr I64*; x = 8; y = 7; ptr = x&; print(ptr* * y + 6); }
+{ var x: I64; var y: I64; var ptr: I64*; x = 8; y = 7; ptr = x&; print(ptr* * y + 6); }
 ```
 ```execute
 62
@@ -65,7 +65,7 @@ Tests for address-of, dereference, and pointer operations.
 
 ## Test: sequential modifications via pointer
 ```zong-program
-{ var x I64; var ptr I64*; x = 5; ptr = x&; ptr* = ptr* + 1; print(x); ptr* = ptr* * 2; print(x); }
+{ var x: I64; var ptr: I64*; x = 5; ptr = x&; ptr* = ptr* + 1; print(x); ptr* = ptr* * 2; print(x); }
 ```
 ```execute
 6
@@ -124,7 +124,7 @@ x& + 1
 
 ## Test: address of variable execution
 ```zong-program
-{ var x I64; x = 42; print(x&); }
+{ var x: I64; x = 42; print(x&); }
 ```
 ```execute
 0
@@ -132,7 +132,7 @@ x& + 1
 
 ## Test: multiple addressed variables execution
 ```zong-program
-{ var x I64; var y I64; x = 10; y = 20; print(x&); print(y&); }
+{ var x: I64; var y: I64; x = 10; y = 20; print(x&); print(y&); }
 ```
 ```execute
 0
@@ -141,7 +141,7 @@ x& + 1
 
 ## Test: address of rvalue expression execution
 ```zong-program
-{ var x I64; x = 5; print((x + 10)&); }
+{ var x: I64; x = 5; print((x + 10)&); }
 ```
 ```execute
 0
@@ -149,7 +149,7 @@ x& + 1
 
 ## Test: stack variable address access
 ```zong-program
-{ var a I64; var b I64; a = 0; b = 0; print(a&); print(b&); print(a); print(b); }
+{ var a: I64; var b: I64; a = 0; b = 0; print(a&); print(b&); print(a); print(b); }
 ```
 ```execute
 0
@@ -256,7 +256,7 @@ arr[0]&*
 
 ## Test: Address-of expressions stored on stack at different offsets
 ```zong-program
-{ var x I64; x = 5; print((x + 10)&); print((x * 2)&); }
+{ var x: I64; x = 5; print((x + 10)&); print((x * 2)&); }
 ```
 ```execute
 0
@@ -265,7 +265,7 @@ arr[0]&*
 
 ## Test: Pointer to complex expression results
 ```zong-program
-{ var a I64; var b I64; var c I64; var ptr I64*; a = 1; b = 2; c = 3; ptr = (a + b)&; print(ptr*); ptr = (b * c)&; print(ptr*); }
+{ var a: I64; var b: I64; var c: I64; var ptr: I64*; a = 1; b = 2; c = 3; ptr = (a + b)&; print(ptr*); ptr = (b * c)&; print(ptr*); }
 ```
 ```execute
 3
@@ -274,7 +274,7 @@ arr[0]&*
 
 ## Test: Chain of pointer assignments - modify through second pointer
 ```zong-program
-{ var x I64; var ptr1 I64*; var ptr2 I64*; x = 50; ptr1 = x&; ptr2 = ptr1; ptr2* = 75; print(x); print(ptr1*); }
+{ var x: I64; var ptr1: I64*; var ptr2: I64*; x = 50; ptr1 = x&; ptr2 = ptr1; ptr2* = 75; print(x); print(ptr1*); }
 ```
 ```execute
 75
@@ -285,7 +285,7 @@ arr[0]&*
 
 ## Test: Pointer variable with TypeAST
 ```zong-program
-{ var ptr I64*; var x I64; x = 99; ptr = x&; print(ptr*); }
+{ var ptr: I64*; var x: I64; x = 99; ptr = x&; print(ptr*); }
 ```
 ```execute
 99
@@ -296,13 +296,13 @@ arr[0]&*
 ## Test: i64 pointer returns
 ```zong-program
 func getPointer(): I64* {
-	var x I64;
+	var x: I64;
 	x = 42;
 	return x&;
 }
 
 func main() {
-	var ptr I64*;
+	var ptr: I64*;
 	ptr = getPointer();
 	print(ptr*);
 }
@@ -316,7 +316,7 @@ func main() {
 ## Test: dereference non-pointer type
 ```zong-program
 func main() {
-    var x I64 = 42;
+    var x: I64 = 42;
     print(x*);
 }
 ```
@@ -327,7 +327,7 @@ error: cannot dereference non-pointer type I64
 ## Test: dereference non-pointer in assignment
 ```zong-program
 func main() {
-    var x I64;
+    var x: I64;
     x = 42;
     print(x*);
 }
@@ -341,8 +341,8 @@ error: cannot dereference non-pointer type I64
 ## Test: address-of type verification
 ```zong-program
 func main() {
-    var x I64;
-    var ptr I64*;
+    var x: I64;
+    var ptr: I64*;
     x = 42;
     ptr = x&;
     print(x);

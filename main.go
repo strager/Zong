@@ -956,7 +956,7 @@ func (ctx *WASMContext) EmitStatement(buf *bytes.Buffer, node *ASTNode, localCtx
 		// (locals are declared in function header)
 		// However, if there's an initialization expression, generate assignment code
 		if len(node.Children) > 1 {
-			// Has initialization: var x I64 = value;
+			// Has initialization: var x: I64 = value;
 			// Generate equivalent assignment: x = value;
 			varName := node.Children[0]
 			initExpr := node.Children[1]
@@ -5861,13 +5861,21 @@ func ParseStatement(l *Lexer) *ASTNode {
 		l.SkipToken(VAR)
 		if l.CurrTokenType != LOWER_IDENT {
 			l.AddError("expected variable name (must start with lowercase letter)")
-			return &ASTNode{} // error
+			if l.CurrTokenType != UPPER_IDENT {
+				return &ASTNode{} // error - not even an identifier
+			}
+			// Continue as if it was lowercase - just report error and proceed
 		}
 		varName := &ASTNode{
 			Kind:   NodeIdent,
 			String: l.CurrLiteral,
 		}
-		l.SkipToken(LOWER_IDENT)
+		l.NextToken()
+		if l.CurrTokenType != COLON {
+			l.AddError("expected ':' after variable name")
+		} else {
+			l.SkipToken(COLON)
+		}
 		if l.CurrTokenType != UPPER_IDENT && l.CurrTokenType != LBRACKET {
 			l.AddError("expected type name (must start with uppercase letter)")
 			return &ASTNode{} // error - expecting type
@@ -5879,7 +5887,7 @@ func ParseStatement(l *Lexer) *ASTNode {
 			return &ASTNode{} // error - invalid type
 		}
 
-		// Check for optional initialization: var x I64 = value;
+		// Check for optional initialization: var x: I64 = value;
 		if l.CurrTokenType == ASSIGN {
 			l.SkipToken(ASSIGN)
 			// Parse the initialization expression
@@ -5890,7 +5898,7 @@ func ParseStatement(l *Lexer) *ASTNode {
 			}
 
 			// Return a variable declaration with initialization
-			// This will be semantically equivalent to: var x I64; x = value;
+			// This will be semantically equivalent to: var x: I64; x = value;
 			return &ASTNode{
 				Kind:     NodeVar,
 				Children: []*ASTNode{varName, initExpr}, // Second child is initialization expression

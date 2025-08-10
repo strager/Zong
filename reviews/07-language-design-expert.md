@@ -34,8 +34,8 @@ From README.md, Zong aims to be:
 **Current Syntax (Implemented):**
 ```zong
 // Variable declarations
-var x I64;
-var y I64;
+var x: I64;
+var y: I64;
 
 // Assignments and expressions  
 x = 42;
@@ -46,7 +46,7 @@ print(x);
 
 // Blocks
 {
-    var local I64;
+    var local: I64;
     local = 5;
 }
 ```
@@ -58,7 +58,7 @@ print(x);
 4. **Simple**: Minimal punctuation and keywords
 
 **Syntax Concerns:**
-1. **Verbose Type Annotations**: `var x I64;` vs shorter alternatives
+1. **Verbose Type Annotations**: `var x: I64;` vs shorter alternatives
 2. **Limited Type Inference**: No inference like `x := 42` from Go
 3. **Semicolon Requirements**: More verbose than modern languages
 
@@ -67,7 +67,7 @@ print(x);
 **Postfix Pointer Operators** (Planned):
 ```zong
 // Current plan: suffix operators
-var ptr I64*;     // Type: pointer to I64
+var ptr: I64*;     // Type: pointer to I64
 ptr = &x;         // Address-of with suffix
 value = ptr*;     // Dereference with suffix
 
@@ -191,7 +191,7 @@ type TypeNode struct {
 - **Productivity**: Verbose syntax may reduce productivity
 
 **Ergonomic Concerns**:
-1. **Verbosity**: `var x I64;` vs `x := 42`
+1. **Verbosity**: `var x: I64;` vs `x := 42`
 2. **Manual Memory**: Cognitive overhead for application developers
 3. **Limited Inference**: Requires explicit types everywhere
 4. **Unique Syntax**: Postfix operators may confuse

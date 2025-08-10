@@ -12,7 +12,7 @@ struct Point(x: I64, y: I64);
 
 ## Test: struct type in variable declaration
 ```zong-program
-var p Point;
+var p: Point;
 ```
 ```ast
 [(var-decl "p" "Point")]
@@ -46,7 +46,7 @@ p.x + q.y
 ```zong-program
 struct Point(x: I64, y: I64);
 func main() {
-    var p Point;
+    var p: Point;
     p.x = 42;
     p.y = 24;
     print(p.x);
@@ -64,9 +64,9 @@ func main() {
 ```zong-program
 {
 		struct Point(x: I64, y: I64);
-		var p1 Point;
-		var p2 Point;
-		var p3 Point;
+		var p1: Point;
+		var p2: Point;
+		var p3: Point;
 		
 		p1.x = 1;
 		p1.y = 2;
@@ -91,7 +91,7 @@ func main() {
 ```zong-program
 {
 		struct Point(x: I64, y: I64);
-		var p Point;
+		var p: Point;
 		p.x = 42;
 		p.y = 84;
 		print(p.x);
@@ -107,7 +107,7 @@ func main() {
 ```zong-program
 {
 		struct Point(x: I64, y: I64);
-		var p Point;
+		var p: Point;
 		p.x = 10;
 		p.y = 20;
 		print(p.x + p.y);
@@ -123,8 +123,8 @@ func main() {
 ```zong-program
 {
 		struct Point(x: I64, y: I64);
-		var p1 Point;
-		var p2 Point;
+		var p1: Point;
+		var p2: Point;
 		p1.x = 100;
 		p2.x = p1.x + 50;
 		p1.y = p2.x - p1.x;
@@ -143,7 +143,7 @@ func main() {
 ```zong-program
 {
 		struct Point(x: I64, y: I64);
-		var p Point;
+		var p: Point;
 		p.x = 15;
 		p.y = 25;
 		print(p.x < p.y);
@@ -163,8 +163,8 @@ func main() {
 ```zong-program
 {
 		struct Point(x: I64, y: I64);
-		var p1 Point;
-		var p2 Point;
+		var p1: Point;
+		var p2: Point;
 		p1.x = 1;
 		p1.y = 2;
 		p2.x = 10;
@@ -182,8 +182,8 @@ func main() {
 ```zong-program
 {
 		struct Point(x: I64, y: I64);
-		var p Point;
-		var regular I64;
+		var p: Point;
+		var regular: I64;
 		
 		regular = 100;
 		p.x = regular / 4;
@@ -206,7 +206,7 @@ func main() {
 ```zong-program
 {
 		struct Rectangle(width: I64, height: I64, depth: I64);
-		var rect Rectangle;
+		var rect: Rectangle;
 		rect.width = 5;
 		rect.height = 10;
 		rect.depth = 3;
@@ -227,7 +227,7 @@ func main() {
 ```zong-program
 {
 		struct Point(x: I64, y: I64);
-		var p Point;
+		var p: Point;
 		print(p.x);
 		print(p.y);
 	}
@@ -241,7 +241,7 @@ func main() {
 ```zong-program
 {
 		struct Point(x: I64, y: I64);
-		var p Point = Point(x: 2, y: 3);
+		var p: Point = Point(x: 2, y: 3);
 		print(p.x);
 		print(p.y);
 	}
@@ -255,7 +255,7 @@ func main() {
 ```zong-program
 {
 		struct Point(x: I64, y: I64);
-		var p Point = Point(y: 3, x: 2);
+		var p: Point = Point(y: 3, x: 2);
 		print(p.x);
 		print(p.y);
 	}
@@ -273,7 +273,7 @@ func print_and_return(_ x: I64): I64 {
 }
 func main() {
 	struct Point(x: I64, y: I64);
-	var p Point = Point(y: print_and_return(3), x: print_and_return(2));
+	var p: Point = Point(y: print_and_return(3), x: print_and_return(2));
 	print(p.x);
 	print(p.y);
 }
@@ -289,7 +289,7 @@ func main() {
 ```zong-program
 {
 		struct Mixed(flag: Boolean, count: I64);
-		var m Mixed = Mixed(flag: true, count: 42);
+		var m: Mixed = Mixed(flag: true, count: 42);
 		print(m.flag);
 		print(m.count);
 	}
@@ -303,7 +303,7 @@ func main() {
 ```zong-program
 {
 		struct Point(x: I64, y: I64);
-		var p Point = Point(x: 1 + 1, y: 3 * 4);
+		var p: Point = Point(x: 1 + 1, y: 3 * 4);
 		print(p.x);
 		print(p.y);
 	}
@@ -317,7 +317,7 @@ func main() {
 ```zong-program
 {
 		struct Point(x: I64, y: I64);
-		var sum I64 = Point(x: 1, y: 2).x + Point(x: 3, y: 4).y;
+		var sum: I64 = Point(x: 1, y: 2).x + Point(x: 3, y: 4).y;
 		print(sum);
 	}
 ```
@@ -340,7 +340,7 @@ func main() {
 ```zong-program
 {
 		struct Single(value: I64);
-		var s Single = Single(value: 42);
+		var s: Single = Single(value: 42);
 		print(s.value);
 	}
 ```
@@ -356,8 +356,8 @@ struct Address(state: I64, zipCode: I64);
 struct Person(name: I64, address: Address, age: I64);
 
 func main() {
-	var person Person;
-	var addr Address;
+	var person: Person;
+	var addr: Address;
 	
 	// Initialize address separately
 	addr.state = 99;
@@ -387,7 +387,7 @@ struct Address(state: I64, zipCode: I64);
 struct Person(name: I64, address: Address, age: I64);
 
 func main() {
-	var person Person;
+	var person: Person;
 	person.name = 100;
 	person.age = 25;
 	
@@ -415,7 +415,7 @@ func main() {
 ```zong-program
 {
 		struct Point(x: I64, y: I64);
-		var p Point = Point(x: 2);
+		var p: Point = Point(x: 2);
 	}
 ```
 ```compile-error
@@ -427,7 +427,7 @@ error: struct initialization missing required field 'y'
 ```zong-program
 {
 		struct Point(x: I64, y: I64);
-		var p Point = Point();
+		var p: Point = Point();
 	}
 ```
 ```compile-error
@@ -439,7 +439,7 @@ error: struct initialization missing required field 'x'
 ```zong-program
 {
 		struct Point(x: I64, y: I64);
-		var p Point = Point(x: 1, y: 2, z: 3);
+		var p: Point = Point(x: 1, y: 2, z: 3);
 	}
 ```
 ```compile-error
@@ -450,7 +450,7 @@ error: struct initialization expects 2 fields, got 3
 ```zong-program
 {
 		struct Point(x: I64, y: I64);
-		var p Point = Point(x: 1, y: 2, x: 3);
+		var p: Point = Point(x: 1, y: 2, x: 3);
 	}
 ```
 ```compile-error
@@ -461,7 +461,7 @@ error: struct initialization has duplicate field 'x'
 ```zong-program
 {
 		struct Point(x: I64, y: I64);
-		var p Point = Point(x: true, y: 2);
+		var p: Point = Point(x: true, y: 2);
 	}
 ```
 ```compile-error
@@ -472,7 +472,7 @@ error: struct initialization field 'x' expects type I64, got Boolean
 ```zong-program
 {
 		struct Point(x: I64, y: I64);
-		var p Point = Point(x: 1, z: 2);
+		var p: Point = Point(x: 1, z: 2);
 	}
 ```
 ```compile-error
@@ -483,7 +483,7 @@ error: struct initialization missing required field 'y'
 ## Test: struct initialization with non-existent struct
 ```zong-program
 {
-		var p FakeStruct = FakeStruct(a: 1);
+		var p: FakeStruct = FakeStruct(a: 1);
 	}
 ```
 TODO(strager): Only report two errors.
@@ -497,7 +497,7 @@ error: undefined symbol 'FakeStruct'
 ```zong-program
 {
 		struct Point(x: I64, y: I64);
-		var p Point = Point(1, 2);
+		var p: Point = Point(1, 2);
 	}
 ```
 ```compile-error
@@ -509,7 +509,7 @@ error: struct initialization requires named parameters for all fields
 ## Test: field access on non-struct type
 ```zong-program
 func main() {
-    var x I64;
+    var x: I64;
     x = 42;
     print(x.field);
 }
@@ -542,7 +542,7 @@ func processStruct(s: BigStruct) {
 }
 
 func main() {
-    var s BigStruct = BigStruct(a: 1, b: 2, c: 3, d: 4, e: 5, f: 6, g: 7, h: 8);
+    var s: BigStruct = BigStruct(a: 1, b: 2, c: 3, d: 4, e: 5, f: 6, g: 7, h: 8);
     
     // This function call will pass the 64-byte struct by value
     processStruct(s);
@@ -572,7 +572,7 @@ struct BigStruct(
     target: I64);     // This field will be at offset 64
 
 func main() {
-    var s BigStruct = BigStruct(
+    var s: BigStruct = BigStruct(
         p1: 1, p2: 2, p3: 3, p4: 4, p5: 5, p6: 6, p7: 7, p8: 8,
         target: 999);
     print(s.target);

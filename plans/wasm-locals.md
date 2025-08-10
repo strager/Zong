@@ -254,7 +254,7 @@ case NodeBinary:
 #### Test 1: Single Variable Declaration
 ```go
 func TestCollectSingleLocalVariable(t *testing.T) {
-    input := []byte("var x I64;\x00")
+    input := []byte("var x: I64;\x00")
     Init(input)
     ast := ParseStatement()
     
@@ -271,7 +271,7 @@ func TestCollectSingleLocalVariable(t *testing.T) {
 #### Test 2: Multiple Variable Declarations
 ```go
 func TestCollectMultipleLocalVariables(t *testing.T) {
-    input := []byte("{ var x I64; var y I64; }\x00")
+    input := []byte("{ var x: I64; var y: I64; }\x00")
     Init(input)
     ast := ParseStatement()
     
@@ -289,7 +289,7 @@ func TestCollectMultipleLocalVariables(t *testing.T) {
 #### Test 3: Nested Block Variable Collection
 ```go
 func TestCollectNestedBlockVariables(t *testing.T) {
-    input := []byte("{ var a I64; { var b I64; } }\x00")
+    input := []byte("{ var a: I64; { var b: I64; } }\x00")
     Init(input)
     ast := ParseStatement()
     
@@ -335,7 +335,7 @@ func TestUndefinedVariableReference(t *testing.T) {
 #### Test 8: Complete WASM Module with Variables
 ```go
 func TestCompleteWASMModuleWithVariables(t *testing.T) {
-    input := []byte("{ var x I64; x = 40; var y I64; y = 2; print(x + y); }\x00")
+    input := []byte("{ var x: I64; x = 40; var y: I64; y = 2; print(x + y); }\x00")
     Init(input)
     ast := ParseStatement()
     
@@ -403,12 +403,12 @@ func TestNoVariables(t *testing.T) {
 
 ### Future Extensions
 - Support for other data types (F64, I32)
-- Variable initialization syntax (`var x I64 = 42`)
+- Variable initialization syntax (`var x: I64 = 42`)
 - Better error reporting for undefined variables
 
 ## Success Criteria
 
-1. **Variable declaration**: `var x I64;` generates valid WASM with proper locals declaration
+1. **Variable declaration**: `var x: I64;` generates valid WASM with proper locals declaration
 2. **Variable reference**: `print(x)` correctly emits `local.get` instruction
 3. **Multiple variables**: Multiple var declarations create correct local indices
 4. **Expression integration**: Variables work correctly in arithmetic expressions
