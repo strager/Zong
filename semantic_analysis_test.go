@@ -898,3 +898,169 @@ func TestStringLiteralTypeChecking(t *testing.T) {
 	be.Equal(t, stringLiteral.TypeAST.Kind, TypeSlice)
 	be.Equal(t, stringLiteral.TypeAST.Child.String, "U8")
 }
+
+// =============================================================================
+// TYPE RESOLUTION TESTS
+// =============================================================================
+
+func TestResolveTypeBuiltin(t *testing.T) {
+	t.Parallel()
+	st := NewSymbolTable()
+
+	// Builtin types should return unchanged
+	resolved := ResolveType(TypeI64, st)
+	be.Equal(t, TypeI64, resolved)
+
+	resolved = ResolveType(TypeBool, st)
+	be.Equal(t, TypeBool, resolved)
+
+	resolved = ResolveType(TypeU8, st)
+	be.Equal(t, TypeU8, resolved)
+}
+
+func TestResolveTypeStruct(t *testing.T) {
+	t.Parallel()
+	st := NewSymbolTable()
+
+	// Define a struct
+	structType := &TypeNode{
+		Kind:   TypeStruct,
+		String: "Point",
+		Fields: []Parameter{
+			{Name: "x", Type: TypeI64},
+			{Name: "y", Type: TypeI64},
+		},
+	}
+	st.DeclareStruct(structType)
+
+	// Create a reference to the struct
+	structRef := &TypeNode{
+		Kind:   TypeStruct,
+		String: "Point",
+	}
+
+	// Resolve should return the complete struct definition
+	resolved := ResolveType(structRef, st)
+	be.Equal(t, structType, resolved)
+	be.Equal(t, 2, len(resolved.Fields))
+	be.Equal(t, "x", resolved.Fields[0].Name)
+	be.Equal(t, "y", resolved.Fields[1].Name)
+}
+
+func TestResolveTypePointer(t *testing.T) {
+	t.Parallel()
+	st := NewSymbolTable()
+
+	// Define a struct
+	structType := &TypeNode{
+		Kind:   TypeStruct,
+		String: "Point",
+		Fields: []Parameter{
+			{Name: "x", Type: TypeI64},
+			{Name: "y", Type: TypeI64},
+		},
+	}
+	st.DeclareStruct(structType)
+
+	// Create a pointer to struct reference
+	ptrToStructRef := &TypeNode{
+		Kind: TypePointer,
+		Child: &TypeNode{
+			Kind:   TypeStruct,
+			String: "Point",
+		},
+	}
+
+	// Resolve should return pointer to complete struct definition
+	resolved := ResolveType(ptrToStructRef, st)
+	be.Equal(t, TypePointer, resolved.Kind)
+	be.Equal(t, structType, resolved.Child)
+}
+
+func TestResolveTypeSlice(t *testing.T) {
+	t.Parallel()
+	st := NewSymbolTable()
+
+	// Define a struct
+	structType := &TypeNode{
+		Kind:   TypeStruct,
+		String: "Point",
+		Fields: []Parameter{
+			{Name: "x", Type: TypeI64},
+			{Name: "y", Type: TypeI64},
+		},
+	}
+	st.DeclareStruct(structType)
+
+	// Create a slice of struct reference
+	sliceOfStructRef := &TypeNode{
+		Kind: TypeSlice,
+		Child: &TypeNode{
+			Kind:   TypeStruct,
+			String: "Point",
+		},
+	}
+
+	// Resolve should return slice of complete struct definition
+	resolved := ResolveType(sliceOfStructRef, st)
+	be.Equal(t, TypeSlice, resolved.Kind)
+	be.Equal(t, structType, resolved.Child)
+}
+
+func TestResolveTypeNestedPointers(t *testing.T) {
+	t.Parallel()
+	st := NewSymbolTable()
+
+	// Define a struct
+	structType := &TypeNode{
+		Kind:   TypeStruct,
+		String: "Point",
+		Fields: []Parameter{
+			{Name: "x", Type: TypeI64},
+			{Name: "y", Type: TypeI64},
+		},
+	}
+	st.DeclareStruct(structType)
+
+	// Create a pointer to pointer to struct reference
+	ptrToPtrToStructRef := &TypeNode{
+		Kind: TypePointer,
+		Child: &TypeNode{
+			Kind: TypePointer,
+			Child: &TypeNode{
+				Kind:   TypeStruct,
+				String: "Point",
+			},
+		},
+	}
+
+	// Resolve should work recursively
+	resolved := ResolveType(ptrToPtrToStructRef, st)
+	be.Equal(t, TypePointer, resolved.Kind)
+	be.Equal(t, TypePointer, resolved.Child.Kind)
+	be.Equal(t, structType, resolved.Child.Child)
+}
+
+func TestResolveTypeUnknownStruct(t *testing.T) {
+	t.Parallel()
+	st := NewSymbolTable()
+
+	// Create reference to unknown struct
+	unknownStructRef := &TypeNode{
+		Kind:   TypeStruct,
+		String: "UnknownStruct",
+	}
+
+	// Resolve should return the original reference (may be forward reference)
+	resolved := ResolveType(unknownStructRef, st)
+	be.Equal(t, unknownStructRef, resolved)
+}
+
+func TestResolveTypeNil(t *testing.T) {
+	t.Parallel()
+	st := NewSymbolTable()
+
+	// Nil should return nil
+	resolved := ResolveType(nil, st)
+	be.True(t, resolved == nil)
+}

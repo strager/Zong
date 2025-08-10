@@ -2836,6 +2836,59 @@ func TypeToString(t *TypeNode) string {
 	panic("Unknown TypeKind: " + string(t.Kind))
 }
 
+// ResolveType recursively resolves all type references in a TypeNode
+// Returns a new TypeNode with all struct references resolved to their definitions
+func ResolveType(typeNode *TypeNode, st *SymbolTable) *TypeNode {
+	if typeNode == nil {
+		return nil
+	}
+
+	switch typeNode.Kind {
+	case TypeBuiltin, TypeInteger:
+		// Builtin and integer types don't need resolution
+		return typeNode
+
+	case TypeStruct:
+		// Look up struct definition
+		structDef := st.LookupStruct(typeNode.String)
+		if structDef != nil {
+			return structDef
+		}
+		// If struct not found, return original (may be forward reference)
+		return typeNode
+
+	case TypePointer:
+		// Recursively resolve the child type
+		resolvedChild := ResolveType(typeNode.Child, st)
+		if resolvedChild == typeNode.Child {
+			// No change needed
+			return typeNode
+		}
+		// Create new pointer type with resolved child
+		return &TypeNode{
+			Kind:  TypePointer,
+			Child: resolvedChild,
+		}
+
+	case TypeSlice:
+		// Recursively resolve the element type
+		resolvedElement := ResolveType(typeNode.Child, st)
+		if resolvedElement == typeNode.Child {
+			// No change needed
+			return typeNode
+		}
+		// Create new slice type with resolved element type
+		return &TypeNode{
+			Kind:  TypeSlice,
+			Child: resolvedElement,
+		}
+
+	default:
+		// Unknown type kind, return as-is
+		return typeNode
+	}
+}
+
 // getBuiltinType returns the built-in type for a given name
 func getBuiltinType(name string) *TypeNode {
 	switch name {
@@ -3824,40 +3877,13 @@ func BuildSymbolTable(ast *ASTNode) *SymbolTable {
 			st.DeclareStruct(structType)
 
 		case NodeFunc:
-			// Resolve struct types in function parameters and update the AST node
+			// Resolve all type references in function parameters
 			for i, param := range node.Parameters {
-				resolvedType := param.Type
-
-				// For pointer-to-struct parameters, resolve the child struct type
-				if resolvedType.Kind == TypePointer && resolvedType.Child.Kind == TypeStruct {
-					structDef := st.LookupStruct(resolvedType.Child.String)
-					if structDef != nil {
-						// Create new pointer type with resolved struct child
-						resolvedType = &TypeNode{
-							Kind:  TypePointer,
-							Child: structDef,
-						}
-						// Update the AST node with resolved type
-						node.Parameters[i].Type = resolvedType
-					}
-				}
-				// For struct parameters, resolve the struct type
-				if resolvedType.Kind == TypeStruct {
-					structDef := st.LookupStruct(resolvedType.String)
-					if structDef != nil {
-						node.Parameters[i].Type = structDef
-					}
-				}
+				node.Parameters[i].Type = ResolveType(param.Type, st)
 			}
 
-			// Resolve struct types in function return type
-			if node.ReturnType != nil && node.ReturnType.Kind == TypeStruct {
-				structDef := st.LookupStruct(node.ReturnType.String)
-				if structDef != nil {
-					// Use the complete struct definition as return type
-					node.ReturnType = structDef
-				}
-			}
+			// Resolve function return type
+			node.ReturnType = ResolveType(node.ReturnType, st)
 
 			// Declare function (in global scope)
 			st.DeclareFunction(node.FunctionName, node.Parameters, node.ReturnType)
@@ -3890,14 +3916,17 @@ func BuildSymbolTable(ast *ASTNode) *SymbolTable {
 				break
 			}
 
+			// Resolve type references
+			resolvedVarType := ResolveType(varType, st)
+
 			// Only add supported types to symbol table
-			if isWASMI64Type(varType) || isWASMI32Type(varType) || varType.Kind == TypeStruct || varType.Kind == TypeSlice {
-				symbol := st.DeclareVariable(varName, varType)
+			if isWASMI64Type(resolvedVarType) || isWASMI32Type(resolvedVarType) || resolvedVarType.Kind == TypeStruct || resolvedVarType.Kind == TypeSlice {
+				symbol := st.DeclareVariable(varName, resolvedVarType)
 				if symbol != nil {
 					node.Children[0].Symbol = symbol
 
 					// Mark variable as assigned if it has an initializer or if it's a struct/slice
-					if hasInitializer || varType.Kind == TypeStruct || varType.Kind == TypeSlice {
+					if hasInitializer || resolvedVarType.Kind == TypeStruct || resolvedVarType.Kind == TypeSlice {
 						symbol.Assigned = true
 					}
 				}
