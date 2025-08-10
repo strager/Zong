@@ -1572,37 +1572,57 @@ func (ctx *WASMContext) EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localC
 			// This is struct initialization with NodeType callee
 			structType := node.Children[0].ReturnType
 
+			// Check if this is a slice type (after transformation to struct)
+			isSliceType := structType.IsSlice
+
 			// Save current tstack pointer as the struct address (this will be returned)
 			w.global_get(0) // tstack global index
 
-			// For each argument in source order, store the provided value at the correct field offset
-			for i, paramName := range node.ParameterNames {
-				// Find the field for this parameter
-				var field *Parameter
-				for j := range structType.Fields {
-					if structType.Fields[j].Name == paramName {
-						field = &structType.Fields[j]
-						break
-					}
-				}
-				if field == nil {
-					panic("Missing field for parameter " + paramName + " in struct initialization")
-				}
-
-				// Duplicate struct base address for this field store
+			// Handle special case: empty slice initialization
+			if isSliceType && len(node.Children) == 1 {
+				// Zero-initialize the slice: U8[]()
+				// Store null pointer (0) at offset 0
 				w.global_get(0) // tstack global index (struct base address)
+				w.i64_const(0)  // null pointer
+				w.i64_store(0, 0)
 
-				// Emit field offset if needed
-				if field.Offset > 0 {
-					w.i32_const(int32(field.Offset))
-					w.i32_add()
+				// Store length 0 at offset 8
+				w.global_get(0) // tstack global index (struct base address)
+				w.i32_const(8)  // offset for length field
+				w.i32_add()
+				w.i64_const(0) // length = 0
+				w.i64_store(0, 0)
+			} else {
+				// Normal struct initialization with explicit fields
+				// For each argument in source order, store the provided value at the correct field offset
+				for i, paramName := range node.ParameterNames {
+					// Find the field for this parameter
+					var field *Parameter
+					for j := range structType.Fields {
+						if structType.Fields[j].Name == paramName {
+							field = &structType.Fields[j]
+							break
+						}
+					}
+					if field == nil {
+						panic("Missing field for parameter " + paramName + " in struct initialization")
+					}
+
+					// Duplicate struct base address for this field store
+					w.global_get(0) // tstack global index (struct base address)
+
+					// Emit field offset if needed
+					if field.Offset > 0 {
+						w.i32_const(int32(field.Offset))
+						w.i32_add()
+					}
+
+					// Emit the argument expression
+					ctx.EmitExpressionR(buf, node.Children[i+1], localCtx)
+
+					// Store the value at the memory address (address + offset already computed)
+					emitValueStoreToMemory(buf, field.Type)
 				}
-
-				// Emit the argument expression
-				ctx.EmitExpressionR(buf, node.Children[i+1], localCtx)
-
-				// Store the value at the memory address (address + offset already computed)
-				emitValueStoreToMemory(buf, field.Type)
 			}
 
 			// Update tstack to point past the allocated struct
@@ -2746,6 +2766,9 @@ type TypeNode struct {
 
 	// For TypeStruct
 	Fields []Parameter // Field definitions (only for struct declarations)
+
+	// True if this struct represents a synthesized slice type (transformed from TypeSlice)
+	IsSlice bool
 }
 
 // Built-in types
@@ -3571,9 +3594,10 @@ func synthesizeSliceStruct(sliceType *TypeNode, typeTable *TypeTable) *TypeNode 
 	fields := createSliceFieldsWithSymbols(elementType, nil)
 
 	synthesized := &TypeNode{
-		Kind:   TypeStruct,
-		String: sliceName,
-		Fields: fields,
+		Kind:    TypeStruct,
+		String:  sliceName,
+		Fields:  fields,
+		IsSlice: true, // Mark this as a synthesized slice
 	}
 
 	// Cache the synthesized struct to ensure symbol consistency
@@ -4361,39 +4385,63 @@ func CheckExpression(expr *ASTNode, tc *TypeChecker) {
 		if expr.Children[0].Kind == NodeType {
 			// This is a struct constructor call with NodeType callee
 			// After symbol resolution, ReturnType should have complete field information
-			if expr.Children[0].ReturnType == nil || expr.Children[0].ReturnType.Kind != TypeStruct {
-				tc.AddError("error: NodeType must represent a struct type")
+			if expr.Children[0].ReturnType == nil || (expr.Children[0].ReturnType.Kind != TypeStruct && expr.Children[0].ReturnType.Kind != TypeSlice) {
+				tc.AddError("error: NodeType must represent a struct or slice type")
 				return
 			}
 
-			structType := expr.Children[0].ReturnType
+			originalType := expr.Children[0].ReturnType
+			structType := originalType
 
-			// First, validate that all parameters are named (struct initialization requirement)
-			for _, paramName := range expr.ParameterNames {
-				if paramName == "" {
-					tc.AddError("error: struct initialization requires named parameters for all fields")
-					return
+			// Check if this is a slice type (before or after transformation to struct)
+			isSliceType := false
+			if structType.Kind == TypeSlice {
+				// Slice type before transformation - synthesize the struct representation
+				isSliceType = true
+				structType = synthesizeSliceStruct(structType, tc.typeTable)
+			} else if structType.IsSlice {
+				// Already transformed to struct
+				isSliceType = true
+			}
+
+			// Special handling for slice zero-initialization with empty parentheses
+			if isSliceType && len(expr.Children) == 1 {
+				// Empty parentheses for slice: U8[]()
+				// This is allowed and creates a zero-initialized slice
+			} else {
+				// Validate that all parameters are named (struct initialization requirement)
+				for _, paramName := range expr.ParameterNames {
+					if paramName == "" {
+						tc.AddError("error: struct initialization requires named parameters for all fields")
+						return
+					}
+				}
+
+				// Use shared validation logic for arguments
+				argValues := expr.Children[1:] // Skip struct name
+				validateCallArguments(argValues, expr.ParameterNames, structType.Fields, "struct initialization", tc)
+
+				// Additional validation: ensure all struct fields are provided (struct initialization requirement)
+				providedFields := make(map[string]bool)
+				for _, paramName := range expr.ParameterNames {
+					providedFields[paramName] = true
+				}
+				for _, field := range structType.Fields {
+					if !providedFields[field.Name] {
+						tc.AddError(fmt.Sprintf("error: struct initialization missing required field '%s'", field.Name))
+						return
+					}
 				}
 			}
 
-			// Use shared validation logic for arguments
-			argValues := expr.Children[1:] // Skip struct name
-			validateCallArguments(argValues, expr.ParameterNames, structType.Fields, "struct initialization", tc)
-
-			// Additional validation: ensure all struct fields are provided (struct initialization requirement)
-			providedFields := make(map[string]bool)
-			for _, paramName := range expr.ParameterNames {
-				providedFields[paramName] = true
+			// Set the expression type
+			if isSliceType {
+				// For slice types, keep the original slice type for consistency
+				expr.TypeAST = originalType
+			} else {
+				// For regular structs, use the struct type
+				expr.TypeAST = structType
 			}
-			for _, field := range structType.Fields {
-				if !providedFields[field.Name] {
-					tc.AddError(fmt.Sprintf("error: struct initialization missing required field '%s'", field.Name))
-					return
-				}
-			}
-
-			// Set the expression type to the struct type
-			expr.TypeAST = structType
 			return
 		}
 

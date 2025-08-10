@@ -445,3 +445,91 @@ func main() {
 10
 80
 ```
+
+## Test: U8 slice zero initialization
+```zong-program
+func main() {
+    var s U8[] = U8[]();
+    print(s.length);
+}
+```
+```execute
+0
+```
+
+## Test: I64 slice zero initialization
+```zong-program
+func main() {
+    var s I64[] = I64[]();
+    print(s.length);
+}
+```
+```execute
+0
+```
+
+## Test: Slice field access after zero init
+```zong-program
+func main() {
+    var s U8[] = U8[]();
+    print(s.length);
+    // Note: We can access the length field
+    var len I64 = s.length;
+    print(len);
+}
+```
+```execute
+0
+0
+```
+
+## Test: Zero init followed by append
+```zong-program
+func main() {
+    var s U8[] = U8[]();
+    print(s.length);
+    append(s&, 42);
+    print(s.length);
+}
+```
+```execute
+0
+1
+```
+
+## Test: Multiple slice types
+```zong-program
+func main() {
+    var bytes U8[] = U8[]();
+    var numbers I64[] = I64[]();
+    print(bytes.length);
+    print(numbers.length);
+}
+```
+```execute
+0
+0
+```
+
+## Test: Slice zero init in expression
+```zong-program
+func main() {
+    print(U8[]().length);
+}
+```
+```execute
+0
+```
+
+## Test: Nested slice field access
+```zong-program
+struct Container(slice: U8[]);
+
+func main() {
+    var c Container = Container(slice: U8[]());
+    print(c.slice.length);
+}
+```
+```execute
+0
+```
