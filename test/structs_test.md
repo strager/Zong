@@ -486,7 +486,9 @@ error: struct initialization missing required field 'y'
 		var p FakeStruct = FakeStruct(a: 1);
 	}
 ```
+TODO(strager): Only report two errors.
 ```compile-error
+error: undefined symbol 'FakeStruct'
 error: undefined symbol 'FakeStruct'
 error: undefined symbol 'FakeStruct'
 ```

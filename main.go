@@ -4004,37 +4004,15 @@ func BuildSymbolTable(ast *ASTNode) *SymbolTable {
 	// Pass 1.5: resolve struct types in variable declarations now that all structs are declared
 	var resolveVariableStructTypes func(*ASTNode)
 	resolveVariableStructTypes = func(node *ASTNode) {
-		if node.Kind == NodeVar {
-			varType := node.TypeAST
-			if varType != nil && varType.Kind == TypeStruct {
-				// Look up the struct definition
-				structDef := st.LookupStruct(varType.String)
-				if structDef != nil {
-					// Use the complete struct definition
-					node.TypeAST = structDef
-					// Update the symbol's type as well
-					if node.Children[0].Symbol != nil {
-						node.Children[0].Symbol.Type = structDef
-						node.Children[0].TypeAST = structDef
-					}
-				}
-			}
-			// For slice types, resolve the element type if it's a struct
-			if varType != nil && varType.Kind == TypeSlice && varType.Child.Kind == TypeStruct {
-				// Look up the struct definition for the element type
-				elementStructDef := st.LookupStruct(varType.Child.String)
-				if elementStructDef != nil {
-					// Create new slice type with resolved element type
-					resolvedSliceType := &TypeNode{
-						Kind:  TypeSlice,
-						Child: elementStructDef,
-					}
-					node.TypeAST = resolvedSliceType
-					// Update the symbol's type as well
-					if node.Children[0].Symbol != nil {
-						node.Children[0].Symbol.Type = resolvedSliceType
-						node.Children[0].TypeAST = resolvedSliceType
-					}
+		if node.Kind == NodeVar && node.TypeAST != nil {
+			// Resolve the entire type tree using ResolveType (second pass)
+			resolvedType := ResolveType(node.TypeAST, st)
+			if resolvedType != node.TypeAST {
+				node.TypeAST = resolvedType
+				// Update the symbol's type as well
+				if node.Children[0].Symbol != nil {
+					node.Children[0].Symbol.Type = resolvedType
+					node.Children[0].TypeAST = resolvedType
 				}
 			}
 		}
@@ -4051,13 +4029,10 @@ func BuildSymbolTable(ast *ASTNode) *SymbolTable {
 	// Pass 1.6: resolve struct field types now that all structs are declared
 	for _, structType := range st.GetAllStructs() {
 		for i, field := range structType.Fields {
-			if field.Type.Kind == TypeStruct {
-				// Look up the struct definition for this field
-				fieldStructDef := st.LookupStruct(field.Type.String)
-				if fieldStructDef != nil {
-					// Update the field to use the complete struct definition
-					structType.Fields[i].Type = fieldStructDef
-				}
+			// Resolve the entire field type tree using ResolveType (second pass)
+			resolvedFieldType := ResolveType(field.Type, st)
+			if resolvedFieldType != field.Type {
+				structType.Fields[i].Type = resolvedFieldType
 			}
 		}
 	}

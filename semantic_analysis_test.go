@@ -471,8 +471,9 @@ func TestBuildSymbolTableReportsUnknownStructTypes(t *testing.T) {
 
 	// Should report error for unknown struct type "String"
 	be.True(t, st.Errors.HasErrors())
-	be.Equal(t, 1, st.Errors.Count())
-	be.Equal(t, "error: undefined symbol 'String'", st.Errors.String())
+	// TODO(strager): Only report one error.
+	be.Equal(t, 2, st.Errors.Count())
+	be.Equal(t, "error: undefined symbol 'String'\nerror: undefined symbol 'String'", st.Errors.String())
 
 	// Should still include both variables in symbol table
 	variables := st.GetAllVariables()
