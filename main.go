@@ -1713,10 +1713,10 @@ func (ctx *WASMContext) EmitExpressionR(buf *bytes.Buffer, node *ASTNode, localC
 		} else {
 			// User-defined function call with source-order evaluation
 			args := node.Children[1:]
-			function := node.ResolvedFunction
-			if function == nil {
+			if node.Children[0].Symbol == nil || node.Children[0].Symbol.Kind != SymbolFunction {
 				panic("Missing resolved function for: " + functionName)
 			}
+			function := node.Children[0].Symbol.FunctionInfo
 
 			// Phase 1: Evaluate arguments in source order and store in temporaries
 			tempIndices := make([]uint32, len(args))
@@ -2700,8 +2700,7 @@ type ASTNode struct {
 	Op       string // "+", "-", "==", "!"
 	Children []*ASTNode
 	// NodeCall:
-	ParameterNames   []string
-	ResolvedFunction *FunctionInfo // Resolved function information (populated during BuildSymbolTable)
+	ParameterNames []string
 	// NodeVar:
 	TypeAST *TypeNode // Type information for variable declarations
 	// NodeIdent (variable references):
@@ -4073,10 +4072,11 @@ func BuildSymbolTable(ast *ASTNode) *SymbolTable {
 						node.Children[0].Symbol = structSymbol
 					}
 				} else {
-					function := st.LookupFunction(funcName)
-					if function != nil {
-						// Store resolved function in AST node
-						node.ResolvedFunction = function
+					// Look for function symbol
+					functionSymbol := st.LookupSymbol(funcName)
+					if functionSymbol != nil && functionSymbol.Kind == SymbolFunction {
+						// Set the symbol reference for the function call
+						node.Children[0].Symbol = functionSymbol
 					}
 				}
 				// Note: We don't panic on missing functions/structs here since that's handled during type checking
@@ -4461,12 +4461,12 @@ func CheckExpression(expr *ASTNode, tc *TypeChecker) {
 			expr.TypeAST = TypeI64 // append returns nothing, but use I64 for now
 		} else {
 			// User-defined function
-			// Use the pre-resolved function from BuildSymbolTable
-			function := expr.ResolvedFunction
-			if function == nil {
+			// Use the symbol-based function resolution
+			if expr.Children[0].Symbol == nil || expr.Children[0].Symbol.Kind != SymbolFunction {
 				tc.AddError(fmt.Sprintf("error: unknown function '%s'", funcName))
 				return
 			}
+			function := expr.Children[0].Symbol.FunctionInfo
 
 			// Use shared validation logic for function call arguments
 			argValues := expr.Children[1:] // Skip function name
