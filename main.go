@@ -3919,16 +3919,13 @@ func BuildSymbolTable(ast *ASTNode) *SymbolTable {
 			// Resolve type references
 			resolvedVarType := ResolveType(varType, st)
 
-			// Only add supported types to symbol table
-			if isWASMI64Type(resolvedVarType) || isWASMI32Type(resolvedVarType) || resolvedVarType.Kind == TypeStruct || resolvedVarType.Kind == TypeSlice {
-				symbol := st.DeclareVariable(varName, resolvedVarType)
-				if symbol != nil {
-					node.Children[0].Symbol = symbol
+			symbol := st.DeclareVariable(varName, resolvedVarType)
+			if symbol != nil {
+				node.Children[0].Symbol = symbol
 
-					// Mark variable as assigned if it has an initializer or if it's a struct/slice
-					if hasInitializer || resolvedVarType.Kind == TypeStruct || resolvedVarType.Kind == TypeSlice {
-						symbol.Assigned = true
-					}
+				// Mark variable as assigned if it has an initializer or if it's a struct/slice
+				if hasInitializer || resolvedVarType.Kind == TypeStruct || resolvedVarType.Kind == TypeSlice {
+					symbol.Assigned = true
 				}
 			}
 
