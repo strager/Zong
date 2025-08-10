@@ -1110,6 +1110,21 @@ func assertCompileErrorMatch(t *testing.T, input string, expectedError string, i
 			}
 			return
 		}
+
+		// Check for initialization errors
+		initErrors := AnalyzeInitialization(ast)
+		if initErrors.HasErrors() {
+			if expectedError == "" {
+				t.Errorf("Unexpected initialization errors: %s", initErrors.String())
+				return
+			}
+			// Check if any init error message exactly matches the expected error
+			errorMsg := initErrors.String()
+			if strings.TrimSpace(errorMsg) != strings.TrimSpace(expectedError) {
+				t.Errorf("Compilation error mismatch:\n  Expected error: %q\n  Actual initialization errors: %q", expectedError, errorMsg)
+			}
+			return
+		}
 	} else {
 		// Parsing failed but no errors recorded - this shouldn't happen
 		if expectedError == "" {

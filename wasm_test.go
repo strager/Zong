@@ -218,9 +218,8 @@ func TestEmitAddressOfNonAddressedVariable(t *testing.T) {
 
 	var buf bytes.Buffer
 	symbol := &SymbolInfo{
-		Name:     "localVar",
-		Type:     &TypeNode{Kind: TypeBuiltin, String: "I64"},
-		Assigned: false,
+		Name: "localVar",
+		Type: &TypeNode{Kind: TypeBuiltin, String: "I64"},
 	}
 	localCtx := &LocalContext{
 		Variables: []LocalVarInfo{

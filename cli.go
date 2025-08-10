@@ -304,6 +304,12 @@ func compileProgram(input []byte, verbose bool) ([]byte, error) {
 		return nil, fmt.Errorf("type checking errors:\n%s", typeErrors.String())
 	}
 
+	// Perform initialization checking
+	initErrors := AnalyzeInitialization(ast)
+	if initErrors.HasErrors() {
+		return nil, fmt.Errorf("initialization checking errors:\n%s", initErrors.String())
+	}
+
 	if verbose {
 		fmt.Printf("AST: %s\n", ToSExpr(ast))
 	}

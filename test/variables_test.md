@@ -495,7 +495,7 @@ error: undefined symbol 'undefinedVar'
 ```zong-program
 func main() {
     var x: I64;
-    var y: Boolean;
+    var y: I64;
     x = y;
 }
 ```

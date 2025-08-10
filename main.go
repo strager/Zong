@@ -1963,6 +1963,12 @@ func CompileToWASM(ast *ASTNode) []byte {
 		panic("type checking failed: " + typeErrors.String())
 	}
 
+	// Perform initialization checking
+	initErrors := AnalyzeInitialization(ast)
+	if initErrors.HasErrors() {
+		panic("initialization checking failed: " + initErrors.String())
+	}
+
 	// Collect slice types before transformation (when they're still slice types)
 	collectSliceTypes(ast, symbolTable.typeTable)
 	generatedAppendFunctions := generateAllAppendFunctions(symbolTable.typeTable)
@@ -2403,9 +2409,8 @@ func collectLocalVariables(node *ASTNode) ([]LocalVarInfo, uint32) {
 			if isWASMI32Type(resolvedType) || isWASMI64Type(resolvedType) {
 				// Create a temporary SymbolInfo for testing purposes
 				symbol := &SymbolInfo{
-					Name:     varName,
-					Type:     resolvedType,
-					Assigned: false,
+					Name: varName,
+					Type: resolvedType,
 				}
 
 				locals = append(locals, LocalVarInfo{
@@ -2419,9 +2424,8 @@ func collectLocalVariables(node *ASTNode) ([]LocalVarInfo, uint32) {
 
 				// Create a temporary SymbolInfo for testing purposes
 				symbol := &SymbolInfo{
-					Name:     varName,
-					Type:     resolvedType,
-					Assigned: false,
+					Name: varName,
+					Type: resolvedType,
 				}
 
 				locals = append(locals, LocalVarInfo{
@@ -3018,10 +3022,9 @@ const (
 
 // SymbolInfo represents information about a declared symbol (variable, function, or struct)
 type SymbolInfo struct {
-	Name     string
-	Type     *TypeNode
-	Kind     SymbolKind
-	Assigned bool // tracks if variable has been assigned a value (only relevant for variables)
+	Name string
+	Type *TypeNode
+	Kind SymbolKind
 
 	// For function symbols
 	FunctionInfo *FunctionInfo
@@ -3105,6 +3108,109 @@ func (tc *TypeChecker) ExitLoop() {
 
 func (tc *TypeChecker) InLoop() bool {
 	return tc.LoopDepth > 0
+}
+
+// ControlFlowState tracks variable initialization at a program point
+type ControlFlowState struct {
+	definitelyInitialized map[*SymbolInfo]bool // Variables guaranteed initialized
+	maybeInitialized      map[*SymbolInfo]bool // Variables initialized on some paths
+}
+
+// Clone creates a deep copy for branching control flow
+func (s *ControlFlowState) Clone() *ControlFlowState {
+	clone := &ControlFlowState{
+		definitelyInitialized: make(map[*SymbolInfo]bool),
+		maybeInitialized:      make(map[*SymbolInfo]bool),
+	}
+	for sym := range s.definitelyInitialized {
+		clone.definitelyInitialized[sym] = true
+	}
+	for sym := range s.maybeInitialized {
+		clone.maybeInitialized[sym] = true
+	}
+	return clone
+}
+
+// Merge merges states from multiple paths
+func (s *ControlFlowState) Merge(other *ControlFlowState) *ControlFlowState {
+	// Merge states from multiple paths:
+	// - definitely = s.definitely ∩ other.definitely
+	// - maybe = (s.definitely ∪ s.maybe ∪ other.definitely ∪ other.maybe) \ merged.definitely
+	//   (maintaining invariant: definitely ∩ maybe = ∅)
+
+	merged := &ControlFlowState{
+		definitelyInitialized: make(map[*SymbolInfo]bool),
+		maybeInitialized:      make(map[*SymbolInfo]bool),
+	}
+
+	// Variables definitely initialized on ALL paths
+	for sym := range s.definitelyInitialized {
+		if other.definitelyInitialized[sym] {
+			merged.definitelyInitialized[sym] = true
+		}
+	}
+
+	// Variables maybe initialized = all initialized vars minus definitely initialized
+	// This maintains the invariant: definitely ∩ maybe = ∅
+	allMaybeInitialized := make(map[*SymbolInfo]bool)
+	for sym := range s.definitelyInitialized {
+		allMaybeInitialized[sym] = true
+	}
+	for sym := range s.maybeInitialized {
+		allMaybeInitialized[sym] = true
+	}
+	for sym := range other.definitelyInitialized {
+		allMaybeInitialized[sym] = true
+	}
+	for sym := range other.maybeInitialized {
+		allMaybeInitialized[sym] = true
+	}
+
+	for sym := range allMaybeInitialized {
+		if !merged.definitelyInitialized[sym] {
+			merged.maybeInitialized[sym] = true
+		}
+	}
+
+	return merged
+}
+
+// MarkInitialized moves variable from maybe/uninitialized to definitely initialized
+func (s *ControlFlowState) MarkInitialized(symbol *SymbolInfo) {
+	s.definitelyInitialized[symbol] = true
+	delete(s.maybeInitialized, symbol)
+}
+
+// IsDefinitelyInitialized checks if variable is definitely initialized
+func (s *ControlFlowState) IsDefinitelyInitialized(symbol *SymbolInfo) bool {
+	return s.definitelyInitialized[symbol]
+}
+
+// IsMaybeInitialized checks if variable is maybe initialized
+func (s *ControlFlowState) IsMaybeInitialized(symbol *SymbolInfo) bool {
+	return s.maybeInitialized[symbol]
+}
+
+// InitializationAnalyzer performs control-flow-sensitive initialization analysis
+type InitializationAnalyzer struct {
+	errors       *ErrorCollection
+	currentState *ControlFlowState
+}
+
+// NewInitializationAnalyzer creates a new initialization analyzer
+func NewInitializationAnalyzer() *InitializationAnalyzer {
+	return &InitializationAnalyzer{
+		errors: &ErrorCollection{},
+		currentState: &ControlFlowState{
+			definitelyInitialized: make(map[*SymbolInfo]bool),
+			maybeInitialized:      make(map[*SymbolInfo]bool),
+		},
+	}
+}
+
+// AddError adds an error to the analyzer
+func (ia *InitializationAnalyzer) AddError(message string) {
+	ia.errors.Append(Error{message: message})
 }
 
 // NewSymbolTable creates a new empty symbol table
@@ -3222,10 +3328,9 @@ func (st *SymbolTable) DeclareVariable(name string, varType *TypeNode) *SymbolIn
 
 	// Create new symbol
 	symbol := &SymbolInfo{
-		Name:     name,
-		Type:     varType,
-		Kind:     SymbolVariable,
-		Assigned: false,
+		Name: name,
+		Type: varType,
+		Kind: SymbolVariable,
 	}
 
 	// Add to current scope
@@ -3657,15 +3762,13 @@ func transformTypeNodeSlices(typeNode **TypeNode, symbolTable *SymbolTable) {
 func createSliceFieldsWithSymbols(elementType *TypeNode, symbolTable *SymbolTable) []Parameter {
 	// Create symbols for the slice fields (not added to symbol table, just standalone symbols)
 	itemsSymbol := &SymbolInfo{
-		Name:     "items",
-		Type:     &TypeNode{Kind: TypePointer, Child: elementType},
-		Assigned: true,
+		Name: "items",
+		Type: &TypeNode{Kind: TypePointer, Child: elementType},
 	}
 
 	lengthSymbol := &SymbolInfo{
-		Name:     "length",
-		Type:     TypeI64,
-		Assigned: true,
+		Name: "length",
+		Type: TypeI64,
 	}
 
 	// Create the field parameters with symbols
@@ -3889,9 +3992,6 @@ func BuildSymbolTable(ast *ASTNode) *SymbolTable {
 			for i, field := range structType.Fields {
 				symbol := st.DeclareVariable(field.Name, field.Type)
 				if symbol != nil {
-					// Mark field as assigned (struct fields are always accessible)
-					symbol.Assigned = true
-
 					// Populate the Symbol field in the Parameter using the returned symbol
 					structType.Fields[i].Symbol = symbol
 				}
@@ -3933,7 +4033,6 @@ func BuildSymbolTable(ast *ASTNode) *SymbolTable {
 			// Extract variable name and type
 			varName := node.Children[0].String
 			varType := node.TypeAST
-			hasInitializer := len(node.Children) > 1
 
 			// Skip variables with no type information
 			if varType == nil {
@@ -3946,11 +4045,6 @@ func BuildSymbolTable(ast *ASTNode) *SymbolTable {
 			symbol := st.DeclareVariable(varName, resolvedVarType)
 			if symbol != nil {
 				node.Children[0].Symbol = symbol
-
-				// Mark variable as assigned if it has an initializer or if it's a struct/slice
-				if hasInitializer || resolvedVarType.Kind == TypeStruct || resolvedVarType.Kind == TypeSlice {
-					symbol.Assigned = true
-				}
 			}
 
 			// Process initializer expression if present (Children[1] and beyond)
@@ -3970,9 +4064,6 @@ func BuildSymbolTable(ast *ASTNode) *SymbolTable {
 			for i, param := range node.Parameters {
 				symbol := st.DeclareVariable(param.Name, param.Type)
 				if symbol != nil {
-					// Mark parameter as assigned (since it gets its value from the call)
-					symbol.Assigned = true
-
 					// Populate the Symbol field in the Parameter using the returned symbol
 					node.Parameters[i].Symbol = symbol
 				}
@@ -4304,10 +4395,7 @@ func CheckExpression(expr *ASTNode, tc *TypeChecker) {
 			tc.AddError(fmt.Sprintf("error: variable '%s' used before declaration", expr.String))
 			return
 		}
-		if !expr.Symbol.Assigned {
-			tc.AddError(fmt.Sprintf("error: variable '%s' used before assignment", expr.String))
-			return
-		}
+		// Assignment checking is now handled by initialization analysis
 		expr.TypeAST = expr.Symbol.Type
 
 	case NodeBinary:
@@ -4716,9 +4804,6 @@ func CheckAssignment(lhs, rhs *ASTNode, tc *TypeChecker) {
 		// Set the TypeAST for code generation
 		lhs.TypeAST = lhsType
 
-		// Mark variable as assigned
-		lhs.Symbol.Assigned = true
-
 	} else if lhs.Kind == NodeUnary && lhs.Op == "*" {
 		// Pointer dereference assignment (e.g., ptr* = value)
 		CheckExpression(lhs.Children[0], tc)
@@ -4770,6 +4855,243 @@ func CheckAssignmentExpression(lhs, rhs *ASTNode, tc *TypeChecker) {
 	// Assignment expression returns the type of the assigned value
 	// The assignment expression type should be set to the RHS type
 	lhs.TypeAST = rhs.TypeAST
+}
+
+// AnalyzeInitialization performs control-flow-sensitive initialization checking
+func AnalyzeInitialization(ast *ASTNode) *ErrorCollection {
+	analyzer := NewInitializationAnalyzer()
+	AnalyzeStatement(ast, analyzer)
+	return analyzer.errors
+}
+
+// AnalyzeStatement analyzes variable initialization in statements
+func AnalyzeStatement(stmt *ASTNode, analyzer *InitializationAnalyzer) bool {
+	// Returns true if the statement returns control (break, continue, return)
+
+	switch stmt.Kind {
+	case NodeVar:
+		// Variable declaration - symbol already exists from BuildSymbolTable
+		// If has initializer, mark as initialized
+		if len(stmt.Children) > 1 && stmt.Children[1] != nil {
+			AnalyzeExpression(stmt.Children[1], analyzer) // Check RHS first
+			if stmt.Children[0].Symbol != nil {
+				analyzer.currentState.MarkInitialized(stmt.Children[0].Symbol)
+			}
+		} else if stmt.Children[0].Symbol != nil {
+			// Check if it's a slice or struct type - these are auto-initialized
+			varType := stmt.Children[0].Symbol.Type
+			if varType != nil && (varType.Kind == TypeSlice || varType.Kind == TypeStruct) {
+				analyzer.currentState.MarkInitialized(stmt.Children[0].Symbol)
+			}
+		}
+		return false
+
+	case NodeBinary:
+		if stmt.Op == "=" {
+			// Assignment statement
+			rhs := stmt.Children[1]
+			lhs := stmt.Children[0]
+
+			AnalyzeExpression(rhs, analyzer) // Check RHS first
+
+			if lhs.Kind == NodeIdent && lhs.Symbol != nil {
+				analyzer.currentState.MarkInitialized(lhs.Symbol)
+			} else {
+				AnalyzeExpression(lhs, analyzer) // Check LHS (e.g., field access)
+			}
+		} else {
+			// Expression statement - analyze the expression
+			AnalyzeExpression(stmt, analyzer)
+		}
+		return false
+
+	case NodeBlock:
+		// No scope management needed - symbols already contain scope info
+		for _, child := range stmt.Children {
+			if child != nil {
+				if AnalyzeStatement(child, analyzer) {
+					// Statement transfers control - subsequent statements are unreachable
+					return true
+				}
+			}
+		}
+		return false
+
+	case NodeIf:
+		AnalyzeConditional(stmt, analyzer)
+		return false
+
+	case NodeLoop:
+		AnalyzeLoop(stmt, analyzer)
+		return false
+
+	case NodeFunc:
+		AnalyzeFunctionDeclaration(stmt, analyzer)
+		return false
+
+	case NodeBreak, NodeContinue:
+		// These transfer control - no further analysis needed
+		return true
+
+	case NodeReturn:
+		// Analyze return expression if present
+		if len(stmt.Children) > 0 && stmt.Children[0] != nil {
+			AnalyzeExpression(stmt.Children[0], analyzer)
+		}
+		// No further analysis after return
+		return true
+
+	default:
+		// Expression statement - analyze the expression
+		AnalyzeExpression(stmt, analyzer)
+		return false
+	}
+}
+
+// AnalyzeExpression analyzes variable initialization in expressions
+func AnalyzeExpression(expr *ASTNode, analyzer *InitializationAnalyzer) {
+	if expr == nil {
+		return
+	}
+
+	switch expr.Kind {
+	case NodeIdent:
+		// Variable use - check if initialized
+		symbol := expr.Symbol // Symbol already resolved by BuildSymbolTable
+
+		if symbol == nil {
+			// This should have been caught by BuildSymbolTable, but just in case
+			analyzer.AddError(fmt.Sprintf("error: variable '%s' used before declaration", expr.String))
+			return
+		}
+
+		// Only check initialization for local variables
+		if symbol.Kind == SymbolVariable {
+			if !analyzer.currentState.IsDefinitelyInitialized(symbol) {
+				if analyzer.currentState.IsMaybeInitialized(symbol) {
+					analyzer.AddError(fmt.Sprintf("error: variable '%s' may be used before assignment", symbol.Name))
+				} else {
+					analyzer.AddError(fmt.Sprintf("error: variable '%s' used before assignment", symbol.Name))
+				}
+			}
+		}
+
+	case NodeBinary:
+		AnalyzeExpression(expr.Children[0], analyzer)
+		AnalyzeExpression(expr.Children[1], analyzer)
+
+	case NodeUnary:
+		AnalyzeExpression(expr.Children[0], analyzer)
+
+	case NodeCall:
+		// Function call - analyze function expression and all arguments
+		for _, child := range expr.Children {
+			AnalyzeExpression(child, analyzer)
+		}
+
+	case NodeDot:
+		// Field access - check base object is initialized
+		AnalyzeExpression(expr.Children[0], analyzer)
+
+	case NodeIndex:
+		// Array/slice access - check both base and index
+		AnalyzeExpression(expr.Children[0], analyzer)
+		if len(expr.Children) > 1 {
+			AnalyzeExpression(expr.Children[1], analyzer)
+		}
+
+	// Literals don't need initialization checking
+	case NodeInteger, NodeBoolean, NodeString:
+		return
+
+	default:
+		// For other node types, recursively analyze children
+		for _, child := range expr.Children {
+			AnalyzeExpression(child, analyzer)
+		}
+	}
+}
+
+// AnalyzeConditional analyzes if statements for variable initialization
+func AnalyzeConditional(ifStmt *ASTNode, analyzer *InitializationAnalyzer) {
+	// Structure: [condition, then_block, condition2?, else_block2?, ...]
+
+	AnalyzeExpression(ifStmt.Children[0], analyzer) // Check condition
+
+	originalState := analyzer.currentState.Clone()
+
+	// Analyze then branch
+	AnalyzeStatement(ifStmt.Children[1], analyzer)
+	thenState := analyzer.currentState.Clone()
+
+	// Reset to original state for else branch
+	analyzer.currentState = originalState.Clone()
+
+	// Handle else/else-if clauses
+	if len(ifStmt.Children) > 2 {
+		// Has else/else-if branches
+		if ifStmt.Children[2] != nil {
+			// else-if: create a new if node from the remaining clauses
+			elseIfNode := &ASTNode{
+				Kind:     NodeIf,
+				Children: ifStmt.Children[2:],
+			}
+			AnalyzeConditional(elseIfNode, analyzer)
+		} else if len(ifStmt.Children) > 3 {
+			// else block
+			AnalyzeStatement(ifStmt.Children[3], analyzer)
+		}
+		elseState := analyzer.currentState
+		analyzer.currentState = thenState.Merge(elseState)
+	} else {
+		// No else branch - merge with original state
+		analyzer.currentState = thenState.Merge(originalState)
+	}
+}
+
+// AnalyzeLoop analyzes loop statements for variable initialization
+func AnalyzeLoop(loop *ASTNode, analyzer *InitializationAnalyzer) {
+	entryState := analyzer.currentState.Clone()
+
+	// Analyze loop body once
+	for _, stmt := range loop.Children {
+		if stmt != nil {
+			AnalyzeStatement(stmt, analyzer)
+		}
+	}
+
+	firstIterState := analyzer.currentState.Clone()
+
+	// Conservative approach: merge entry state with loop body state
+	// This handles cases where break statements prevent initialization
+	analyzer.currentState = entryState.Merge(firstIterState)
+}
+
+// AnalyzeFunctionDeclaration analyzes function declarations
+func AnalyzeFunctionDeclaration(funcDecl *ASTNode, analyzer *InitializationAnalyzer) {
+	// Create new analysis context for function
+	savedState := analyzer.currentState
+	analyzer.currentState = &ControlFlowState{
+		definitelyInitialized: make(map[*SymbolInfo]bool),
+		maybeInitialized:      make(map[*SymbolInfo]bool),
+	}
+
+	// Mark function parameters as initialized (they get values from caller)
+	for _, param := range funcDecl.Parameters {
+		if param.Symbol != nil {
+			analyzer.currentState.MarkInitialized(param.Symbol)
+		}
+	}
+
+	// Analyze function body
+	for _, stmt := range funcDecl.Children {
+		if stmt != nil {
+			AnalyzeStatement(stmt, analyzer)
+		}
+	}
+
+	// Restore previous state (functions don't affect outer scope initialization)
+	analyzer.currentState = savedState
 }
 
 // NextToken scans the next token and stores it in the lexer's state.

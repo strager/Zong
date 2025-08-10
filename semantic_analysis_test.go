@@ -347,7 +347,6 @@ func TestDeclareVariable(t *testing.T) {
 	be.Equal(t, 1, len(variables))
 	be.Equal(t, "x", variables[0].Name)
 	be.Equal(t, TypeI64, variables[0].Type)
-	be.Equal(t, false, variables[0].Assigned)
 }
 
 func TestDeclareVariableDuplicate(t *testing.T) {
@@ -379,7 +378,6 @@ func TestLookupVariable(t *testing.T) {
 	be.True(t, symbol != nil)
 	be.Equal(t, "x", symbol.Name)
 	be.Equal(t, TypeI64, symbol.Type)
-	be.Equal(t, false, symbol.Assigned)
 }
 
 func TestBuildSymbolTableSimple(t *testing.T) {
@@ -399,7 +397,6 @@ func TestBuildSymbolTableSimple(t *testing.T) {
 	be.Equal(t, 1, len(variables))
 	be.Equal(t, "x", variables[0].Name)
 	be.Equal(t, TypeI64, variables[0].Type)
-	be.Equal(t, false, variables[0].Assigned)
 }
 
 func TestBuildSymbolTableMultiple(t *testing.T) {
@@ -677,8 +674,6 @@ func TestStructSymbolTable(t *testing.T) {
 	be.Equal(t, yField.Symbol.Name, "y")
 	be.Equal(t, xField.Symbol.Type, TypeI64)
 	be.Equal(t, yField.Symbol.Type, TypeI64)
-	be.Equal(t, xField.Symbol.Assigned, true) // Fields are always "assigned"
-	be.Equal(t, yField.Symbol.Assigned, true)
 }
 
 // =============================================================================
@@ -706,7 +701,6 @@ func TestCheckExpressionVariableAssigned(t *testing.T) {
 	t.Parallel()
 	st := NewSymbolTable()
 	symbol := st.DeclareVariable("x", TypeI64)
-	symbol.Assigned = true
 
 	typeTable := NewTypeTable()
 	tc := NewTypeChecker(typeTable)
@@ -770,7 +764,6 @@ func TestCheckExpressionAddressOf(t *testing.T) {
 	t.Parallel()
 	st := NewSymbolTable()
 	symbol := st.DeclareVariable("x", TypeI64)
-	symbol.Assigned = true
 
 	typeTable := NewTypeTable()
 	tc := NewTypeChecker(typeTable)
@@ -796,7 +789,6 @@ func TestCheckExpressionDereference(t *testing.T) {
 	st := NewSymbolTable()
 	ptrType := &TypeNode{Kind: TypePointer, Child: TypeI64}
 	symbol := st.DeclareVariable("ptr", ptrType)
-	symbol.Assigned = true
 
 	typeTable := NewTypeTable()
 	tc := NewTypeChecker(typeTable)
@@ -851,9 +843,6 @@ func TestCheckAssignmentValid(t *testing.T) {
 	// Check assignment
 	CheckAssignment(lhs, rhs, tc)
 	be.True(t, !tc.Errors.HasErrors())
-
-	// Verify variable is now assigned
-	be.Equal(t, true, symbol.Assigned)
 }
 
 func TestCheckAssignmentPointerDereference(t *testing.T) {
@@ -861,7 +850,6 @@ func TestCheckAssignmentPointerDereference(t *testing.T) {
 	st := NewSymbolTable()
 	ptrType := &TypeNode{Kind: TypePointer, Child: TypeI64}
 	symbol := st.DeclareVariable("ptr", ptrType)
-	symbol.Assigned = true
 
 	typeTable := NewTypeTable()
 	tc := NewTypeChecker(typeTable)
