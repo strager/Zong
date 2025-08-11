@@ -94,7 +94,7 @@ func TestEmitWASMHeader(t *testing.T) {
 func TestEmitImportSection(t *testing.T) {
 	t.Parallel()
 	var buf bytes.Buffer
-	EmitImportSection(&buf)
+	EmitImportSection(&buf, nil, make(map[string]int))
 
 	result := buf.Bytes()
 

@@ -1,0 +1,44 @@
+// Random number generator example using WASI
+// Generates a random number between 1 and 6 (like a dice roll)
+
+// WASI extern declarations needed for random number generation
+extern "wasi_snapshot_preview1" {
+    func random_get(buf: U8*, buf_len: I32): I32;
+}
+
+// Generate a random number between 1 and 6
+func rollDice(): I64 {
+    var randomByte: U8 = 0;  // Initialize the variable
+    var result: I32 = random_get(randomByte&, 1);
+    
+    if result == 0 {  // WASI success
+        // Map U8 value to range 1-6
+        // Since we can't cast, work with the U8 directly
+        var remainder: U8 = randomByte % 6;
+        
+        // Manually convert U8 to I64 by conditional logic
+        if remainder == 0 {
+            return 1;
+        }
+        if remainder == 1 {
+            return 2;
+        }
+        if remainder == 2 {
+            return 3;
+        }
+        if remainder == 3 {
+            return 4;
+        }
+        if remainder == 4 {
+            return 5;
+        }
+        return 6;
+    }
+    
+    return 1;  // fallback value if random_get fails
+}
+
+func main() {
+    var result: I64 = rollDice();
+    print(result);
+}

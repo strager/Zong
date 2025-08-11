@@ -2,6 +2,8 @@ use std::env;
 use std::fs;
 use std::io::{self, Write};
 use wasmtime::*;
+use wasmtime_wasi::preview1::add_to_linker_sync;
+use wasmtime_wasi::WasiCtxBuilder;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = env::args().collect();
@@ -13,19 +15,34 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let wasm_file = &args[1];
     let wasm_bytes = fs::read(wasm_file)?;
 
-    // Create Wasmtime engine, store, and module
+    // Create Wasmtime engine and module
     let engine = Engine::default();
-    let mut store = Store::new(&engine, ());
     let module = Module::new(&engine, &wasm_bytes)?;
+    
+    // Create WASI context with stdio and environment access
+    let wasi = WasiCtxBuilder::new()
+        .inherit_stdio()
+        .inherit_env()
+        .inherit_args()
+        .build_p1();
+    
+    let mut store = Store::new(&engine, wasi);
 
-    // Create the print function that will be imported by the WASM module
-    let print_func = Func::wrap(&mut store, |n: i64| {
+
+    // Create a linker to handle both WASI and custom imports
+    let mut linker = Linker::new(&engine);
+    
+    // Add WASI functions to the linker
+    add_to_linker_sync(&mut linker, |ctx| ctx)?;
+    
+    // Add legacy custom functions for backward compatibility
+    linker.func_wrap("env", "print", |n: i64| {
         println!("{}", n);
-    });
-
-    // Create the print_bytes function that will be imported by the WASM module
-    let print_bytes_func = Func::new(
-        &mut store,
+    })?;
+    
+    linker.func_new(
+        "env",
+        "print_bytes",
         FuncType::new(&engine, [ValType::I32], []),
         |mut caller, params, _results| {
             let slice_ptr = params[0].unwrap_i32();
@@ -61,11 +78,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             
             Ok(())
         },
-    );
+    )?;
 
-    // Create the read_line function that will be imported by the WASM module
-    let read_line_func = Func::new(
-        &mut store,
+    linker.func_new(
+        "env", 
+        "read_line",
         FuncType::new(&engine, [ValType::I32], []),
         |mut caller, params, _results| {
             use std::io::{self, BufRead};
@@ -124,14 +141,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
         },
-    );
+    )?;
 
-    // Create imports array - order must match WASM import order: print, print_bytes, read_line functions
-    // tstack global is now defined in the WASM module itself, not imported
-    let imports = [print_func.into(), print_bytes_func.into(), read_line_func.into()];
-
-    // Instantiate the module
-    let instance = Instance::new(&mut store, &module, &imports)?;
+    // Instantiate the module using the linker
+    let instance = linker.instantiate(&mut store, &module)?;
 
     // Get the main function export and call it
     let main_func = instance.get_typed_func::<(), ()>(&mut store, "main")?;

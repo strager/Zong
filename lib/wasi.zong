@@ -1,0 +1,67 @@
+// WASI (WebAssembly System Interface) Prelude
+// Provides bindings and helper functions for WASI preview1 functions
+
+// WASI type definitions
+struct IOVec(
+    buf: U8*,
+    buf_len: I32
+);
+
+// WASI errno constants (using functions since const not supported)
+func errnoSuccess(): I32 { return 0; }
+func errnoBadf(): I32 { return 8; }
+func errnoInval(): I32 { return 28; }
+
+// Clock IDs
+func clockRealtime(): I32 { return 0; }
+func clockMonotonic(): I32 { return 1; }
+
+// File descriptors
+func stdinFd(): I32 { return 0; }
+func stdoutFd(): I32 { return 1; }
+func stderrFd(): I32 { return 2; }
+
+// WASI preview1 imports
+extern "wasi_snapshot_preview1" {
+    // File I/O
+    func fd_write(fd: I32, iovs: IOVec*, iovs_len: I32, nwritten: I32*): I32;
+    func fd_read(fd: I32, iovs: IOVec*, iovs_len: I32, nread: I32*): I32;
+    func fd_close(fd: I32): I32;
+    
+    // Random
+    func random_get(buf: U8*, buf_len: I32): I32;
+    
+    // Clock
+    func clock_time_get(id: I32, precision: I64, time: I64*): I32;
+    
+    // Environment
+    func environ_get(environ: I32*, environ_buf: U8*): I32;
+    func environ_sizes_get(environ_count: I32*, environ_buf_size: I32*): I32;
+    
+    // Process
+    func proc_exit(rval: I32);
+}
+
+// Convenience wrapper functions
+func wasi_print_string(buffer: U8*, length: I32): I32 {
+    var iov: IOVec = IOVec(buf: buffer, buf_len: length);
+    var written: I32;
+    return fd_write(stdoutFd(), iov&, 1, written&);
+}
+
+func wasi_get_time_ns(): I64 {
+    var time: I64;
+    var result: I32 = clock_time_get(clockRealtime(), 0, time&);
+    if result == errnoSuccess() {
+        return time;
+    }
+    return -1;
+}
+
+func wasi_fill_random(buffer: U8*, count: I32): Boolean {
+    return random_get(buffer, count) == errnoSuccess();
+}
+
+func wasi_exit(code: I32) {
+    proc_exit(code);
+}

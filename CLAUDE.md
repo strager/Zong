@@ -132,6 +132,41 @@ func main() {
 - **Nested struct field access**: Multi-level field access like `obj.field.subfield`
 - **Slice operations**: Dynamic array operations with `append()`
 
+### Foreign Function Interface (FFI)
+Zong supports calling external functions through WASI (WebAssembly System Interface) using `extern` blocks:
+
+```zong
+// WASI function declarations
+extern "wasi_snapshot_preview1" {
+    func random_get(buf: U8*, buf_len: I32): I32;
+    func clock_time_get(id: I32, precision: I64, time: I64*): I32;
+    func proc_exit(code: I32);
+}
+
+func main() {
+    var randomByte: U8 = 0;
+    var result: I32 = random_get(randomByte&, 1);
+    if result == 0 {
+        print(randomByte);
+    }
+}
+```
+
+**FFI Features:**
+- **WASI preview1 support**: Access to system functions like file I/O, random, time, and process control
+- **Multiple module imports**: Can import from different WASM modules (e.g., "wasi_snapshot_preview1", "env")
+- **Type safety**: All extern functions are type-checked with proper parameter and return types
+- **Comprehensive WASI prelude**: `lib/wasi.zong` provides complete WASI bindings and helper functions
+
+**Available WASI Functions:**
+- File I/O: `fd_write`, `fd_read`, `fd_close`
+- Random: `random_get`
+- Time: `clock_time_get`
+- Environment: `environ_get`, `environ_sizes_get`
+- Process: `proc_exit`
+
+See `examples/random.zong` for a complete example using WASI functions.
+
 ## Sexy Test Framework
 
 The Sexy test framework provides:
@@ -183,6 +218,7 @@ Sexy uses S-expression syntax to describe expected AST patterns:
 - **Variable declarations**: `(var-decl "name" "type" init_expr)`
 - **Function definitions**: `(func "name" params return_type body)`
 - **Struct definitions**: `(struct "Name" [(field "x" "I64")])`
+- **Extern blocks**: `(extern "module_name" (func1 func2 ...))`
 - **Control flow**: `(if condition [then_stmts] nil [else_stmts])`
 - **Arrays/blocks**: `[stmt1 stmt2 ...]`
 

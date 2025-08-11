@@ -439,61 +439,82 @@ func EmitWASMHeader(buf *bytes.Buffer) {
 	writeBytes(buf, []byte{0x01, 0x00, 0x00, 0x00})
 }
 
-func EmitImportSection(buf *bytes.Buffer) {
+func EmitImportSection(buf *bytes.Buffer, symbolTable *SymbolTable, typeIndex map[string]int) {
 	writeByte(buf, 0x02) // import section id
 
 	// Build section content in temporary buffer to calculate size
 	var sectionBuf bytes.Buffer
-	writeLEB128(&sectionBuf, 3) // 3 imports: print, print_bytes, and read_line functions
 
-	// Import 1: print function
-	// Module name "env"
-	writeLEB128(&sectionBuf, 3) // length of "env"
-	writeBytes(&sectionBuf, []byte("env"))
+	// Collect all imported functions (built-ins + extern functions)
+	var imports []ImportInfo
 
-	// Import name "print"
-	writeLEB128(&sectionBuf, 5) // length of "print"
-	writeBytes(&sectionBuf, []byte("print"))
+	// Add built-in functions from "env" module
+	imports = append(imports, ImportInfo{
+		ModuleName:   "env",
+		FunctionName: "print",
+		TypeIndex:    0, // Type index for print function
+	})
+	imports = append(imports, ImportInfo{
+		ModuleName:   "env",
+		FunctionName: "print_bytes",
+		TypeIndex:    1, // Type index for print_bytes function
+	})
+	imports = append(imports, ImportInfo{
+		ModuleName:   "env",
+		FunctionName: "read_line",
+		TypeIndex:    2, // Type index for read_line function
+	})
 
-	// Import kind: function (0x00)
-	writeByte(&sectionBuf, 0x00)
+	// Add extern functions from symbol table (if available)
+	if symbolTable != nil {
+		for _, funcInfo := range symbolTable.allFunctions {
+			if funcInfo.IsExtern {
+				// Look up the type index for this function signature
+				signature := generateFunctionSignatureFromParams(funcInfo.Parameters, funcInfo.ReturnType)
+				idx, exists := typeIndex[signature]
+				if !exists {
+					panic("Type index not found for extern function: " + funcInfo.Name)
+				}
 
-	// Type index (0)
-	writeLEB128(&sectionBuf, 0)
+				imports = append(imports, ImportInfo{
+					ModuleName:   funcInfo.ModuleName,
+					FunctionName: funcInfo.Name,
+					TypeIndex:    idx,
+				})
+			}
+		}
+	}
 
-	// Import 2: print_bytes function
-	// Module name "env"
-	writeLEB128(&sectionBuf, 3) // length of "env"
-	writeBytes(&sectionBuf, []byte("env"))
+	// Write import count
+	writeLEB128(&sectionBuf, uint32(len(imports)))
 
-	// Import name "print_bytes"
-	writeLEB128(&sectionBuf, 11) // length of "print_bytes"
-	writeBytes(&sectionBuf, []byte("print_bytes"))
+	// Write each import
+	for _, imp := range imports {
+		// Module name
+		writeLEB128(&sectionBuf, uint32(len(imp.ModuleName)))
+		writeBytes(&sectionBuf, []byte(imp.ModuleName))
 
-	// Import kind: function (0x00)
-	writeByte(&sectionBuf, 0x00)
+		// Import name
+		writeLEB128(&sectionBuf, uint32(len(imp.FunctionName)))
+		writeBytes(&sectionBuf, []byte(imp.FunctionName))
 
-	// Type index (1)
-	writeLEB128(&sectionBuf, 1)
+		// Import kind: function (0x00)
+		writeByte(&sectionBuf, 0x00)
 
-	// Import 3: read_line function
-	// Module name "env"
-	writeLEB128(&sectionBuf, 3) // length of "env"
-	writeBytes(&sectionBuf, []byte("env"))
-
-	// Import name "read_line"
-	writeLEB128(&sectionBuf, 9) // length of "read_line"
-	writeBytes(&sectionBuf, []byte("read_line"))
-
-	// Import kind: function (0x00)
-	writeByte(&sectionBuf, 0x00)
-
-	// Type index (2)
-	writeLEB128(&sectionBuf, 2)
+		// Type index
+		writeLEB128(&sectionBuf, uint32(imp.TypeIndex))
+	}
 
 	// Write section size and content
 	writeLEB128(buf, uint32(sectionBuf.Len()))
 	writeBytes(buf, sectionBuf.Bytes())
+}
+
+// ImportInfo represents information needed to emit a WASM import
+type ImportInfo struct {
+	ModuleName   string
+	FunctionName string
+	TypeIndex    int
 }
 
 func EmitMemorySection(buf *bytes.Buffer) {
@@ -578,7 +599,7 @@ func (ctx *WASMContext) initTypeRegistry() {
 	ctx.TypeMap["(i32)->()"] = 2
 }
 
-func (ctx *WASMContext) initFunctionRegistry(functions []*ASTNode) {
+func (ctx *WASMContext) initFunctionRegistry(functions []*ASTNode, symbolTable *SymbolTable) {
 	ctx.FunctionRegistry = []string{}
 	ctx.FunctionMap = make(map[string]int)
 
@@ -594,7 +615,18 @@ func (ctx *WASMContext) initFunctionRegistry(functions []*ASTNode) {
 	ctx.FunctionRegistry = append(ctx.FunctionRegistry, "read_line")
 	ctx.FunctionMap["read_line"] = 2
 
-	// Add user functions starting from index 3
+	// Add extern functions next (if any)
+	if symbolTable != nil {
+		for _, funcInfo := range symbolTable.allFunctions {
+			if funcInfo.IsExtern {
+				index := len(ctx.FunctionRegistry)
+				ctx.FunctionRegistry = append(ctx.FunctionRegistry, funcInfo.Name)
+				ctx.FunctionMap[funcInfo.Name] = index
+			}
+		}
+	}
+
+	// Add user functions after extern functions
 	for _, fn := range functions {
 		index := len(ctx.FunctionRegistry)
 		ctx.FunctionRegistry = append(ctx.FunctionRegistry, fn.FunctionName)
@@ -602,14 +634,14 @@ func (ctx *WASMContext) initFunctionRegistry(functions []*ASTNode) {
 	}
 }
 
-func (ctx *WASMContext) EmitTypeSection(buf *bytes.Buffer, functions []*ASTNode) {
+func (ctx *WASMContext) EmitTypeSection(buf *bytes.Buffer, functions []*ASTNode, symbolTable *SymbolTable) {
 	writeByte(buf, 0x01) // type section id
 
 	var sectionBuf bytes.Buffer
 
 	// Initialize registries
 	ctx.initTypeRegistry()
-	ctx.initFunctionRegistry(functions)
+	ctx.initFunctionRegistry(functions, symbolTable)
 
 	if len(functions) == 0 {
 		// Legacy path - add main function type (void -> void)
@@ -625,6 +657,19 @@ func (ctx *WASMContext) EmitTypeSection(buf *bytes.Buffer, functions []*ASTNode)
 			if _, exists := ctx.TypeMap[sig]; !exists {
 				ctx.TypeMap[sig] = len(ctx.TypeRegistry)
 				ctx.TypeRegistry = append(ctx.TypeRegistry, createFunctionType(fn))
+			}
+		}
+
+		// Register types for extern functions
+		if symbolTable != nil {
+			for _, funcInfo := range symbolTable.allFunctions {
+				if funcInfo.IsExtern {
+					sig := generateFunctionSignatureFromParams(funcInfo.Parameters, funcInfo.ReturnType)
+					if _, exists := ctx.TypeMap[sig]; !exists {
+						ctx.TypeMap[sig] = len(ctx.TypeRegistry)
+						ctx.TypeRegistry = append(ctx.TypeRegistry, createFunctionTypeFromParams(funcInfo.Parameters, funcInfo.ReturnType))
+					}
+				}
 			}
 		}
 	}
@@ -654,6 +699,23 @@ type FunctionType struct {
 	Results    []byte
 }
 
+// generateFunctionSignatureFromParams creates a signature from function parameters and return type
+func generateFunctionSignatureFromParams(parameters []Parameter, returnType *TypeNode) string {
+	sig := "("
+	for i, param := range parameters {
+		if i > 0 {
+			sig += ","
+		}
+		sig += wasmTypeString(param.Type)
+	}
+	sig += ")->("
+	if returnType != nil {
+		sig += wasmTypeString(returnType)
+	}
+	sig += ")"
+	return sig
+}
+
 // generateFunctionSignature creates a string signature for deduplication
 func generateFunctionSignature(fn *ASTNode) string {
 	sig := "("
@@ -681,6 +743,23 @@ func createFunctionType(fn *ASTNode) FunctionType {
 	var results []byte
 	if fn.ReturnType != nil {
 		results = append(results, wasmTypeByte(fn.ReturnType))
+	}
+
+	return FunctionType{
+		Parameters: params,
+		Results:    results,
+	}
+}
+
+func createFunctionTypeFromParams(parameters []Parameter, returnType *TypeNode) FunctionType {
+	var params []byte
+	for _, param := range parameters {
+		params = append(params, wasmTypeByte(param.Type))
+	}
+
+	var results []byte
+	if returnType != nil {
+		results = append(results, wasmTypeByte(returnType))
 	}
 
 	return FunctionType{
@@ -2191,14 +2270,14 @@ func CompileToWASM(ast *ASTNode) []byte {
 
 	// Emit WASM module header and sections in streaming fashion
 	EmitWASMHeader(&buf)
-	ctx.EmitTypeSection(&buf, functions)           // function type definitions
-	EmitImportSection(&buf)                        // print function import
-	ctx.EmitFunctionSection(&buf, functions)       // declare all functions
-	EmitMemorySection(&buf)                        // memory for tstack operations
-	EmitGlobalSection(&buf, dataSection.TotalSize) // tstack global with initial value
-	ctx.EmitExportSection(&buf)                    // export main function
-	ctx.EmitCodeSection(&buf, functions)           // all function bodies
-	EmitDataSection(&buf, dataSection)             // string literal data
+	ctx.EmitTypeSection(&buf, functions, symbolTable) // function type definitions
+	EmitImportSection(&buf, symbolTable, ctx.TypeMap) // import functions (built-in + extern)
+	ctx.EmitFunctionSection(&buf, functions)          // declare all functions
+	EmitMemorySection(&buf)                           // memory for tstack operations
+	EmitGlobalSection(&buf, dataSection.TotalSize)    // tstack global with initial value
+	ctx.EmitExportSection(&buf)                       // export main function
+	ctx.EmitCodeSection(&buf, functions)              // all function bodies
+	EmitDataSection(&buf, dataSection)                // string literal data
 
 	return buf.Bytes()
 }
@@ -2229,7 +2308,7 @@ func isExpressionNode(node *ASTNode) bool {
 	switch node.Kind {
 	case NodeInteger, NodeBoolean, NodeIdent, NodeBinary, NodeCall, NodeDot, NodeUnary, NodeIndex:
 		return true
-	case NodeVar, NodeBlock, NodeReturn, NodeIf, NodeLoop, NodeBreak, NodeContinue, NodeFunc:
+	case NodeVar, NodeBlock, NodeReturn, NodeIf, NodeLoop, NodeBreak, NodeContinue, NodeFunc, NodeExtern:
 		return false
 	default:
 		return false
@@ -2267,9 +2346,9 @@ func compileLegacyExpression(ast *ASTNode, typeTable *TypeTable) []byte {
 	// Build the full WASM module
 	var buf bytes.Buffer
 	EmitWASMHeader(&buf)
-	ctx.EmitTypeSection(&buf, []*ASTNode{}) // empty functions for legacy
-	EmitImportSection(&buf)
-	ctx.EmitFunctionSection(&buf, []*ASTNode{}) // empty functions for legacy
+	ctx.EmitTypeSection(&buf, []*ASTNode{}, nil) // empty functions for legacy
+	EmitImportSection(&buf, nil, ctx.TypeMap)    // empty symbol table for legacy, but still use TypeMap
+	ctx.EmitFunctionSection(&buf, []*ASTNode{})  // empty functions for legacy
 	EmitMemorySection(&buf)
 	EmitGlobalSection(&buf, 0) // tstack global with initial value 0 for legacy
 	ctx.EmitExportSection(&buf)
@@ -2880,6 +2959,7 @@ const (
 	CHAN        = "CHAN"
 	GOTO        = "GOTO"
 	LOOP        = "LOOP"
+	EXTERN      = "EXTERN"
 )
 
 // NodeKind represents different types of AST nodes
@@ -2905,6 +2985,7 @@ const (
 	NodeDot      NodeKind = "NodeDot"
 	NodeFunc     NodeKind = "NodeFunc"
 	NodeType     NodeKind = "NodeType"
+	NodeExtern   NodeKind = "NodeExtern"
 )
 
 // ASTNode represents a node in the Abstract Syntax Tree
@@ -3264,6 +3345,8 @@ type FunctionInfo struct {
 	Parameters []Parameter // Unified with struct fields
 	ReturnType *TypeNode   // nil for void functions
 	WasmIndex  uint32      // WASM function index
+	IsExtern   bool        // True if this is an extern (FFI) function
+	ModuleName string      // Module name for extern functions (e.g., "wasi_snapshot_preview1")
 }
 
 // Parameter represents a unified parameter/field that can be used for both
@@ -3765,6 +3848,47 @@ func (st *SymbolTable) DeclareFunction(name string, parameters []Parameter, retu
 	st.resolvePendingReferences(name, symbol)
 }
 
+// DeclareExternFunction adds an extern (FFI) function declaration to the symbol table
+func (st *SymbolTable) DeclareExternFunction(name string, parameters []Parameter, returnType *TypeNode, moduleName string) {
+	// Check for duplicate declaration
+	if st.checkDuplicateDeclaration(name, "extern function") {
+		return
+	}
+
+	// Validate function parameters for duplicates
+	st.validateParameterList(parameters, "extern function "+name)
+
+	// Assign WASM index (extern functions come after built-ins and regular functions)
+	wasmIndex := uint32(3 + len(st.allFunctions)) // print=0, print_bytes=1, read_line=2
+
+	// Create function info with extern flags
+	funcInfo := FunctionInfo{
+		Name:       name,
+		Parameters: parameters,
+		ReturnType: returnType,
+		WasmIndex:  wasmIndex,
+		IsExtern:   true,
+		ModuleName: moduleName,
+	}
+
+	// Create new symbol for function
+	symbol := &SymbolInfo{
+		Name:         name,
+		Type:         returnType, // Function return type as the symbol type
+		Kind:         SymbolFunction,
+		FunctionInfo: &funcInfo,
+	}
+
+	// Add to current scope
+	st.currentScope.symbols[name] = symbol
+
+	// Add to global function list for WASM indexing
+	st.allFunctions = append(st.allFunctions, funcInfo)
+
+	// Resolve any unresolved references to this function
+	st.resolvePendingReferences(name, symbol)
+}
+
 // LookupFunction finds a function by name, searching through the scope chain
 func (st *SymbolTable) LookupFunction(name string) *FunctionInfo {
 	// Search through scope chain from current to root
@@ -4236,6 +4360,26 @@ func BuildSymbolTable(ast *ASTNode) *SymbolTable {
 
 			// Declare function (in global scope)
 			st.DeclareFunction(node.FunctionName, node.Parameters, node.ReturnType)
+
+		case NodeExtern:
+			// Handle extern block - process all function declarations inside
+			moduleName := node.String // Module name stored in String field
+			for _, funcNode := range node.Children {
+				if funcNode.Kind == NodeFunc {
+					// Resolve all type references in extern function parameters
+					for i, param := range funcNode.Parameters {
+						funcNode.Parameters[i].Type = ResolveType(param.Type, st)
+					}
+
+					// Resolve extern function return type
+					funcNode.ReturnType = ResolveType(funcNode.ReturnType, st)
+
+					// Declare extern function (in global scope)
+					st.DeclareExternFunction(funcNode.FunctionName, funcNode.Parameters, funcNode.ReturnType, moduleName)
+				}
+			}
+			// Don't traverse children since we already processed them above
+			return
 		}
 
 		// Traverse children for other declarations
@@ -4304,6 +4448,10 @@ func BuildSymbolTable(ast *ASTNode) *SymbolTable {
 
 			// Pop scope when done with function
 			st.PopScope()
+			return
+
+		case NodeExtern:
+			// Skip extern processing - already handled in collectGlobalDeclarations
 			return
 
 		case NodeBlock:
@@ -5629,6 +5777,8 @@ func (l *Lexer) NextToken() {
 				l.CurrTokenType = VAR
 			} else if lit == "loop" {
 				l.CurrTokenType = LOOP
+			} else if lit == "extern" {
+				l.CurrTokenType = EXTERN
 			} else if lit == "true" {
 				l.CurrTokenType = TRUE
 			} else if lit == "false" {
@@ -5940,9 +6090,24 @@ func ToSExpr(node *ASTNode) string {
 		} else {
 			result += " void"
 		}
-		result += " (block"
-		for _, stmt := range node.Children {
-			result += " " + ToSExpr(stmt)
+		if node.Children == nil {
+			result += " nil"
+		} else {
+			result += " (block"
+			for _, stmt := range node.Children {
+				result += " " + ToSExpr(stmt)
+			}
+			result += ")"
+		}
+		result += ")"
+		return result
+	case NodeExtern:
+		result := "(extern \"" + node.String + "\" (" // node.String contains module name
+		for i, funcNode := range node.Children {
+			if i > 0 {
+				result += " "
+			}
+			result += ToSExpr(funcNode)
 		}
 		result += "))"
 		return result
@@ -6581,6 +6746,9 @@ func ParseStatement(l *Lexer) *ASTNode {
 	case FUNC:
 		return parseFunctionDeclaration(l)
 
+	case EXTERN:
+		return parseExternBlock(l)
+
 	default:
 		// Expression statement
 		expr := ParseExpression(l)
@@ -6664,6 +6832,115 @@ func parseFunctionDeclaration(l *Lexer) *ASTNode {
 		Parameters:   parameters,
 		ReturnType:   returnType,
 		Children:     statements,
+	}
+}
+
+// parseExternBlock parses an extern block containing FFI function declarations
+// Syntax: extern "module_name" { func_declarations... }
+func parseExternBlock(l *Lexer) *ASTNode {
+	l.SkipToken(EXTERN) // consume 'extern'
+
+	// Parse module name (string literal)
+	var moduleName string
+	if l.CurrTokenType == STRING {
+		moduleName = l.CurrLiteral
+		l.SkipToken(STRING)
+	} else if l.CurrLiteral == LBRACE {
+		l.AddError("expected string literal for extern module name")
+		moduleName = ""
+	} else {
+		l.AddError("expected string literal for extern module name")
+		return &ASTNode{Kind: NodeExtern}
+	}
+
+	// Parse opening brace
+	if l.CurrTokenType != LBRACE {
+		l.AddError("expected '{' after extern module name")
+		return &ASTNode{Kind: NodeExtern, String: moduleName}
+	}
+	l.SkipToken(LBRACE)
+
+	// Parse function declarations inside the extern block
+	var functions []*ASTNode
+	for l.CurrTokenType != RBRACE && l.CurrTokenType != EOF {
+		if l.CurrTokenType != FUNC {
+			l.AddError("expected function declaration in extern block")
+			break
+		}
+
+		// Parse extern function declaration (without body)
+		funcDecl := parseExternFunctionDeclaration(l)
+		functions = append(functions, funcDecl)
+	}
+
+	// Parse closing brace
+	if l.CurrTokenType == RBRACE {
+		l.SkipToken(RBRACE)
+	} else {
+		l.AddError("expected '}' after extern block")
+	}
+
+	return &ASTNode{
+		Kind:     NodeExtern,
+		String:   moduleName, // Store module name in String field
+		Children: functions,  // Store function declarations as children
+	}
+}
+
+// parseExternFunctionDeclaration parses a function declaration within an extern block
+// Similar to parseFunctionDeclaration but without a body
+func parseExternFunctionDeclaration(l *Lexer) *ASTNode {
+	l.SkipToken(FUNC) // consume 'func'
+
+	// Parse function name
+	var functionName string
+	if l.CurrTokenType == LOWER_IDENT {
+		functionName = l.CurrLiteral
+		l.SkipToken(LOWER_IDENT)
+	} else {
+		l.AddError("expected function name in extern declaration")
+		return &ASTNode{Kind: NodeFunc}
+	}
+
+	// Parse parameter list
+	if l.CurrTokenType != LPAREN {
+		l.AddError("expected '(' after function name")
+		return &ASTNode{Kind: NodeFunc, FunctionName: functionName}
+	}
+	l.SkipToken(LPAREN)
+
+	paramList := parseParameterList(l, RPAREN, true)
+	parameters := paramList
+
+	if l.CurrTokenType != RPAREN {
+		l.AddError("expected ')' after parameter list")
+	} else {
+		l.SkipToken(RPAREN)
+	}
+
+	// Parse return type (required for extern functions)
+	var returnType *TypeNode
+	if l.CurrTokenType == COLON {
+		l.SkipToken(COLON)
+		returnType = parseTypeExpression(l)
+		if returnType == nil {
+			l.AddError("expected return type after ':' in extern function")
+		}
+	}
+
+	// Expect semicolon to end extern function declaration
+	if l.CurrTokenType == SEMICOLON {
+		l.SkipToken(SEMICOLON)
+	} else {
+		l.AddError("expected ';' after extern function declaration")
+	}
+
+	return &ASTNode{
+		Kind:         NodeFunc,
+		FunctionName: functionName,
+		Parameters:   parameters,
+		ReturnType:   returnType,
+		Children:     nil, // No body for extern functions
 	}
 }
 

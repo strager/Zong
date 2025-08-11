@@ -146,6 +146,8 @@ func assertPatternMatch(t *testing.T, zongAST *ASTNode, sexyPattern *sexy.Node, 
 		assertContinueMatch(t, zongAST, sexyPattern, path)
 	case NodeType:
 		assertTypeMatch(t, zongAST, sexyPattern, path)
+	case NodeExtern:
+		assertExternMatch(t, zongAST, sexyPattern, path)
 	default:
 		t.Errorf("At %s: unsupported Zong AST node type: %v", path, zongAST.Kind)
 	}
@@ -820,10 +822,17 @@ func assertFuncMatch(t *testing.T, zongAST *ASTNode, sexyPattern *sexy.Node, pat
 		return
 	}
 
-	// Fifth item should be the function body (array of statements)
+	// Fifth item should be the function body (array of statements or nil for extern functions)
 	bodyPattern := sexyPattern.Items[4]
-	// Function statements are now directly in Children
-	assertNodeArray(t, zongAST.Children, bodyPattern, path+".body")
+	if bodyPattern.Type == sexy.NodeSymbol && bodyPattern.Text == "nil" {
+		// Extern function with no body
+		if zongAST.Children != nil {
+			t.Errorf("At %s: expected nil body for extern function, got %d statements", path+".body", len(zongAST.Children))
+		}
+	} else {
+		// Regular function with body
+		assertNodeArray(t, zongAST.Children, bodyPattern, path+".body")
+	}
 }
 
 // assertStructMatch matches Zong NodeStruct against Sexy NodeList patterns
@@ -1263,4 +1272,48 @@ func dumpWasmForDebugging(t *testing.T, wasmBytes []byte) string {
 	}
 
 	return watOutput
+}
+
+// assertExternMatch matches Zong NodeExtern against Sexy extern patterns
+// Sexy patterns for extern blocks are: (extern "module_name" [function_list])
+func assertExternMatch(t *testing.T, zongAST *ASTNode, sexyPattern *sexy.Node, path string) {
+	t.Helper()
+
+	// Verify pattern structure: (extern "module_name" [function_list])
+	if len(sexyPattern.Items) != 3 {
+		t.Errorf("At %s: extern pattern should have 3 items (tag, module_name, functions), got %d", path, len(sexyPattern.Items))
+		return
+	}
+
+	// Check module name
+	if sexyPattern.Items[1].Type != sexy.NodeString {
+		t.Errorf("At %s: second item should be module name string", path)
+		return
+	}
+	expectedModule := sexyPattern.Items[1].Text
+	actualModule := zongAST.String // Module name stored in String field
+	if actualModule != expectedModule {
+		t.Errorf("At %s: expected module name %s, got %s", path, expectedModule, actualModule)
+	}
+
+	// Check functions list
+	if sexyPattern.Items[2].Type != sexy.NodeList {
+		t.Errorf("At %s: third item should be functions list", path)
+		return
+	}
+
+	expectedFunctions := sexyPattern.Items[2].Items
+	actualFunctions := zongAST.Children // Functions stored in Children field
+
+	if len(actualFunctions) != len(expectedFunctions) {
+		t.Errorf("At %s: expected %d functions, got %d", path, len(expectedFunctions), len(actualFunctions))
+		return
+	}
+
+	// Match each function
+	for i, expectedFunc := range expectedFunctions {
+		actualFunc := actualFunctions[i]
+		funcPath := fmt.Sprintf("%s.functions[%d]", path, i)
+		assertPatternMatch(t, actualFunc, expectedFunc, funcPath)
+	}
 }
